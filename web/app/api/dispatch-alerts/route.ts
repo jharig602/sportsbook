@@ -17,12 +17,36 @@ export const dynamic = "force-dynamic";
  * Guarded by a shared secret: this endpoint causes the user's phone to buzz, so it must
  * not be triggerable by anyone who finds the URL.
  */
+/**
+ * Tolerate the ways a secret gets mangled on its way into an environment variable:
+ * a trailing newline from the clipboard, surrounding quotes, or the whole
+ * `NAME=value` line pasted into the value box. Each produces a silent 401 that looks
+ * identical to a genuinely wrong secret, and the workflow logs it without failing —
+ * so notifications would just never arrive, with nothing obviously broken.
+ */
+function normaliseSecret(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  let value = raw.trim();
+  if (value.startsWith("ALERT_DISPATCH_SECRET=")) {
+    value = value.slice("ALERT_DISPATCH_SECRET=".length).trim();
+  }
+  if (value.length >= 2 && value[0] === value.at(-1) && (value[0] === '"' || value[0] === "'")) {
+    value = value.slice(1, -1).trim();
+  }
+  return value || null;
+}
+
 export async function POST(request: Request) {
-  const secret = process.env.ALERT_DISPATCH_SECRET;
+  const secret = normaliseSecret(process.env.ALERT_DISPATCH_SECRET);
   if (!secret) {
     return new NextResponse("ALERT_DISPATCH_SECRET is not configured.", { status: 503 });
   }
-  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+
+  const header = request.headers.get("authorization") ?? "";
+  const presented = normaliseSecret(
+    header.toLowerCase().startsWith("bearer ") ? header.slice(7) : header,
+  );
+  if (presented !== secret) {
     return new NextResponse("Unauthorized.", { status: 401 });
   }
 
