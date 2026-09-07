@@ -70,6 +70,36 @@ class Database:
         self.connection.close()
 
 
+def clean_database_url(raw: str | None) -> str:
+    """Normalise a pasted connection string, or explain precisely what is wrong.
+
+    Neon and Vercel present the string in forms people copy wholesale — wrapped in
+    ``psql '...'``, in quotes, or with a stray newline from the clipboard. Each of those
+    fails deep inside the driver with a message that says nothing useful, so they are
+    stripped here and anything still malformed is rejected with a readable reason.
+    """
+    if raw is None or not raw.strip():
+        raise ValueError(
+            "DATABASE_URL is empty. In GitHub set it under Settings > Secrets and "
+            "variables > Actions, named exactly DATABASE_URL."
+        )
+
+    url = " ".join(raw.split())          # collapse newlines and stray whitespace
+    if url.lower().startswith("psql "):  # copied the whole command from the console
+        url = url[5:].strip()
+    if len(url) >= 2 and url[0] == url[-1] and url[0] in "\"'":
+        url = url[1:-1].strip()
+
+    if not url.startswith(("postgres://", "postgresql://")):
+        preview = url[:24] + ("..." if len(url) > 24 else "")
+        raise ValueError(
+            f"DATABASE_URL does not look like a connection string (starts with "
+            f"{preview!r}). It should begin with postgresql:// — copy the value of "
+            f"DATABASE_URL itself, not the psql command around it."
+        )
+    return url
+
+
 def insert_sql(table: str, columns: Sequence[str]) -> str:
     return (f"INSERT INTO {table} ({','.join(columns)}) "
             f"VALUES ({','.join('?' for _ in columns)})")

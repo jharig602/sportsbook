@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from calibration import DEFAULT_MIN_SAMPLES, baseline_rates, evaluate, fit, split_walk_forward
-from db import Database, insert_sql
+from db import Database, clean_database_url, insert_sql
 from grading import GameResult, grade_alert
 from schema import ensure_analytics_schema
 from signals import DEFAULT_CONFIG, Alert, Observation, RuleConfig, detect_all
@@ -285,9 +285,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.postgres:
             import os
             import psycopg
-            database_url = os.environ.get("DATABASE_URL")
-            if not database_url:
-                parser.error("--postgres requires DATABASE_URL in the environment")
+            try:
+                database_url = clean_database_url(os.environ.get("DATABASE_URL"))
+            except ValueError as error:
+                parser.error(str(error))
             database = Database.postgres(psycopg.connect(database_url))
         else:
             import duckdb

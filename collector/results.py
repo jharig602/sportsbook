@@ -214,10 +214,12 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
             store = MemoryStore()
         elif args.postgres:
             import os
+            from db import clean_database_url
             from pg_store import PostgresStore
-            database_url = os.environ.get("DATABASE_URL")
-            if not database_url:
-                parser.error("--postgres requires DATABASE_URL in the environment")
+            try:
+                database_url = clean_database_url(os.environ.get("DATABASE_URL"))
+            except ValueError as error:
+                parser.error(str(error))
             store = PostgresStore(database_url)
         else:
             store = DuckStore(args.db)
