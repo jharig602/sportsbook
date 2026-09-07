@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 3
+ANALYTICS_SCHEMA_VERSION = 4
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -91,6 +91,39 @@ CREATE TABLE IF NOT EXISTS bets (
     CHECK (market IN ('spread', 'total', 'moneyline')),
     CHECK (side IN ('home', 'away', 'over', 'under'))
 );
+
+CREATE TABLE IF NOT EXISTS book_lines (
+    -- One book's number for one side of one market, at one moment.
+    --
+    -- Deliberately append-only and keyed by observation time rather than upserted per
+    -- book: a line that moved and moved back is not the same as a line that never
+    -- moved, and only the history distinguishes them. Reads take the latest row per
+    -- book, so keeping every observation costs a WHERE clause and buys the movement.
+    --
+    -- ESPN returns exactly one book, so on its own it can never produce a comparison.
+    -- The `source` column is what lets a second opinion arrive from anywhere -- an odds
+    -- feed, or the user typing what their own book shows -- and be priced identically.
+    quote_id VARCHAR PRIMARY KEY,
+    observed_at TIMESTAMPTZ NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    book VARCHAR NOT NULL,
+    market VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    line DOUBLE PRECISION,
+    price BIGINT,
+    -- 'manual' is a number the user read off their own book; 'oddsapi' came from a
+    -- feed. Kept apart because a hand-typed line is a different kind of evidence and
+    -- should never be silently mixed into an automated consensus without saying so.
+    source VARCHAR NOT NULL,
+    note VARCHAR,
+    CHECK (price IS NULL OR price <= -100 OR price >= 100),
+    CHECK (market IN ('spread', 'total', 'moneyline')),
+    CHECK (side IN ('home', 'away', 'over', 'under')),
+    CHECK (source IN ('manual', 'oddsapi', 'espn'))
+);
+
+CREATE INDEX IF NOT EXISTS book_lines_event ON book_lines (event_id, market, side);
 
 CREATE TABLE IF NOT EXISTS alerts (
     alert_id VARCHAR PRIMARY KEY,

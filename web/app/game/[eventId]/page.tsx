@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { BookLineForm } from "@/components/BookLineForm";
+import { LineShop } from "@/components/LineShop";
 import { Probability } from "@/components/Probability";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Card, Empty, NotAdvice, Pill } from "@/components/ui";
+import { bookLinesFor, quotesForGame } from "@/lib/book-lines";
 import { collapseAlerts, getData } from "@/lib/data";
 import { deVig, lineProbability, type MarginModel } from "@/lib/probability";
+import { shopAll } from "@/lib/shop";
 import {
   formatKickoff,
   formatKind,
@@ -182,12 +186,15 @@ export default async function GamePage({
 }) {
   const { eventId } = await params;
   const data = getData();
-  const [games, allAlerts, results, history, models] = await Promise.all([
+  const [games, allAlerts, results, history, models, stored] = await Promise.all([
     data.games(),
     data.alerts(),
     data.results(),
     data.history(eventId),
     data.marginModels(),
+    // Second opinions, if any have been recorded. The fixture backend has no
+    // database behind it, so it simply has none rather than failing.
+    data.backend === "postgres" ? bookLinesFor(eventId) : Promise.resolve([]),
   ]);
 
   const game = games.find((g) => g.eventId === eventId);
@@ -213,6 +220,10 @@ export default async function GamePage({
   // overstates the favourite.
   const homeCoverProbability =
     deVig(latestHomeSpread?.price ?? null, latestAwaySpread?.price ?? null)?.a ?? null;
+
+  // DraftKings comes from the board rather than from a stored row, so a hand-typed
+  // second book has something to compare against on the very first save.
+  const shopRows = shopAll(quotesForGame(game, stored), model);
 
   return (
     <>
@@ -323,6 +334,18 @@ export default async function GamePage({
             sides are near 50%, so a model figure there would be decoration, not analysis.
           </p>
         </Card>
+      ) : null}
+
+      {game ? (
+        <section className="mt-2 space-y-2">
+          <LineShop rows={shopRows} homeTeam={homeTeam} awayTeam={awayTeam} />
+          <Card className="px-3.5 py-3">
+            <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Add another book
+            </h2>
+            <BookLineForm game={game} />
+          </Card>
+        </section>
       ) : null}
 
       {alerts.length > 0 ? (
