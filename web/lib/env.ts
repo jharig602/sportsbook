@@ -18,21 +18,54 @@ export const DATABASE_URL_VARS = [
   "POSTGRES_URL_NON_POOLING",
 ] as const;
 
-export function databaseUrl(): string | null {
+function isPostgresUrl(value: string | undefined): value is string {
+  return (
+    typeof value === "string" &&
+    /^postgres(ql)?:\/\//.test(value.trim())
+  );
+}
+
+/**
+ * Any prefixed variant, e.g. NEON_DATABASE_URL or STORAGE_POSTGRES_URL.
+ *
+ * The Vercel storage integrations ask for a prefix when the unprefixed name is already
+ * taken, so the variable can end up called almost anything. Matching on the suffix
+ * means the app keeps working whatever prefix was chosen, rather than falling back to
+ * the fixture and quietly serving stale prices.
+ *
+ * Pooled candidates win: serverless functions churn connections, which is what the
+ * pooler absorbs. Sorted for determinism when several match.
+ */
+function prefixedCandidates(): string[] {
+  return Object.keys(process.env)
+    .filter(
+      (name) =>
+        /(DATABASE_URL|POSTGRES_URL)$/.test(name) &&
+        !DATABASE_URL_VARS.includes(name as (typeof DATABASE_URL_VARS)[number]) &&
+        isPostgresUrl(process.env[name]),
+    )
+    .sort((a, b) => {
+      const pooled = (name: string) => (isPooled(process.env[name] ?? null) ? 0 : 1);
+      return pooled(a) - pooled(b) || a.localeCompare(b);
+    });
+}
+
+function resolve(): { name: string; url: string } | null {
   for (const name of DATABASE_URL_VARS) {
     const value = process.env[name];
-    if (value && value.trim()) return value.trim();
+    if (value && value.trim()) return { name, url: value.trim() };
   }
-  return null;
+  const [fallback] = prefixedCandidates();
+  return fallback ? { name: fallback, url: process.env[fallback]!.trim() } : null;
+}
+
+export function databaseUrl(): string | null {
+  return resolve()?.url ?? null;
 }
 
 /** Which variable supplied the URL, for the diagnostics line on the Board. */
 export function databaseUrlSource(): string | null {
-  for (const name of DATABASE_URL_VARS) {
-    const value = process.env[name];
-    if (value && value.trim()) return name;
-  }
-  return null;
+  return resolve()?.name ?? null;
 }
 
 /** True when the URL routes through a connection pooler. */
