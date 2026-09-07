@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offline &middot; Line Tracker</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #080a0f;
+        color: #cbd5e1;
+        font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 24px;
+      }
+      .card {
+        max-width: 22rem;
+        border: 1px solid #1e293b;
+        border-radius: 14px;
+        padding: 20px;
+        background: #0d1117;
+      }
+      h1 { margin: 0 0 8px; font-size: 15px; color: #f1f5f9; }
+      p { margin: 0 0 12px; color: #94a3b8; font-size: 13px; }
+      button {
+        width: 100%;
+        padding: 9px;
+        border: 0;
+        border-radius: 9px;
+        background: rgba(14, 165, 233, 0.15);
+        color: #7dd3fc;
+        font-size: 14px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>No connection</h1>
+      <!--
+        This page exists so that losing signal never looks like a finding.
+
+        The service worker used to fall back to a cached copy of the board, which meant
+        a phone with no bars rendered whatever the board happened to contain when the
+        app was installed -- often "No priced games", indistinguishable from the book
+        genuinely having posted nothing. Odds go stale in minutes; showing an old one as
+        if it were current is worse than showing none.
+      -->
+      <p>
+        The board could not be loaded, so nothing is shown rather than a price that may
+        have moved. This is a connection problem, not an empty slate.
+      </p>
+      <button onclick="location.reload()">Try again</button>
+    </div>
+  </body>
+</html>

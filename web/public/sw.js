@@ -1,7 +1,23 @@
 /* Service worker: push delivery plus a minimal offline shell. */
 
-const CACHE = "lines-v1";
-const SHELL = ["/", "/movers", "/record", "/about"];
+/*
+ * Two rules, both learned the hard way.
+ *
+ * 1. NEVER precache a page that carries data. The old shell cached "/" at install
+ *    time, so a phone that installed the app before the collector had run kept a copy
+ *    of the board reading "No priced games" -- and served it on any network hiccup,
+ *    where it is indistinguishable from the book genuinely having posted nothing. An
+ *    empty board is a finding; a cached empty board is a lie about one.
+ *
+ * 2. Bump CACHE on every change here. `activate` deletes every cache whose key is not
+ *    the current one, so a constant name means the old entries are immortal -- the
+ *    reason the stale copy above survived deploy after deploy.
+ */
+const CACHE = "lines-v2";
+
+/* Static assets only. Nothing here changes with the odds. */
+const SHELL = ["/offline.html", "/icon.svg", "/manifest.webmanifest"];
+const OFFLINE = "/offline.html";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -24,24 +40,30 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-/* Network-first: odds go stale in minutes, so a cached price is worse than no price.
-   The cache exists only so the app opens at all with no signal. */
+/* Network-only for anything carrying data; a cached price is worse than no price.
+   When the network fails, say so -- do not hand back an old board that reads like an
+   empty one. */
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET" || new URL(request.url).origin !== self.location.origin) {
     return;
   }
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok && request.mode === "navigate") {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match("/"))),
-  );
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request).catch(() =>
+        caches.match(OFFLINE).then(
+          (cached) =>
+            cached ||
+            new Response("Offline.", { headers: { "content-type": "text/plain" } }),
+        ),
+      ),
+    );
+    return;
+  }
+
+  // Static assets may come from cache; they do not go stale in a way that misleads.
+  event.respondWith(fetch(request).catch(() => caches.match(request)));
 });
 
 self.addEventListener("push", (event) => {
