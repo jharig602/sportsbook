@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 2
+ANALYTICS_SCHEMA_VERSION = 3
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -58,6 +58,38 @@ CREATE TABLE IF NOT EXISTS margin_models (
     lo INTEGER NOT NULL,
     hi INTEGER NOT NULL,
     pmf_json VARCHAR NOT NULL
+);
+
+-- Wagers, as placed. Deliberately immutable: nothing here is ever updated, and the
+-- outcome is derived from game_results at read time rather than written back. A
+-- corrected score therefore corrects the settlement by itself, and there is no way for
+-- a stored result to drift out of step with the score it came from.
+--
+-- What the model thought at the time is recorded alongside, so a bet can later be
+-- judged against the reasoning that produced it rather than against a model that has
+-- since been refitted.
+CREATE TABLE IF NOT EXISTS bets (
+    bet_id VARCHAR PRIMARY KEY,
+    placed_at TIMESTAMPTZ NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    home_team VARCHAR, away_team VARCHAR,
+    commence_time TIMESTAMPTZ,
+    market VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    line DOUBLE PRECISION,
+    price BIGINT NOT NULL,
+    stake DOUBLE PRECISION NOT NULL,
+    book VARCHAR NOT NULL,
+    -- Snapshot of the reasoning at placement time.
+    model_probability DOUBLE PRECISION,
+    market_probability DOUBLE PRECISION,
+    rule_version_id VARCHAR,
+    note VARCHAR,
+    CHECK (stake > 0),
+    CHECK (price <= -100 OR price >= 100),
+    CHECK (market IN ('spread', 'total', 'moneyline')),
+    CHECK (side IN ('home', 'away', 'over', 'under'))
 );
 
 CREATE TABLE IF NOT EXISTS alerts (

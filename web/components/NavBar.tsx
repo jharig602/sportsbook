@@ -45,6 +45,16 @@ const TABS: Tab[] = [
     ),
   },
   {
+    href: "/bets",
+    label: "Bets",
+    icon: (
+      <>
+        <rect x="3" y="6" width="18" height="12" rx="2" {...stroke} />
+        <circle cx="12" cy="12" r="2.5" {...stroke} />
+      </>
+    ),
+  },
+  {
     href: "/record",
     label: "Record",
     icon: (
