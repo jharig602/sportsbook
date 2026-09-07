@@ -77,6 +77,24 @@ jobs:
       - name: Detect alerts, grade settled games, refit calibration
         run: python collector/pipeline.py --postgres
 
+      # Skipped until APP_URL and ALERT_DISPATCH_SECRET are set, so the workflow is
+      # useful before the app is deployed. Never fails the run: a missed notification
+      # must not look like a failed collection.
+      - name: Send notifications for new alerts
+        continue-on-error: true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo "APP_URL / ALERT_DISPATCH_SECRET not set; skipping notifications."
+            exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 \
+            -X POST "$APP_URL/api/dispatch-alerts" \
+            -H "Authorization: Bearer $DISPATCH_SECRET" \
+            || echo "dispatch failed; these alerts stay pending for the next run"
+
       # Raw response bodies are the only table that grows dangerously against Neon's
       # 0.5 GB free tier. Snapshots, alerts and grades are small and are kept forever.
       - name: Prune raw responses older than 30 days
