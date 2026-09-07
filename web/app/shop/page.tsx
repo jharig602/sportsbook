@@ -1,9 +1,13 @@
 import { TeamLogo } from "@/components/TeamLogo";
+import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { allBookLines } from "@/lib/book-lines";
 import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
+import { cookies } from "next/headers";
+
 import { getData } from "@/lib/data";
 import { formatKickoff, formatLeague, formatLine, formatPrice } from "@/lib/format";
+import { MY_BOOKS_COOKIE, parseMyBooks } from "@/lib/my-books";
 import type { Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +93,7 @@ export default async function ShopPage({
   searchParams: Promise<{ book?: string }>;
 }) {
   const { book: bookFilter } = await searchParams;
+  const myBooks = parseMyBooks((await cookies()).get(MY_BOOKS_COOKIE)?.value);
   const data = getData();
   const [games, models, lines] = await Promise.all([
     data.games(),
@@ -98,12 +103,29 @@ export default async function ShopPage({
 
   const shop = buildBoardShop(games, lines, models);
 
-  const active = bookFilter && shop.books.includes(bookFilter) ? bookFilter : "all";
-  const visible = active === "all" ? shop.rows : shop.rows.filter((r) => r.book === active);
-  const visiblePositive = visible.filter((r) => (r.expectedRoi ?? -1) > 0);
+  // "My books" appears only once some are chosen, and becomes the default then: a
+  // ranked list of prices you cannot get is not the first thing you should see.
+  const hasMine = myBooks.some((book) => shop.books.includes(book));
+  const requested = bookFilter ?? (hasMine ? "mine" : "all");
+  const active =
+    requested === "mine" && hasMine
+      ? "mine"
+      : shop.books.includes(requested)
+        ? requested
+        : "all";
+
+  const visible =
+    active === "all"
+      ? shop.rows
+      : active === "mine"
+        ? shop.rows.filter((row) => myBooks.includes(row.book))
+        : shop.rows.filter((row) => row.book === active);
+  const visiblePositive = visible.filter((row) => (row.expectedRoi ?? -1) > 0);
+
   const options = [
+    ...(hasMine ? [{ key: "mine", label: "My books" }] : []),
     { key: "all", label: "All books" },
-    ...shop.books.map((b) => ({ key: b, label: b })),
+    ...shop.books.map((book) => ({ key: book, label: book })),
   ];
 
   return (
@@ -147,17 +169,23 @@ export default async function ShopPage({
             </Card>
           </div>
 
+          <MyBooksPicker books={shop.books} selected={myBooks} />
+
           <Segmented
             options={options}
             active={active}
-            hrefFor={(key) => (key === "all" ? "/shop" : `/shop?book=${encodeURIComponent(key)}`)}
+            hrefFor={(key) => `/shop?book=${encodeURIComponent(key)}`}
           />
 
           {visiblePositive.length === 0 && visible[0] ? (
             <Card className="mb-3 px-3.5 py-2.5">
               <p className="text-[12px] leading-relaxed text-slate-400">
                 Nothing here clears the vig
-                {active === "all" ? " right now" : ` at ${active}`}. The closest is{" "}
+                {active === "all"
+                  ? " right now"
+                  : active === "mine"
+                    ? " at your books"
+                    : ` at ${active}`}. The closest is{" "}
                 <span className="font-medium text-slate-200">
                   {visible[0].book} {sideLabel(visible[0])}
                 </span>{" "}
