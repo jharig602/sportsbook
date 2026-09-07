@@ -161,7 +161,7 @@ SELECT event_id, league, home_team, away_team, home_score, away_score,
   FROM game_results WHERE completed = TRUE`;
 
 const MARGIN_MODELS = `
-SELECT league, games, mean, sd, lo, hi, pmf_json
+SELECT league, games, mean, sd, lo, hi, pmf_json, buckets_json
   FROM margin_models`;
 
 const HISTORY = `
@@ -301,12 +301,17 @@ const postgresSource: DataSource = {
   marginModels: unstable_cache(async () => {
     const rows = await query<{
       league: string; games: number; mean: number; sd: number;
-      lo: number; hi: number; pmf_json: string;
+      lo: number; hi: number; pmf_json: string; buckets_json: string | null;
     }>(MARGIN_MODELS);
     const models: Record<string, MarginModel> = {};
     for (const row of rows) {
       try {
-        models[row.league] = { ...row, pmf: JSON.parse(row.pmf_json) };
+        models[row.league] = {
+          ...row,
+          pmf: JSON.parse(row.pmf_json),
+          // Absent on models fitted before dispersion was measured by line size.
+          buckets: row.buckets_json ? JSON.parse(row.buckets_json) : undefined,
+        };
       } catch {
         // A corrupt pmf must not take the page down; the league simply has no model.
       }

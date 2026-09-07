@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 4
+ANALYTICS_SCHEMA_VERSION = 5
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -57,7 +57,18 @@ CREATE TABLE IF NOT EXISTS margin_models (
     sd DOUBLE PRECISION NOT NULL,
     lo INTEGER NOT NULL,
     hi INTEGER NOT NULL,
-    pmf_json VARCHAR NOT NULL
+    pmf_json VARCHAR NOT NULL,
+    -- Residual dispersion measured separately by how big the spread was.
+    --
+    -- One number for the whole league says a point of line is worth the same on a
+    -- pick'em as on a 42-point blowout. It is not: results scatter further when the
+    -- teams are mismatched, so the density at the middle is lower and a point buys
+    -- less. Quoting the league-wide figure out there overstates every gap, which is
+    -- how a 2-point difference on Notre Dame -42.5 came to top the board.
+    --
+    -- JSON array of {lo, hi, games, mean, sd}, keyed on |home_spread|. Nullable
+    -- because it arrives with schema v5 and an older row simply has none.
+    buckets_json VARCHAR
 );
 
 -- Wagers, as placed. Deliberately immutable: nothing here is ever updated, and the
@@ -207,6 +218,16 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 """
 
 
+#: Column additions, which ``CREATE TABLE IF NOT EXISTS`` cannot perform on a table
+#: that already exists. Every entry must be idempotent, because it runs on each upgrade
+#: and against databases at any prior version. Both Postgres and DuckDB support the
+#: ``IF NOT EXISTS`` clause here, so re-running is a no-op rather than an error.
+ANALYTICS_MIGRATIONS = [
+    # v5: residual dispersion by spread size.
+    "ALTER TABLE margin_models ADD COLUMN IF NOT EXISTS buckets_json VARCHAR",
+]
+
+
 def ensure_analytics_schema(connection) -> None:
     """Create the analytics tables if absent and record the version.
 
@@ -226,8 +247,10 @@ def ensure_analytics_schema(connection) -> None:
             f"(v{ANALYTICS_SCHEMA_VERSION}). Upgrade the code rather than downgrading data."
         )
     if existing < ANALYTICS_SCHEMA_VERSION:
-        # Every migration so far is additive and already applied by the DDL above,
-        # which is all CREATE TABLE IF NOT EXISTS. Record the new version.
+        # New TABLES are handled by the DDL above, which is all CREATE TABLE IF NOT
+        # EXISTS. A new COLUMN on an existing table is not, so those go here.
+        for statement in ANALYTICS_MIGRATIONS:
+            connection.execute(statement)
         connection.execute("DELETE FROM analytics_meta")
         connection.execute("INSERT INTO analytics_meta VALUES (?)",
                            [ANALYTICS_SCHEMA_VERSION])

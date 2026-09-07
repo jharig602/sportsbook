@@ -1,0 +1,67 @@
+name: refit
+
+# Re-fit the margin model from history already in the database.
+#
+# Split out from `backfill` because that one re-fetches seven seasons and takes hours,
+# while this reads what is already stored and takes about a minute. Needed whenever the
+# fit itself changes rather than the data behind it.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: collect        # one writer at a time, same as the collector
+  cancel-in-progress: false
+
+jobs:
+  refit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify the database URL is present
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is not set."
+            exit 1
+          fi
+
+      - name: Fit the margin model
+        run: python collector/fit_margins.py --postgres
+
+      - name: Report the dispersion by spread size
+        run: |
+          python -c "
+          import os, json, sys
+          import psycopg
+          with psycopg.connect(os.environ['DATABASE_URL']) as c:
+              rows = c.execute(
+                  'SELECT league, games, mean, sd, buckets_json FROM margin_models ORDER BY league'
+              ).fetchall()
+          if not rows:
+              print('No model fitted.'); raise SystemExit(1)
+          for league, games, mean, sd, buckets_json in rows:
+              print(f'{league}: {games} games, residual mean {mean:+.2f}, sd {sd:.2f}')
+              if not buckets_json:
+                  print('  no buckets stored'); continue
+              print('  |spread|      games      sd    pts/point   mean +/- se')
+              for b in json.loads(buckets_json):
+                  hi = '+' if b['hi'] > 900 else f\"-{b['hi']:g}\"
+                  label = f\"{b['lo']:g}{hi}\"
+                  density = 1.0 / (b['sd'] * (2 * 3.141592653589793) ** 0.5) * 100
+                  flag = '' if b.get('usable') else '  (thin: league sd used)'
+                  se = b.get('mean_se') or 0.0
+                  print(f\"  {label:>9} {b['games']:>10} {b['measured_sd']:>7.2f} \"
+                        f\"{density:>10.2f}   {b['mean']:+.2f} +/- {se:.2f}{flag}\")
+          "

@@ -31,6 +31,43 @@ export interface MarginModel {
    * what makes 'a half-point line cannot push' fall out for free.
    */
   pmf: Record<string, number>;
+  /**
+   * Residual dispersion measured separately by how big the spread was.
+   *
+   * One number for a whole league asserts that a point of line is worth the same on a
+   * pick'em as on a 42-point blowout. It is not: mismatched teams scatter further, so
+   * the density at the middle is lower and a point buys less probability. Absent on
+   * models fitted before this existed, in which case the league figure is used.
+   */
+  buckets?: SpreadBucket[];
+}
+
+/** Residual dispersion for spreads whose absolute size falls in [lo, hi). */
+export interface SpreadBucket {
+  lo: number;
+  hi: number;
+  games: number;
+  mean: number;
+  /** Already falls back to the league sd when the bucket is too thin to trust. */
+  sd: number;
+  /** What this bucket actually measured, before any fallback. */
+  measured_sd?: number;
+  usable?: boolean;
+  mean_se?: number | null;
+}
+
+/**
+ * The dispersion to use for a spread of this size.
+ *
+ * Falls back to the league-wide figure when there are no buckets, or when the spread
+ * lands outside every band. Never invents a number.
+ */
+export function sdForSpread(model: MarginModel, spread: number | null | undefined): number {
+  if (!model.buckets || model.buckets.length === 0) return model.sd;
+  if (spread === null || spread === undefined || !Number.isFinite(spread)) return model.sd;
+  const size = Math.abs(spread);
+  const bucket = model.buckets.find((b) => size >= b.lo && size < b.hi);
+  return bucket && bucket.sd > 0 ? bucket.sd : model.sd;
 }
 
 /** Break-even probability implied by an American price, vig included. */

@@ -1,4 +1,4 @@
-import { impliedProbability, deVig, type MarginModel } from "./probability";
+import { impliedProbability, deVig, sdForSpread, type MarginModel } from "./probability";
 import type { Market, Side } from "./types";
 
 /**
@@ -101,9 +101,15 @@ export function median(values: number[]): number | null {
  * Being local, it is honest near a coin flip and overstates the value of a point far
  * out in the tail. Gaps large enough to matter here are small enough for it to hold.
  */
-export function pointsToProbability(model: MarginModel): number {
-  if (!model || model.sd <= 0) return 0;
-  return 1 / (model.sd * Math.sqrt(2 * Math.PI));
+export function pointsToProbability(
+  model: MarginModel,
+  /** Size of the line being shopped. Omit for the league-wide figure. */
+  spread?: number | null,
+): number {
+  if (!model) return 0;
+  const sd = sdForSpread(model, spread);
+  if (!(sd > 0)) return 0;
+  return 1 / (sd * Math.sqrt(2 * Math.PI));
 }
 
 /**
@@ -174,8 +180,6 @@ export function shopSide(
   model: MarginModel | null,
   minBooks = 1,
 ): ShopResult[] {
-  const density = model ? pointsToProbability(model) : 0;
-
   return quotes.map((quote) => {
     // A stale quote never becomes anyone's reference.
     const others = quotes.filter((q) => q.book !== quote.book && !q.stale);
@@ -256,6 +260,12 @@ export function shopSide(
 
     const mine = orientedLine(quote.market, quote.side, quote.line);
     const advantagePoints = mine - consensusOriented;
+
+    // Density at the size of THIS line, not the league average. Mismatched teams
+    // scatter further, so out at a 42-point spread a point buys markedly less
+    // probability than it does on a pick'em -- and quoting the league-wide figure out
+    // there is what put Notre Dame -42.5 at the top of the board.
+    const density = model ? pointsToProbability(model, consensusOriented) : 0;
 
     // The consensus line is by definition the number the market treats as a coin flip.
     // Standing that many points better than it moves the cover probability by the

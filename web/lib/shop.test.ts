@@ -267,3 +267,96 @@ test("the spread path is untouched by the moneyline band", () => {
   assert.ok(rows.every((r) => r.market === "spread"));
   assert.ok(rows.find((r) => r.book === "A")!.expectedRoi !== null);
 });
+
+// --- dispersion by line size ------------------------------------------------------
+
+/** NCAAF shaped like the real fit: tight near pick'em, much wider on blowouts. */
+const CFB_BUCKETED: MarginModel = {
+  ...CFB,
+  sd: 15.43,
+  buckets: [
+    { lo: 0, hi: 3, games: 900, mean: 0.1, sd: 13.2 },
+    { lo: 3, hi: 7, games: 1200, mean: 0.2, sd: 14.1 },
+    { lo: 7, hi: 14, games: 1600, mean: 0.2, sd: 15.0 },
+    { lo: 14, hi: 21, games: 1100, mean: 0.3, sd: 16.4 },
+    { lo: 21, hi: 28, games: 700, mean: 0.3, sd: 17.8 },
+    { lo: 28, hi: 35, games: 400, mean: 0.4, sd: 19.5 },
+    { lo: 35, hi: 999, games: 250, mean: 0.5, sd: 21.6 },
+  ],
+};
+
+test("a point is worth less on a blowout than on a pick'em", () => {
+  const near = pointsToProbability(CFB_BUCKETED, 1.5) * 100;
+  const far = pointsToProbability(CFB_BUCKETED, 42.5) * 100;
+  assert.ok(near > far, "wider scatter means a point buys less");
+  assert.ok(near > 2.9 && near < 3.1, `pick'em should be about 3.0, got ${near}`);
+  assert.ok(far > 1.7 && far < 1.9, `42-point should be about 1.8, got ${far}`);
+});
+
+test("the league figure is used when no buckets are fitted", () => {
+  assert.equal(pointsToProbability(CFB, 42.5), pointsToProbability(CFB, 1.5));
+});
+
+test("an unknown or missing spread falls back rather than guessing", () => {
+  assert.equal(pointsToProbability(CFB_BUCKETED, null), 1 / (15.43 * Math.sqrt(2 * Math.PI)));
+  assert.equal(pointsToProbability(CFB_BUCKETED, NaN), 1 / (15.43 * Math.sqrt(2 * Math.PI)));
+});
+
+test("the sign of the spread does not matter, only its size", () => {
+  assert.equal(pointsToProbability(CFB_BUCKETED, 42.5), pointsToProbability(CFB_BUCKETED, -42.5));
+});
+
+test("the Notre Dame row: a blowout gap is worth far less than it looked", () => {
+  // What started this. FanDuel -42.5 against a field at -44.5 is a genuine 2-point
+  // difference, and priced at the league-wide density it read +5.3% and topped the
+  // board. The gap is real; what was wrong was how much a point out there is worth.
+  const at = (line: number, book: string): BookQuote => ({
+    book, market: "spread", side: "home", line, price: -110, oppositePrice: -110,
+  });
+  const quotes = [at(-42.5, "FanDuel"), at(-44.5, "A"), at(-44.5, "B"), at(-44.5, "C")];
+
+  const naive = shopSide(quotes, CFB).find((r) => r.book === "FanDuel")!;
+  const fixed = shopSide(quotes, CFB_BUCKETED).find((r) => r.book === "FanDuel")!;
+
+  assert.equal(naive.advantagePoints, 2);
+  assert.equal(fixed.advantagePoints, 2, "the gap itself is unchanged; only its worth");
+  assert.ok(
+    fixed.expectedRoi! < naive.expectedRoi! * 0.6,
+    "measuring dispersion where the line actually is roughly halves the estimate",
+  );
+});
+
+test("a blowout gap no longer outranks the same gap near pick'em", () => {
+  // The ranking failure this fix is really about. Two identical 2-point gaps: at the
+  // league-wide density they price the same and the blowout can top the board on
+  // rounding alone. Measured properly, the near-pick'em one is plainly worth more.
+  const at = (line: number, book: string): BookQuote => ({
+    book, market: "spread", side: "home", line, price: -110, oppositePrice: -110,
+  });
+  const blowout = shopSide(
+    [at(-42.5, "X"), at(-44.5, "A"), at(-44.5, "B"), at(-44.5, "C")],
+    CFB_BUCKETED,
+  ).find((r) => r.book === "X")!;
+  const pickem = shopSide(
+    [at(1, "X"), at(-1, "A"), at(-1, "B"), at(-1, "C")],
+    CFB_BUCKETED,
+  ).find((r) => r.book === "X")!;
+
+  assert.equal(blowout.advantagePoints, 2);
+  assert.equal(pickem.advantagePoints, 2);
+  assert.ok(pickem.expectedRoi! > blowout.expectedRoi!);
+});
+
+test("a real gap near the middle survives the fix", () => {
+  // The correction must not simply suppress everything: a full point on a near
+  // pick'em still clears the vig, which is the whole premise.
+  const at = (line: number, book: string): BookQuote => ({
+    book, market: "spread", side: "home", line, price: -110, oppositePrice: -110,
+  });
+  const row = shopSide(
+    [at(-2, "Bovada"), at(-3, "A"), at(-3, "B"), at(-3, "C")],
+    CFB_BUCKETED,
+  ).find((r) => r.book === "Bovada")!;
+  assert.equal(row.advantagePoints, 1);
+  assert.ok(row.expectedRoi! > 0);
+});
