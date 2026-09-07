@@ -15,10 +15,17 @@ name: collect
 # minutes, and nothing here is secret (credentials live in Actions secrets, and
 # .gitignore keeps collected data out of the repo).
 
+# GitHub cron is UTC, and the offset matters here. UTC Friday 00:00 is Thursday 8pm ET,
+# so the dense window opens in time for Thursday Night Football. UTC Monday 00:00 is
+# Sunday 8pm ET — which would have ended the dense window twenty minutes before Sunday
+# Night Football kicks off, losing 30-minute coverage in the hours lines move most. The
+# Monday 00:00-05:59 UTC block below covers that (Sun 8pm - 2am ET, and 7pm - 1am under
+# EST once the clocks change).
 on:
   schedule:
-    - cron: "0 */3 * * 1-4"      # Mon-Thu, every 3 hours
-    - cron: "0,30 * * * 5,6,0"   # Fri/Sat/Sun, every 30 minutes
+    - cron: "0,30 * * * 5,6,0"   # Fri/Sat/Sun UTC, every 30 min
+    - cron: "0,30 0-5 * * 1"     # Sun evening ET (SNF), every 30 min
+    - cron: "0 6-23/3 * * 1-4"   # Mon-Thu daytime UTC, every 3 hours
   workflow_dispatch:              # manual trigger, for testing
 
 # One writer at a time. Overlapping runs would interleave inserts into the same
