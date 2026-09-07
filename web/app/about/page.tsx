@@ -1,5 +1,6 @@
 import { Card, PageHeader } from "@/components/ui";
 import { PushSettings } from "@/components/PushSettings";
+import { StakeSettings } from "@/components/StakeSettings";
 
 export const metadata = { title: "About · Line Tracker" };
 
@@ -19,6 +20,10 @@ export default function AboutPage() {
         title="About"
         subtitle="What this measures, and what it refuses to claim."
       />
+
+      <Card className="mb-4 px-3 py-3">
+        <StakeSettings />
+      </Card>
 
       <Card className="mb-6 px-3 py-3">
         <PushSettings />

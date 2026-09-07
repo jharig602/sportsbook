@@ -1,7 +1,8 @@
 import Link from "next/link";
 
+import { Stake } from "@/components/Stake";
 import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
-import { collapseAlerts, getData } from "@/lib/data";
+import { calibratedProbability, collapseAlerts, getData } from "@/lib/data";
 import {
   formatKickoff,
   formatKind,
@@ -23,7 +24,56 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "drift", label: "Drift" },
 ];
 
-function AlertCard({ alert }: { alert: Alert }) {
+/**
+ * The single largest move on the board. Called "biggest move" and not "best pick"
+ * because that is exactly what it is: the ranking is by measured movement, which has
+ * not been shown to predict outcomes. The label upgrades once it has been earned.
+ */
+function TopMover({
+  alert,
+  probability,
+}: {
+  alert: Alert;
+  probability: number | null;
+}) {
+  return (
+    <Card
+      href={`/game/${alert.event_id}`}
+      className="mb-4 border-amber-500/25 bg-amber-500/[0.04] px-3 py-3"
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-300/90">
+          Biggest move
+        </span>
+        <span className="text-[11px] text-slate-500">
+          {probability === null ? "not yet graded" : "calibrated"}
+        </span>
+      </div>
+      <p className="mt-1 text-base font-semibold text-slate-100">
+        {teamShort(alert.away_team)} @ {teamShort(alert.home_team)}
+      </p>
+      <p className="mt-0.5 text-sm text-slate-400">{alert.message}</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+        <Pill>{formatLeague(alert.league)}</Pill>
+        <span className="capitalize">{alert.market}</span>
+        <span>
+          money toward{" "}
+          <span className="font-medium text-slate-300">{alert.predicted_side}</span>
+        </span>
+        <span>strength {alert.move_strength}</span>
+      </div>
+      <Stake price={alert.price_at_alert} calibratedProbability={probability} />
+    </Card>
+  );
+}
+
+function AlertCard({
+  alert,
+  probability,
+}: {
+  alert: Alert;
+  probability: number | null;
+}) {
   const matchup = `${teamShort(alert.away_team)} @ ${teamShort(alert.home_team)}`;
 
   return (
@@ -56,6 +106,12 @@ function AlertCard({ alert }: { alert: Alert }) {
             <span>{formatRelative(alert.created_at)}</span>
             <span>{formatKickoff(alert.commence_time)}</span>
           </div>
+
+          <Stake
+            price={alert.price_at_alert}
+            calibratedProbability={probability}
+            compact
+          />
         </div>
       </div>
     </Card>
@@ -69,7 +125,9 @@ export default async function MoversPage({
 }) {
   const { kind = "movement" } = await searchParams;
   const data = getData();
-  const collapsed = collapseAlerts(await data.alerts());
+  const [rawAlerts, grades] = await Promise.all([data.alerts(), data.grades()]);
+  const collapsed = collapseAlerts(rawAlerts);
+  const probabilityFor = (strength: number) => calibratedProbability(grades, strength);
 
   const shown =
     kind === "all"
@@ -117,11 +175,18 @@ export default async function MoversPage({
           }
         />
       ) : (
-        <div className="space-y-2">
-          {shown.map((alert) => (
-            <AlertCard key={alert.alert_id} alert={alert} />
-          ))}
-        </div>
+        <>
+          <TopMover alert={shown[0]} probability={probabilityFor(shown[0].move_strength)} />
+          <div className="space-y-2">
+            {shown.slice(1).map((alert) => (
+              <AlertCard
+                key={alert.alert_id}
+                alert={alert}
+                probability={probabilityFor(alert.move_strength)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       <NotAdvice className="mt-8" />

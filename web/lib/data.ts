@@ -229,6 +229,15 @@ export function getData(): DataSource {
 
 // --- derived views -------------------------------------------------------------
 
+const STRENGTH_BUCKETS: Array<[number, number]> = [
+  [0, 19],
+  [20, 39],
+  [40, 59],
+  [60, 79],
+  [80, 99],
+];
+
+
 /**
  * Collapse alerts that describe the same market move. A two-sided market prices both
  * sides, so one shift often appears twice — the over growing pricier and the under
@@ -277,13 +286,30 @@ function summarise(label: string, grades: Grade[]): RecordRow {
   };
 }
 
-const STRENGTH_BUCKETS: Array<[number, number]> = [
-  [0, 19],
-  [20, 39],
-  [40, 59],
-  [60, 79],
-  [80, 99],
-];
+/**
+ * Measured win rate per Move Strength bucket, or null where the bucket has not earned
+ * one. This is the only thing allowed to unlock Kelly sizing: a null here means the
+ * stake stays flat no matter how strong the alert looks.
+ */
+export function calibratedProbability(
+  grades: Grade[],
+  moveStrength: number,
+): number | null {
+  const bucket = STRENGTH_BUCKETS.find(
+    ([low, high]) => moveStrength >= low && moveStrength <= high,
+  );
+  if (!bucket) return null;
+
+  const inBucket = grades.filter(
+    (g) =>
+      g.move_strength >= bucket[0] &&
+      g.move_strength <= bucket[1] &&
+      g.result_covered !== null,
+  );
+  if (inBucket.length < MIN_SAMPLES) return null;
+
+  return inBucket.filter((g) => g.result_covered).length / inBucket.length;
+}
 
 export function buildTrackRecord(alerts: Alert[], grades: Grade[]): TrackRecord {
   const kinds = ["first_price", "steam", "key_number", "drift"] as const;

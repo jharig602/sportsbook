@@ -16,8 +16,9 @@ See [What this deliberately does not claim](#what-this-deliberately-does-not-cla
 | Grading + calibration | Working; awaiting settled games to grade |
 | Postgres / Neon backend | Written, not yet run against a real database |
 | GitHub Actions schedule | Written, not yet installed |
-| Next.js PWA + push | Not started |
-| 187 tests | Passing |
+| Next.js PWA (board, movers, game detail, track record) | Working against real data |
+| Stake sizing + web push | Built; push needs VAPID keys in Vercel |
+| 187 Python + 16 web tests | Passing |
 
 ## Setup
 
@@ -88,6 +89,18 @@ Two operational gotchas:
   offseason will silently stop collection.
 - **Neon free-tier projects pause when idle.** The cron keeps it warm; a long gap
   between runs means the first one after it may be slow.
+
+## Stake sizing
+
+Set a bankroll and unit size on the About screen. It is stored in your browser only —
+never sent to a server, never in the repo.
+
+Every pick shows the **same** flat stake, regardless of Move Strength. That is deliberate:
+sizing by a signal that has not been shown to predict anything concentrates money on the
+alerts that merely *look* strongest, which loses faster than flat betting rather than
+slower. Quarter-Kelly sizing switches on by itself, per Move Strength bucket, once that
+bucket has 50+ settled games and a measured win rate that clears the price offered. A
+hard per-bet cap (default 3% of bankroll) binds in both modes.
 
 ## What this deliberately does not claim
 
