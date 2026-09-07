@@ -46,6 +46,14 @@ function line(over: Partial<BookLineRow> = {}): BookLineRow {
   } as BookLineRow;
 }
 
+/** Three books agreeing at `at`, so the board's consensus floor is satisfied. */
+function field(at: number, event = "401", league: "nfl" | "ncaaf" = "nfl"): BookLineRow[] {
+  return ["FanDuel", "Caesars", "BetRivers"].flatMap((book, i) => [
+    line({ quote_id: `f${event}${i}h`, book, event_id: event, league, side: "home", line: at }),
+    line({ quote_id: `f${event}${i}a`, book, event_id: event, league, side: "away", line: -at }),
+  ]);
+}
+
 function lines(rows: BookLineRow[]): Map<string, BookLineRow[]> {
   const map = new Map<string, BookLineRow[]>();
   for (const row of rows) {
@@ -63,17 +71,25 @@ test("a game with no second book contributes nothing", () => {
   assert.equal(shop.best, null);
 });
 
-test("a game with a second book is compared and counted", () => {
-  const shop = buildBoardShop([game()], lines([line()]), MODELS, NOW);
+test("a game with a full field of books is compared and counted", () => {
+  const shop = buildBoardShop([game()], lines([line(), ...field(-3)]), MODELS, NOW);
   assert.equal(shop.gamesWithSecondBook, 1);
-  assert.deepEqual(shop.books, ["BetMGM", "DraftKings"]);
+  assert.deepEqual(shop.books, ["BetMGM", "BetRivers", "Caesars", "DraftKings", "FanDuel"]);
   assert.ok(shop.rows.length > 0);
+});
+
+test("a game with only one other book is not ranked on the board", () => {
+  // It is still priced on the game page; the board refuses because mining sixty games
+  // for the largest number would select exactly these thin references.
+  const shop = buildBoardShop([game()], lines([line({ line: -1 })]), MODELS, NOW);
+  assert.equal(shop.gamesWithSecondBook, 1, "the game is still counted as compared");
+  assert.equal(shop.positive.length, 0, "but no return is quoted from two opinions");
 });
 
 test("a genuine one-point gap surfaces and beats the vig", () => {
   const shop = buildBoardShop(
     [game()],
-    lines([line({ line: -2 }), line({ quote_id: "q2", side: "away", line: 2 })]),
+    lines([line({ line: -2 }), line({ quote_id: "q2", side: "away", line: 2 }), ...field(-3)]),
     MODELS,
     NOW,
   );
@@ -84,7 +100,7 @@ test("a genuine one-point gap surfaces and beats the vig", () => {
 });
 
 test("an agreeing board produces rows at the hold, and nothing positive", () => {
-  const shop = buildBoardShop([game()], lines([line()]), MODELS, NOW);
+  const shop = buildBoardShop([game()], lines([line(), ...field(-3)]), MODELS, NOW);
   assert.equal(shop.positive.length, 0);
   // Which is the correct reading, not an empty page: the closest is still shown.
   assert.ok(shop.best !== null);
@@ -122,8 +138,10 @@ test("rows are ranked by return across every game, not within one", () => {
     lines([
       line({ line: -3.5 }),
       line({ quote_id: "q2", side: "away", line: 3.5 }),
+      ...field(-3),
       line({ quote_id: "q3", event_id: "402", league: "ncaaf", line: -1 }),
       line({ quote_id: "q4", event_id: "402", league: "ncaaf", side: "away", line: 1 }),
+      ...field(-3, "402", "ncaaf"),
     ]),
     MODELS,
     NOW,
@@ -137,7 +155,7 @@ test("rows are ranked by return across every game, not within one", () => {
 });
 
 test("each row carries enough to render and link without another lookup", () => {
-  const shop = buildBoardShop([game()], lines([line({ line: -2 })]), MODELS, NOW);
+  const shop = buildBoardShop([game()], lines([line({ line: -2 }), ...field(-3)]), MODELS, NOW);
   const row = shop.best!;
   assert.equal(row.eventId, "401");
   assert.equal(row.homeTeam, "Houston Texans");
@@ -151,7 +169,7 @@ test("the right league's model prices the gap", () => {
   // outcome distribution is wider.
   const nfl = buildBoardShop(
     [game()],
-    lines([line({ line: -2 }), line({ quote_id: "q2", side: "away", line: 2 })]),
+    lines([line({ line: -2 }), line({ quote_id: "q2", side: "away", line: 2 }), ...field(-3)]),
     MODELS,
     NOW,
   );
@@ -160,6 +178,7 @@ test("the right league's model prices the gap", () => {
     lines([
       line({ event_id: "402", league: "ncaaf", line: -2 }),
       line({ quote_id: "q2", event_id: "402", league: "ncaaf", side: "away", line: 2 }),
+      ...field(-3, "402", "ncaaf"),
     ]),
     MODELS,
     NOW,

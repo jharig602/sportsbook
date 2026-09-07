@@ -11,6 +11,7 @@ import {
   type BookQuote,
 } from "./shop.ts";
 import type { MarginModel } from "./probability.ts";
+import type { Side } from "./types.ts";
 
 const NFL: MarginModel = { league: "nfl", games: 291, mean: 0.35, sd: 12.32, pmf: {} };
 const CFB: MarginModel = { league: "ncaaf", games: 976, mean: 1.4, sd: 15.14, pmf: {} };
@@ -63,7 +64,7 @@ test("the whole point: a one-point gap clears the vig, a half-point does not", (
 });
 
 test("the books that match consensus price out at the hold, not at zero", () => {
-  const rows = shopSide([quote("A", -3), quote("B", -3), quote("C", -3)], NFL);
+  const rows = shopSide([quote("A", -3), quote("B", -3), quote("C", -3), quote("D", -3)], NFL);
   for (const row of rows) {
     assert.equal(row.advantagePoints, 0);
     assert.equal(row.fairProbability, 0.5);
@@ -74,13 +75,17 @@ test("the books that match consensus price out at the hold, not at zero", () => 
 });
 
 test("consensus is leave-one-out, so an outlier cannot pull its own reference", () => {
-  // With only two books, including yourself would put the consensus at the midpoint
-  // and halve every gap. Each side must see the other's number, undiluted.
-  const rows = shopSide([quote("A", -2), quote("B", -3)], NFL);
+  // Including a quote in its own reference would drag the consensus toward the number
+  // being tested and halve every gap. A sees (-3, -3, -3); it must not see its own -2.
+  const rows = shopSide(
+    [quote("A", -2), quote("B", -3), quote("C", -3), quote("D", -3)],
+    NFL,
+  );
   assert.equal(rows.find((r) => r.book === "A")!.consensusLine, -3);
-  assert.equal(rows.find((r) => r.book === "B")!.consensusLine, -2);
   assert.equal(rows.find((r) => r.book === "A")!.advantagePoints, 1);
-  assert.equal(rows.find((r) => r.book === "B")!.advantagePoints, -1);
+  // B sees (-2, -3, -3): the median is still -3, so it stands level with the field.
+  assert.equal(rows.find((r) => r.book === "B")!.consensusLine, -3);
+  assert.equal(rows.find((r) => r.book === "B")!.advantagePoints, 0);
 });
 
 test("the median ignores a single broken book", () => {
@@ -100,6 +105,7 @@ test("price is shopped even when the line is identical", () => {
       { book: "Cheap", market: "spread", side: "home", line: -3, price: -105, oppositePrice: -115 },
       { book: "A", market: "spread", side: "home", line: -3, price: -110, oppositePrice: -110 },
       { book: "B", market: "spread", side: "home", line: -3, price: -110, oppositePrice: -110 },
+      { book: "C", market: "spread", side: "home", line: -3, price: -110, oppositePrice: -110 },
     ],
     NFL,
   );
@@ -118,6 +124,7 @@ test("a moneyline is shopped on price against the de-vigged consensus", () => {
       { book: "Rich", market: "moneyline", side: "home", line: null, price: 150, oppositePrice: -180 },
       { book: "A", market: "moneyline", side: "home", line: null, price: -110, oppositePrice: -110 },
       { book: "B", market: "moneyline", side: "home", line: null, price: -110, oppositePrice: -110 },
+      { book: "C", market: "moneyline", side: "home", line: null, price: -110, oppositePrice: -110 },
     ],
     NFL,
   );
@@ -136,10 +143,14 @@ test("a lone book is reported, not silently dropped", () => {
 });
 
 test("without a fitted model, points are not priced rather than guessed", () => {
-  const rows = shopSide([quote("A", -2), quote("B", -3)], null);
-  assert.equal(rows[0].advantagePoints, 1);
-  assert.equal(rows[0].fairProbability, null);
-  assert.equal(rows[0].expectedRoi, null);
+  const rows = shopSide(
+    [quote("A", -2), quote("B", -3), quote("C", -3), quote("D", -3)],
+    null,
+  );
+  const a = rows.find((r) => r.book === "A")!;
+  assert.equal(a.advantagePoints, 1, "the gap is still measured");
+  assert.equal(a.fairProbability, null, "but points cannot be converted without a model");
+  assert.equal(a.expectedRoi, null);
 });
 
 test("expectedRoi matches the standard payouts", () => {
@@ -149,16 +160,19 @@ test("expectedRoi matches the standard payouts", () => {
 });
 
 test("shopAll keeps sides apart and ranks by return", () => {
+  const spread = (book: string, side: Side, line: number): BookQuote => ({
+    book, market: "spread", side, line, price: -110, oppositePrice: -110,
+  });
   const rows = shopAll(
     [
-      { book: "A", market: "spread", side: "home", line: -3, price: -110, oppositePrice: -110 },
-      { book: "B", market: "spread", side: "home", line: -3, price: -110, oppositePrice: -110 },
-      { book: "A", market: "spread", side: "away", line: 3, price: -110, oppositePrice: -110 },
-      { book: "B", market: "spread", side: "away", line: 5, price: -110, oppositePrice: -110 },
+      spread("A", "home", -3), spread("B", "home", -3),
+      spread("C", "home", -3), spread("D", "home", -3),
+      spread("A", "away", 3), spread("C", "away", 3), spread("D", "away", 3),
+      spread("B", "away", 5),
     ],
     NFL,
   );
-  assert.equal(rows.length, 4);
+  assert.equal(rows.length, 8);
   // B's away +5 against a consensus of +3 is the only real advantage on the board.
   assert.equal(rows[0].book, "B");
   assert.equal(rows[0].side, "away");
@@ -166,6 +180,90 @@ test("shopAll keeps sides apart and ranks by return", () => {
   assert.ok(rows[0].expectedRoi! > 0);
   // The home side is untouched by the away disagreement; grouping kept them apart.
   const home = rows.filter((r) => r.side === "home");
-  assert.equal(home.length, 2);
+  assert.equal(home.length, 4);
   for (const row of home) assert.equal(row.advantagePoints, 0);
+});
+
+// --- guards against pricing what cannot be priced ---------------------------------
+
+function ml(book: string, price: number, opposite: number): BookQuote {
+  return { book, market: "moneyline", side: "home", line: null, price, oppositePrice: opposite };
+}
+
+test("a longshot moneyline is compared but not priced", () => {
+  // The failure that shipped: proportional de-vig barely touches a +2500 dog, so a
+  // book at +3500 reads as +36% expected return out of nothing. The first live board
+  // reported 79 of these, every one a big underdog.
+  const rows = shopSide(
+    [
+      ml("Outlier", 3500, -5000),
+      ml("A", 2500, -5000),
+      ml("B", 2500, -5000),
+      ml("C", 2400, -4800),
+    ],
+    NFL,
+  );
+  const outlier = rows.find((r) => r.book === "Outlier")!;
+  assert.equal(outlier.expectedRoi, null, "no return may be quoted out here");
+  assert.equal(outlier.fairProbability, null);
+  assert.ok(outlier.consensusProbability! < 0.1);
+  assert.match(outlier.note, /longshot/i);
+});
+
+test("a heavy favourite moneyline is equally refused", () => {
+  const rows = shopSide(
+    [ml("Outlier", -4000, 2000), ml("A", -5000, 2500), ml("B", -5000, 2500), ml("C", -4800, 2400)],
+    NFL,
+  );
+  assert.equal(rows.find((r) => r.book === "Outlier")!.expectedRoi, null);
+});
+
+test("a moneyline near even money is still priced normally", () => {
+  const rows = shopSide(
+    [ml("Rich", 150, -180), ml("A", -110, -110), ml("B", -110, -110), ml("C", -110, -110)],
+    NFL,
+  );
+  const rich = rows.find((r) => r.book === "Rich")!;
+  assert.equal(rich.consensusProbability, 0.5);
+  assert.ok(Math.abs(rich.expectedRoi! - 0.25) < 1e-9);
+});
+
+test("a board-level floor refuses a reference of two books", () => {
+  // Mining a whole board for the largest number selects the thinnest reference, so the
+  // board asks for three. The same call without the floor still prices it, because a
+  // deliberate head-to-head against your own book is a different question.
+  const quotes = [quote("A", -2), quote("B", -3), quote("C", -3)];
+  for (const row of shopSide(quotes, NFL, 3)) {
+    assert.equal(row.expectedRoi, null);
+    assert.match(row.note, /too thin/i);
+    assert.equal(row.thinConsensus, true);
+  }
+  const unfloored = shopSide(quotes, NFL).find((r) => r.book === "A")!;
+  assert.equal(unfloored.advantagePoints, 1);
+  assert.ok(unfloored.expectedRoi! > 0);
+  assert.equal(unfloored.thinConsensus, true, "still flagged as thin");
+});
+
+test("hand entry keeps working: one book against the board is priced", () => {
+  // Plan B's whole purpose. A floor applied everywhere would have silently disabled it.
+  const rows = shopSide([quote("DraftKings", -3), quote("BetMGM", -2)], NFL);
+  const mgm = rows.find((r) => r.book === "BetMGM")!;
+  assert.equal(mgm.advantagePoints, 1);
+  assert.ok(mgm.expectedRoi! > 0);
+  assert.equal(mgm.thinConsensus, true);
+});
+
+test("three other books is enough to price", () => {
+  const rows = shopSide([quote("A", -2), quote("B", -3), quote("C", -3), quote("D", -3)], NFL);
+  const a = rows.find((r) => r.book === "A")!;
+  assert.equal(a.booksCompared, 3);
+  assert.equal(a.advantagePoints, 1);
+  assert.ok(a.expectedRoi! > 0, "a genuine full point still clears the vig");
+});
+
+test("the spread path is untouched by the moneyline band", () => {
+  // Spreads sit near 50/50 by construction, which is exactly where de-vig holds.
+  const rows = shopSide([quote("A", -2), quote("B", -3), quote("C", -3), quote("D", -3)], NFL);
+  assert.ok(rows.every((r) => r.market === "spread"));
+  assert.ok(rows.find((r) => r.book === "A")!.expectedRoi !== null);
 });

@@ -61,6 +61,8 @@ export interface ShopResult {
   /** Expected return per dollar staked. Negative means the vig eats it. */
   expectedRoi: number | null;
   booksCompared: number;
+  /** Fewer than three other books, so the reference is one or two opinions. */
+  thinConsensus: boolean;
   stale: boolean;
   note: string;
 }
@@ -104,6 +106,44 @@ export function pointsToProbability(model: MarginModel): number {
   return 1 / (model.sd * Math.sqrt(2 * Math.PI));
 }
 
+/**
+ * How many other books it takes before a median is robust.
+ *
+ * The median of two numbers is their mean, so with one other book a single lazily
+ * priced market sets the whole reference. Three is the smallest count at which the
+ * median actually discards an outlier.
+ *
+ * This is a threshold for *ranking a whole board*, not for arithmetic. Mining sixty
+ * games for the largest number selects the thinnest reference, so the board applies it.
+ * A deliberate head-to-head -- you typed in what your own book shows, against the one
+ * on the board -- is a different question with a real answer, so the game page does
+ * not. Hence a parameter rather than a hard floor: forcing three books everywhere would
+ * silently disable hand entry, which exists precisely because you can only bet where
+ * you have an account.
+ */
+export const ROBUST_CONSENSUS_BOOKS = 3;
+
+/**
+ * The probability range where a de-vigged moneyline can be trusted.
+ *
+ * De-vigging here is multiplicative: it scales both sides down by the overround. That
+ * assumes the book spreads its margin proportionally, which is roughly true near even
+ * money and badly false in the tails, where books load almost all of it onto the
+ * longshot -- the favourite-longshot bias.
+ *
+ * Worked through on a real pair, favourite -5000 against dog +2500: the overround is
+ * 1.89%, and proportional de-vig takes the dog from 3.85% to 3.775%, removing seven
+ * hundredths of a point. Against a book offering +3500 that "fair" 3.775% produces
+ * +35.9% expected return out of nothing at all.
+ *
+ * That is not hypothetical. The first board this shipped against reported 79 rows
+ * beating the vig, every one of them a big-underdog moneyline, several at +37%. All
+ * artefacts of this. Outside the band the gap is still shown, but no return is quoted,
+ * because the number required to quote one cannot be estimated this way.
+ */
+export const MONEYLINE_MIN_PROBABILITY = 0.2;
+export const MONEYLINE_MAX_PROBABILITY = 0.8;
+
 /** De-vigged probability for one quote, falling back to the raw implied price. */
 function fairOf(quote: BookQuote): number | null {
   const paired = deVig(quote.price ?? null, quote.oppositePrice ?? null);
@@ -129,7 +169,11 @@ export function expectedRoi(probability: number, price: number): number {
  * caller groups them. A lone quote returns a row with no comparison rather than being
  * dropped, so the UI can say that a book stands alone instead of silently hiding it.
  */
-export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopResult[] {
+export function shopSide(
+  quotes: BookQuote[],
+  model: MarginModel | null,
+  minBooks = 1,
+): ShopResult[] {
   const density = model ? pointsToProbability(model) : 0;
 
   return quotes.map((quote) => {
@@ -148,6 +192,7 @@ export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopRe
       breakEven: impliedProbability(quote.price ?? null),
       expectedRoi: null,
       booksCompared: others.length,
+      thinConsensus: others.length < ROBUST_CONSENSUS_BOOKS,
       stale: quote.stale === true,
       note: "",
     };
@@ -160,6 +205,13 @@ export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopRe
       return { ...base, note: "Only one book has this line; nothing to compare against." };
     }
 
+    if (others.length < minBooks) {
+      return {
+        ...base,
+        note: `Only ${others.length} other book${others.length === 1 ? "" : "s"}; too thin a reference to rank against a whole board.`,
+      };
+    }
+
     const consensusProbability = median(
       others.map(fairOf).filter((p): p is number => p !== null),
     );
@@ -170,6 +222,20 @@ export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopRe
       if (consensusProbability === null || quote.price === null) {
         return { ...base, consensusProbability, note: "Not enough priced books to compare." };
       }
+      // Outside the band, report the comparison but refuse to price it.
+      if (
+        consensusProbability < MONEYLINE_MIN_PROBABILITY ||
+        consensusProbability > MONEYLINE_MAX_PROBABILITY
+      ) {
+        return {
+          ...base,
+          consensusProbability,
+          note:
+            "Too far from even money to de-vig reliably; books load their margin onto " +
+            "the longshot, so no return is quoted.",
+        };
+      }
+
       return {
         ...base,
         consensusProbability,
@@ -218,7 +284,11 @@ export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopRe
 }
 
 /** Group flat quotes by market and side, shop each group, best return first. */
-export function shopAll(quotes: BookQuote[], model: MarginModel | null): ShopResult[] {
+export function shopAll(
+  quotes: BookQuote[],
+  model: MarginModel | null,
+  minBooks = 1,
+): ShopResult[] {
   const groups = new Map<string, BookQuote[]>();
   for (const quote of quotes) {
     const key = `${quote.market}:${quote.side}`;
@@ -227,6 +297,6 @@ export function shopAll(quotes: BookQuote[], model: MarginModel | null): ShopRes
     else groups.set(key, [quote]);
   }
   const out: ShopResult[] = [];
-  for (const bucket of groups.values()) out.push(...shopSide(bucket, model));
+  for (const bucket of groups.values()) out.push(...shopSide(bucket, model, minBooks));
   return out.sort((a, b) => (b.expectedRoi ?? -Infinity) - (a.expectedRoi ?? -Infinity));
 }

@@ -1,7 +1,7 @@
 import type { BookLineRow } from "./book-lines";
 import { quotesForGame } from "./book-lines";
 import type { MarginModel } from "./probability";
-import { shopAll, type ShopResult } from "./shop";
+import { ROBUST_CONSENSUS_BOOKS, shopAll, type ShopResult } from "./shop";
 import type { Game } from "./types";
 
 /**
@@ -63,7 +63,10 @@ export function buildBoardShop(
     for (const book of distinct) books.add(book);
 
     const model = models[game.league] ?? null;
-    for (const result of shopAll(quotes, model)) {
+    // The board is mined for the largest number across sixty games, which selects the
+    // thinnest reference unless a floor is applied. The per-game page has no such
+    // selection pressure and prices a head-to-head at any book count.
+    for (const result of shopAll(quotes, model, ROBUST_CONSENSUS_BOOKS)) {
       // Rows with nothing to compare against carry no information here; the per-game
       // page is where "this book stands alone" is worth saying.
       if (result.booksCompared === 0 || result.stale) continue;
