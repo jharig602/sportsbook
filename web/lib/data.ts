@@ -8,6 +8,7 @@
  *
  * Selection is by environment: DATABASE_URL present means Postgres, absent means fixture.
  */
+import { unstable_cache } from "next/cache";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -266,14 +267,38 @@ export function buildBoard(rows: QuoteRow[]): Game[] {
   );
 }
 
+/**
+ * How long a cached query may be stale, in seconds.
+ *
+ * The collector writes every 30 minutes at its most frequent, so a minute of staleness
+ * is invisible. What it buys is large: without it every page view hit Neon directly
+ * (`x-vercel-cache: MISS`, `no-store` on every response), and Neon's free tier suspends
+ * compute after a few minutes idle — so the first visit after any gap paid a cold start.
+ * Cached reads skip the database entirely.
+ *
+ * The pages themselves cannot be route-cached: they read `searchParams`, which is a
+ * Request-time API and forces dynamic rendering. Caching the queries instead gets the
+ * benefit without fighting that.
+ */
+const CACHE_SECONDS = 60;
+
+/** Wrap a query so repeat views are served without touching the database. */
+function cachedQuery<T>(fn: () => Promise<T>, key: string): () => Promise<T> {
+  return unstable_cache(fn, ["line-tracker", key], {
+    revalidate: CACHE_SECONDS,
+    tags: [key],
+  });
+}
+
 const postgresSource: DataSource = {
   backend: "postgres",
-  games: async () => buildBoard(await query<QuoteRow>(LATEST_QUOTES)),
-  alerts: async () => query<Alert>(ALERTS),
+  games: cachedQuery(async () => buildBoard(await query<QuoteRow>(LATEST_QUOTES)), "games"),
+  alerts: cachedQuery(() => query<Alert>(ALERTS), "alerts"),
   history: async (eventId) => query<HistoryPoint>(HISTORY, [eventId]),
-  grades: async () => query<Grade>(GRADES),
-  results: async () => query<GameResult>(RESULTS),
-  marginModels: async () => {
+  grades: cachedQuery(() => query<Grade>(GRADES), "grades"),
+  results: cachedQuery(() => query<GameResult>(RESULTS), "results"),
+  // Refit only by the backfill workflow, so it can be cached far longer.
+  marginModels: unstable_cache(async () => {
     const rows = await query<{
       league: string; games: number; mean: number; sd: number;
       lo: number; hi: number; pmf_json: string;
@@ -287,7 +312,7 @@ const postgresSource: DataSource = {
       }
     }
     return models;
-  },
+  }, ["line-tracker", "margin-models"], { revalidate: 3600, tags: ["margin-models"] }),
 };
 
 export function getData(): DataSource {

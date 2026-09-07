@@ -263,6 +263,54 @@ export default async function GamePage({
         </div>
       )}
 
+      {history.length > 0 ? (
+        <Card className="mt-2 px-3.5 py-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Reading these numbers
+          </h2>
+          <dl className="mt-2 space-y-2 text-[12px] leading-relaxed">
+            <div>
+              <dt className="inline font-medium text-slate-300">Market</dt>
+              <dd className="inline text-slate-400">
+                {" "}
+                &mdash; what DraftKings&rsquo; own price implies, with their margin
+                stripped out. Not a prediction of ours; it moves whenever the price moves.
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-300">Model</dt>
+              <dd className="inline text-slate-400">
+                {" "}
+                &mdash; what the <em>spread</em> implies about the same question, from{" "}
+                {model ? model.games.toLocaleString() : "past"} completed games. Shown
+                only on the moneyline, because only there do the spread and the price
+                answer the same question independently.
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-300">&plusmn; pts</dt>
+              <dd className="inline text-slate-400">
+                {" "}
+                &mdash; model minus market. Near zero means the two agree and there is
+                nothing here. A few points apart means DraftKings&rsquo; spread and its
+                own moneyline disagree about this game.
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-medium text-slate-300">Hold</dt>
+              <dd className="inline text-slate-400">
+                {" "}
+                &mdash; the book&rsquo;s margin on that market. Roughly 4.5% is normal.
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+            Spreads and totals show no model number on purpose: a spread is set so both
+            sides are near 50%, so a model figure there would be decoration, not analysis.
+          </p>
+        </Card>
+      ) : null}
+
       {alerts.length > 0 ? (
         <section className="mt-5">
           <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
