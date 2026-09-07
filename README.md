@@ -110,7 +110,9 @@ connection string.
    - `ALERT_DISPATCH_SECRET` — the same value set in Vercel
 3. Run the workflow manually once. Look for `"events_discovered": 80` on the NCAAF step.
 
-`.github/workflows/collect.yml` then polls every 30 min Fri–Sun and every 3 h Mon–Thu.
+`.github/workflows/collect.yml` then polls every 30 min through the game windows
+(Thu 8pm - Sun 2am ET, minus the dead 2am-8am overnight stretch) and every 4 hours
+Mon-Thu. About 1,820 of the 2,000 free Actions minutes at ~3 min per run.
 
 ### Operational gotchas
 

@@ -21,12 +21,24 @@ name: collect
 # Night Football kicks off, losing 30-minute coverage in the hours lines move most. The
 # Monday 00:00-05:59 UTC block below covers that (Sun 8pm - 2am ET, and 7pm - 1am under
 # EST once the clocks change).
+# Budget: a run takes about 3 minutes, and a private repo gets 2,000 free Actions
+# minutes a month. Polling every 30 minutes around the clock all weekend costs ~2,340
+# and would stop mid-month. The saving comes from *when*, not how often: nothing is
+# polled between 2am and 8am ET on weekend nights, because there are no games and the
+# book is not repricing. That is 520 minutes a month for no lost coverage.
+#
+# Every window that matters is kept, in ET:
+#   Thu 8pm - 2am   Thursday Night Football
+#   Fri 8am - 8pm   line movement ahead of the weekend
+#   Fri 8pm - 2am   Friday night college games
+#   Sat 8am - 2am   the full college slate, day and night
+#   Sun 8am - 2am   NFL, including Sunday Night Football
 on:
   schedule:
-    - cron: "0,30 * * * 5,6,0"   # Fri/Sat/Sun UTC, every 30 min
-    - cron: "0,30 0-5 * * 1"     # Sun evening ET (SNF), every 30 min
-    - cron: "0 6-23/3 * * 1-4"   # Mon-Thu daytime UTC, every 3 hours
-  workflow_dispatch:              # manual trigger, for testing
+    - cron: "0,30 12-23 * * 5,6,0"   # Fri/Sat/Sun daytime UTC  = 8am-8pm ET
+    - cron: "0,30 0-5 * * 5,6,0,1"   # evenings ET (Thu-Sun 8pm-2am), incl. TNF and SNF
+    - cron: "0 6-22/4 * * 1,2,3,4"   # Mon-Thu, every 4 hours
+  workflow_dispatch:                  # manual trigger, for testing
 
 # One writer at a time. Overlapping runs would interleave inserts into the same
 # append-only tables; the collector's design assumes a single writer.
