@@ -1,0 +1,91 @@
+name: collect
+
+# Cadence is shaped by two constraints, not by taste:
+#
+# 1. Football lines move on a weekly rhythm. NCAAF prices barely exist 13 days out
+#    (6% of games priced) and reach ~59% at six days, so weekday polling is mostly
+#    watching nothing happen.
+# 2. A private repo gets 2,000 free Actions minutes a month. At roughly 90 seconds a
+#    run, polling every 30 minutes all week would cost ~2,900 and stop mid-month.
+#
+# So: light on Mon-Thu, every 30 minutes Fri-Sun when the money actually moves.
+# That lands near 760 runs/month (~1,150 minutes) with headroom.
+#
+# To poll harder, make the repository public — public repos get unlimited Actions
+# minutes, and nothing here is secret (credentials live in Actions secrets, and
+# .gitignore keeps collected data out of the repo).
+
+on:
+  schedule:
+    - cron: "0 */3 * * 1-4"      # Mon-Thu, every 3 hours
+    - cron: "0,30 * * * 5,6,0"   # Fri/Sat/Sun, every 30 minutes
+  workflow_dispatch:              # manual trigger, for testing
+
+# One writer at a time. Overlapping runs would interleave inserts into the same
+# append-only tables; the collector's design assumes a single writer.
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify the database URL is present
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is not set. Add it in Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      # Each league runs separately so one league's failure cannot silently truncate
+      # the other's collection. Exit code 3 means "no data" (an empty slate), which is
+      # a legitimate outcome midweek and must not fail the run — only 2 (incomplete,
+      # i.e. real errors occurred) should.
+      - name: Collect NCAAF odds
+        run: |
+          python collector/odds_poller.py --league ncaaf --days 8 --postgres || \
+            { code=$?; [ $code -eq 3 ] && echo "no NCAAF data this window" || exit $code; }
+
+      - name: Collect NFL odds
+        run: |
+          python collector/odds_poller.py --league nfl --days 8 --postgres || \
+            { code=$?; [ $code -eq 3 ] && echo "no NFL data this window" || exit $code; }
+
+      # Cheap (one request per date) and it is what the learning loop grades against.
+      - name: Capture final scores
+        run: |
+          for league in ncaaf nfl; do
+            python collector/results.py --league $league --start-date "$(date -u -d '3 days ago' +%F)" \
+              --days 4 --postgres || { code=$?; [ $code -eq 3 ] || exit $code; }
+          done
+
+      - name: Detect alerts, grade settled games, refit calibration
+        run: python collector/pipeline.py --postgres
+
+      # Raw response bodies are the only table that grows dangerously against Neon's
+      # 0.5 GB free tier. Snapshots, alerts and grades are small and are kept forever.
+      - name: Prune raw responses older than 30 days
+        run: |
+          python -c "
+          import os, sys
+          sys.path.insert(0, 'collector')
+          import psycopg
+          from pg_store import prune_raw_responses
+          with psycopg.connect(os.environ['DATABASE_URL']) as connection:
+              print('pruned raw responses:', prune_raw_responses(connection, keep_days=30))
+          "

@@ -1,0 +1,18 @@
+{
+  "name": "Line Tracker",
+  "short_name": "Lines",
+  "description": "NCAAF and NFL line movement, graded against what actually happened.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f16",
+  "theme_color": "#0b0f16",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

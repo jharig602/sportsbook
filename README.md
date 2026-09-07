@@ -1,0 +1,125 @@
+# NCAAF / NFL line-movement tracker
+
+Collects DraftKings full-game spreads, totals and moneylines from ESPN, detects line
+movement, grades every alert against what actually happened, and learns from the result.
+
+**This does not tell you which bets are +EV, and will not until it has earned the right.**
+See [What this deliberately does not claim](#what-this-deliberately-does-not-claim).
+
+## Status
+
+| Piece | State |
+|---|---|
+| Collector (ESPN odds) | Working. 80 NCAAF + 14 NFL events per poll, 0 errors |
+| Results capture (final scores) | Working. 68 games in one request |
+| Signal engine (4 alert kinds) | Working, validated against live movement |
+| Grading + calibration | Working; awaiting settled games to grade |
+| Postgres / Neon backend | Written, not yet run against a real database |
+| GitHub Actions schedule | Written, not yet installed |
+| Next.js PWA + push | Not started |
+| 187 tests | Passing |
+
+## Setup
+
+```bash
+winget install Python.Python.3.12
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m pytest tests/ -q
+```
+
+Always invoke `.venv\Scripts\python.exe` explicitly — the Microsoft Store `python.exe`
+stub shadows real installs on PATH.
+
+## Running it locally
+
+```bash
+.venv\Scripts\python.exe collector/odds_poller.py --league ncaaf --days 8 --db data/dev.duckdb
+.venv\Scripts\python.exe collector/results.py --league ncaaf --start-date 2026-09-05 --days 2 --db data/dev.duckdb
+.venv\Scripts\python.exe collector/pipeline.py --db data/dev.duckdb
+```
+
+Add `--dry-run` to any collector command to hit the network but write nothing.
+
+Exit codes: `0` ok, `2` incomplete (real errors occurred), `3` no data (an empty slate —
+legitimate midweek, and not a failure).
+
+## Architecture
+
+```
+GitHub Actions (cron)
+   └── odds_poller.py ──┐
+       results.py    ───┼──> Neon Postgres ──> Next.js PWA on Vercel
+       pipeline.py   ───┘    raw / snapshots / alerts / grades
+```
+
+| Module | Responsibility |
+|---|---|
+| `collector/odds_poller.py` | Fetch odds. Raw bytes committed before parsing |
+| `collector/results.py` | Final scores, so alerts can be graded |
+| `collector/signals.py` | Detect movement, emit falsifiable predictions |
+| `collector/grading.py` | Score alerts on line value and on result |
+| `collector/calibration.py` | Walk-forward fitting; refuses on thin data |
+| `collector/pipeline.py` | Runs the loop; every stage idempotent |
+| `collector/pg_store.py` | Postgres backend + raw-response retention |
+
+## Alert kinds
+
+| Kind | Fires when |
+|---|---|
+| `first_price` | A market gets its opening number (softest price a book posts) |
+| `steam` | Line moves ≥1.5 pts, or implied probability moves ≥1.5 pts, since last poll |
+| `key_number` | Spread crosses ±3, ±7, ±10; total crosses 44, 47, 51 |
+| `drift` | Cumulative move since the open exceeds 3 pts |
+
+Thresholds live in `RuleConfig` in `collector/signals.py`. Changing any of them mints a
+new `rule_version_id` (a content hash), so past alerts stay attributable to the exact
+rules that produced them and retuning can never silently reinterpret history.
+
+## Deploying
+
+1. Create a Neon project; copy the pooled connection string.
+2. Add it as the `DATABASE_URL` secret in **Settings → Secrets → Actions**.
+3. Push. `.github/workflows/collect.yml` polls every 30 min Fri–Sun and every 3 h Mon–Thu.
+
+Two operational gotchas:
+
+- **Scheduled workflows auto-disable after 60 days of repository inactivity.** A quiet
+  offseason will silently stop collection.
+- **Neon free-tier projects pause when idle.** The cron keeps it warm; a long gap
+  between runs means the first one after it may be slow.
+
+## What this deliberately does not claim
+
+ESPN exposes exactly **one** sportsbook (DraftKings). With one book there is no price to
+shop against and no consensus to measure against, so:
+
+- **No +EV claims.** Expected value needs a price better than fair. Nothing here can
+  establish what fair is.
+- **`move_strength` is not a probability.** It is a bounded 0–99 ordering device over how
+  unusual a move is. It becomes a probability only after `calibration.py` has fitted it
+  against enough settled games, and only for buckets that clear their baselines.
+- **Line value is not CLV.** Closing-line value compares against a sharp consensus. What
+  is measured here is whether DraftKings' own line kept moving the way the alert said —
+  a real, checkable statistic, and a weaker claim.
+- **The closing number is a proxy.** It is the last quote observed before kickoff, not a
+  verified close.
+
+The expected finding is that these alerts show **no durable edge** — line movement in a
+liquid market is mostly efficient. The system is built to detect that and say so. A
+tracker that could only ever confirm itself would be worthless.
+
+## Verified against live data (2026-09-06)
+
+Findings that shaped the code, all reproducible:
+
+| Finding | Consequence |
+|---|---|
+| `site.api.espn.com` 403s bare HTTP clients | Needs the fetch-metadata/client-hint header group. The honest User-Agent is fine |
+| Scoreboard `limit=1000` returns 25 events; `limit=300` returns 80 | Silent 70% truncation of NCAAF |
+| Unpriced games return `pageIndex: 0` | Was read as a pagination error, pinning every run at exit 2 |
+| ESPN returns one book for both leagues | No shopping, no CLV, no +EV |
+| NCAAF priced coverage: 59% at 6 days, 6% at 13 days | Poll inside the game week |
+| NFL coverage: 13/13 events, 100% priced | Clean control group |
+
+See [docs/VALIDATION.md](docs/VALIDATION.md) for the full record.

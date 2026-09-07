@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0f16;
+  --color-panel: #131a25;
+  --color-edge: #1f2937;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ink);
+  color: #e2e8f0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The board and history tables scroll inside themselves; the page never scrolls
+   sideways, which on a phone is the difference between usable and not. */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Keep the bottom tab bar clear of the iPhone home indicator. */
+.safe-bottom {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

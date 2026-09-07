@@ -1,0 +1,8 @@
+# Collector runtime
+duckdb>=1.0          # local dev store
+pytz                 # duckdb needs it to hand TIMESTAMPTZ back to Python
+psycopg[binary]>=3.1 # Neon Postgres store
+tzdata               # required: Windows has no system tz database for ZoneInfo
+
+# Dev / test
+pytest>=8.0
