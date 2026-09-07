@@ -124,3 +124,58 @@ test("sides with neither line nor price are skipped, not quoted as null", () => 
   assert.equal(quotes.length, 2);
   assert.ok(quotes.every((q) => q.market === "spread"));
 });
+
+// --- staleness -------------------------------------------------------------------
+
+test("a quote older than the freshness window is marked stale", () => {
+  const old = row({ observed_at: "2026-09-10T12:00:00Z" });
+  const quotes = quotesForGame(GAME, [old], "DraftKings", new Date("2026-09-12T13:00:00Z"));
+  assert.equal(quotes.find((q) => q.book === "BetMGM")!.stale, true);
+  assert.equal(quotes.find((q) => q.book === "DraftKings")!.stale, false);
+});
+
+test("a stale quote is kept out of the consensus", () => {
+  // Two books disagree by 2 points, but MGM's number is two days old. Pricing it as a
+  // live disagreement would report an edge that is really just elapsed time.
+  const stale = [
+    row({ observed_at: "2026-09-10T12:00:00Z", line: 0.5 }),
+    row({ quote_id: "q2", observed_at: "2026-09-10T12:00:00Z", side: "away", line: -0.5 }),
+  ];
+  const rows = shopAll(
+    quotesForGame(GAME, stale, "DraftKings", new Date("2026-09-12T13:00:00Z")),
+    NFL,
+  );
+  const mgm = rows.find((r) => r.book === "BetMGM" && r.market === "spread" && r.side === "home")!;
+  assert.equal(mgm.stale, true);
+  assert.equal(mgm.expectedRoi, null, "a stale quote is not priced");
+
+  // And DraftKings is back to standing alone, rather than being handed a phantom rival.
+  const dk = rows.find((r) => r.book === "DraftKings" && r.market === "spread" && r.side === "home")!;
+  assert.equal(dk.booksCompared, 0);
+});
+
+test("a stale quote is still returned so the page can say a book was checked", () => {
+  const quotes = quotesForGame(
+    GAME,
+    [row({ observed_at: "2026-09-01T12:00:00Z" })],
+    "DraftKings",
+    new Date("2026-09-12T13:00:00Z"),
+  );
+  assert.ok(quotes.some((q) => q.book === "BetMGM"));
+});
+
+test("a fresh quote is unaffected", () => {
+  const rows = shopAll(
+    quotesForGame(
+      GAME,
+      [row({ observed_at: "2026-09-12T12:30:00Z", line: 0.5 }),
+       row({ quote_id: "q2", observed_at: "2026-09-12T12:30:00Z", side: "away", line: -0.5 })],
+      "DraftKings",
+      new Date("2026-09-12T13:00:00Z"),
+    ),
+    NFL,
+  );
+  const mgm = rows.find((r) => r.book === "BetMGM" && r.market === "spread" && r.side === "home")!;
+  assert.equal(mgm.stale, false);
+  assert.ok(mgm.expectedRoi! > 0);
+});

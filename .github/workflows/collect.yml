@@ -86,6 +86,26 @@ jobs:
             { code=$?; [ $code -eq 3 ] && echo "no NFL data this window" || exit $code; }
 
       # Cheap (one request per date) and it is what the learning loop grades against.
+      # A second book, so the board has something to disagree with. ESPN returns only
+      # DraftKings, and a book cannot disagree with itself -- which is why the Edges
+      # page correctly reports zero.
+      #
+      # No cron of its own: the free tier is 500 credits a month and this workflow ticks
+      # every 30 minutes in game weeks, so the module decides for itself whether a poll
+      # is worth a credit (often near kickoff, rarely midweek) and backs off as the
+      # budget runs down. A second schedule would be one more thing to keep in sync, and
+      # Actions minutes are nearly spent.
+      #
+      # Skips cleanly with exit 3 when ODDS_API_KEY is unset, like the notify step.
+      - name: Shop other books for a second opinion
+        continue-on-error: true
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          for league in ncaaf nfl; do
+            python collector/shop_lines.py --league $league --postgres ||               { code=$?; [ $code -eq 3 ] && echo "no shop data for $league" || exit $code; }
+          done
+
       - name: Capture final scores
         run: |
           for league in ncaaf nfl; do

@@ -25,8 +25,9 @@ export function LineShop({
   homeTeam: string;
   awayTeam: string;
 }) {
-  const comparable = rows.filter((row) => row.booksCompared > 0);
+  const comparable = rows.filter((row) => row.booksCompared > 0 || row.stale);
   const positive = comparable.filter((row) => (row.expectedRoi ?? -1) > 0);
+  const books = new Set(rows.map((row) => row.book)).size;
 
   if (comparable.length === 0) {
     return (
@@ -53,7 +54,8 @@ export function LineShop({
             positive.length > 0 ? "text-emerald-300" : "text-slate-500"
           }`}
         >
-          {positive.length} beat{positive.length === 1 ? "s" : ""} the vig
+          {books} book{books === 1 ? "" : "s"} &middot; {positive.length} beat
+          {positive.length === 1 ? "s" : ""} the vig
         </span>
       </div>
 
@@ -70,9 +72,11 @@ export function LineShop({
                   good ? "bg-emerald-500/12 text-emerald-300" : "bg-slate-700/40 text-slate-500"
                 }`}
               >
-                {row.expectedRoi === null
-                  ? "—"
-                  : `${row.expectedRoi > 0 ? "+" : ""}${(row.expectedRoi * 100).toFixed(1)}%`}
+                {row.stale
+                  ? "old"
+                  : row.expectedRoi === null
+                    ? "—"
+                    : `${row.expectedRoi > 0 ? "+" : ""}${(row.expectedRoi * 100).toFixed(1)}%`}
               </span>
 
               <div className="min-w-0 flex-1">
@@ -98,7 +102,11 @@ export function LineShop({
                       {row.advantagePoints.toFixed(1)} pts
                     </span>
                   ) : null}
-                  <span>vs {row.booksCompared}</span>
+                  {row.stale ? (
+                    <span className="text-amber-400/80">stale &mdash; not counted</span>
+                  ) : (
+                    <span>vs {row.booksCompared}</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -111,6 +119,12 @@ export function LineShop({
         itself. A point of line is worth about 3.2 points of win probability in the NFL
         and 2.6 in college, against the 2.4 that &minus;110 charges &mdash; so a
         one-point disagreement clears the vig and half a point does not.
+      </p>
+
+      <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
+        A quote older than a day is shown but left out of every consensus. Books move,
+        and a gap against a number nobody is offering any more is elapsed time, not an
+        edge.
       </p>
     </Card>
   );

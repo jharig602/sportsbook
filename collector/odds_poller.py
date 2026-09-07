@@ -21,7 +21,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -33,6 +33,16 @@ SITE_API = "https://site.api.espn.com/apis/site/v2/sports"
 CORE_API = "https://sports.core.api.espn.com/v2/sports"
 CFBD_API = "https://api.collegefootballdata.com/lines"
 ESPN_HOSTS = {"site.api.espn.com", "sports.core.api.espn.com"}
+ODDS_API_HOST = "api.the-odds-api.com"
+
+#: Hosts each source is permitted to reach. A source absent from this map can fetch
+#: nothing at all, which is the safe default: ESPN hands back ``$ref`` URLs pointing
+#: wherever it likes, and the allowlist is what stops one being followed off-site.
+SOURCE_HOSTS = {
+    "espn": ESPN_HOSTS,
+    "cfbd": {"api.collegefootballdata.com"},
+    "oddsapi": {ODDS_API_HOST},
+}
 # site.api.espn.com sits behind bot management that rejects bare HTTP clients with an
 # empty-body 403 (sports.core.api.espn.com does not). Verified 2026-09-06: the honest
 # User-Agent below is accepted; what the edge actually requires is this fetch-metadata /
@@ -364,6 +374,38 @@ class FetchResult:
     response_id: str
     received_at: datetime
     status_code: int
+    #: The filtered response headers, so a caller can read a rate-limit budget without
+    #: re-reading the raw row. Empty for sources that send nothing interesting.
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+#: Query parameters whose value is a credential and must never be stored.
+#:
+#: Some APIs take their key in the query string rather than a header -- The Odds API is
+#: one -- and ``fetch`` writes the request URL onto every raw row before it parses
+#: anything. Without this the key would be persisted, in plain text, on every single
+#: request, in a table the web app reads. Matched case-insensitively because the same
+#: parameter is spelled ``apiKey``, ``api_key`` and ``key`` across providers.
+SECRET_QUERY_PARAMS = {"apikey", "api_key", "key", "token", "access_token", "secret"}
+
+REDACTED = "REDACTED"
+
+
+def redact_url(url: str) -> str:
+    """Blank out credential-bearing query parameters, keeping the URL readable.
+
+    Applied to what is stored and logged, never to what is requested. The parameter
+    name survives so the raw row still shows that a key was sent and which one.
+    """
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    if not any(name.lower() in SECRET_QUERY_PARAMS for name, _ in pairs):
+        return url
+    cleaned = [(name, REDACTED if name.lower() in SECRET_QUERY_PARAMS else value)
+               for name, value in pairs]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(cleaned), parts.fragment))
 
 
 def http_request(url: str, headers: dict[str, str], timeout: float) -> tuple[int, dict, bytes]:
@@ -389,7 +431,7 @@ class HttpClient:
     def fetch(self, url: str, source: str, params: dict | None = None,
               allow_404: bool = False) -> FetchResult | None:
         parts = urlsplit(url)
-        allowed = ESPN_HOSTS if source == "espn" else {"api.collegefootballdata.com"}
+        allowed = SOURCE_HOSTS.get(source, set())
         if parts.hostname not in allowed or parts.scheme not in {"http", "https"} or parts.username:
             self.ctx.issue(source, "invalid_reference", "Refused a reference outside the source hosts.")
             return None
@@ -420,8 +462,14 @@ class HttpClient:
             received = self.clock()
             safe_headers = {k.lower(): str(v) for k, v in response_headers.items()
                             if k.lower() in {"date", "age", "cache-control", "content-type", "etag",
-                                             "last-modified", "retry-after"}}
-            raw = RawResponse(new_id(), self.ctx.run_id, source, url, started, received,
+                                             "last-modified", "retry-after",
+                                             # Metered APIs report the remaining budget
+                                             # here. Kept so spend is auditable from the
+                                             # raw row rather than guessed at.
+                                             "x-requests-remaining", "x-requests-used"}}
+            # The URL is stored, so it is stored redacted. `url` itself stays intact --
+            # the request has to carry the real key.
+            raw = RawResponse(new_id(), self.ctx.run_id, source, redact_url(url), started, received,
                               attempt, status, json.dumps(safe_headers), body,
                               hashlib.sha256(body).hexdigest(), error_kind)
             # Autocommit the complete bytes BEFORE attempting JSON/schema parsing.
@@ -433,7 +481,7 @@ class HttpClient:
                     self.ctx.issue(source, "non_json", "Response is not valid JSON; full bytes retained.",
                                    response_id=raw.response_id)
                     return None
-                return FetchResult(data, raw.response_id, received, status)
+                return FetchResult(data, raw.response_id, received, status, safe_headers)
             if status == 404 and allow_404:
                 self.ctx.count(source, "odds_not_found")
                 return None

@@ -19,6 +19,16 @@ import type { Game, Market, Side } from "./types";
 
 export const MANUAL_SOURCE = "manual";
 
+/**
+ * How old a quote may be and still price against the current board.
+ *
+ * Books move. A number recorded on Tuesday is not a second opinion about Sunday's
+ * line, it is a stale one, and the gap it opens against a live quote reads as an edge
+ * when it is only elapsed time. Twenty-four hours is generous for a hand-typed entry
+ * and comfortably longer than the feed's own polling interval near kickoff.
+ */
+export const FRESHNESS_HOURS = 24;
+
 export interface BookLineRow {
   quote_id: string;
   observed_at: string;
@@ -142,7 +152,17 @@ export function quotesForGame(
   game: Game | undefined,
   stored: BookLineRow[],
   feedBook = "DraftKings",
+  now: Date = new Date(),
 ): BookQuote[] {
+  const cutoff = now.getTime() - FRESHNESS_HOURS * 3600 * 1000;
+  const isStale = (observedAt: string | null | undefined) => {
+    if (!observedAt) return false;
+    const seen = new Date(observedAt).getTime();
+    // An unparseable timestamp is not evidence of staleness; leaving it in is the
+    // lesser error, and the row still shows when it claims to have been seen.
+    return Number.isFinite(seen) && seen < cutoff;
+  };
+
   const quotes: BookQuote[] = [];
 
   if (game) {
@@ -158,6 +178,7 @@ export function quotesForGame(
           price: quote.price,
           oppositePrice: book[OPPOSITE[side]]?.price ?? null,
           observedAt: game.lastObserved,
+          stale: isStale(game.lastObserved),
         });
       }
     }
@@ -185,6 +206,7 @@ export function quotesForGame(
       price: row.price,
       oppositePrice: opposite?.price ?? null,
       observedAt: row.observed_at,
+      stale: isStale(row.observed_at),
     });
   }
 

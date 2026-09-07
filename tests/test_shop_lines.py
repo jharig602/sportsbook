@@ -1,0 +1,315 @@
+"""The Odds API feed.
+
+The most important test in this file is the one asserting the API key never reaches
+storage. The provider takes its key as a query parameter and the collector persists
+every request URL, so without redaction the key would be written to the database on
+every single poll.
+"""
+import contextlib
+import io
+import json
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+import odds_poller as op
+import shop_lines as sl
+from helpers import FakeHttp
+
+UTC = timezone.utc
+NOW = datetime(2026, 9, 12, 18, 0, tzinfo=UTC)
+KICK = NOW + timedelta(hours=2)
+KEY = "super-secret-key-value"
+
+BASE_ARGV = ["--league", "nfl", "--dry-run"]
+
+
+def outcome(name, price, point=None):
+    row = {"name": name, "price": price}
+    if point is not None:
+        row["point"] = point
+    return row
+
+
+def feed_event(key="fe1", home="Houston Texans", away="Chicago Bears",
+               commence=None, books=None):
+    return {
+        "id": key,
+        "sport_key": "americanfootball_nfl",
+        "commence_time": (commence or KICK).isoformat().replace("+00:00", "Z"),
+        "home_team": home,
+        "away_team": away,
+        "bookmakers": books if books is not None else [
+            {"key": "betmgm", "title": "BetMGM", "markets": [
+                {"key": "spreads", "outcomes": [outcome(home, -110, -1.0),
+                                                outcome(away, -110, 1.0)]},
+                {"key": "h2h", "outcomes": [outcome(home, -120), outcome(away, 100)]},
+                {"key": "totals", "outcomes": [outcome("Over", -110, 44.5),
+                                               outcome("Under", -110, 44.5)]},
+            ]},
+        ],
+    }
+
+
+def run(routes, argv=BASE_ARGV, *, key=KEY, games=None, last=None, monkeypatch=None):
+    """Drive main() with a fake transport and a fake board."""
+    http = FakeHttp(routes, default=[])
+    if monkeypatch is not None:
+        monkeypatch.setenv("ODDS_API_KEY", key)
+        monkeypatch.setattr(sl, "upcoming_games", lambda *a, **k: games or [])
+        monkeypatch.setattr(sl, "last_polled", lambda *a, **k: last)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = sl.main(argv, request_fn=http, sleep_fn=lambda _s: None, clock=lambda: NOW)
+    summary = {}
+    for line in buffer.getvalue().splitlines():
+        with contextlib.suppress(ValueError):
+            payload = json.loads(line)
+            if payload.get("type") == "shop_summary":
+                summary = payload
+    return code, summary, http
+
+
+def board(home="Houston Texans", away="Chicago Bears", key="401", at=None):
+    from team_match import Candidate
+    return [Candidate(key, home, away, at or KICK)]
+
+
+# --- the key must never be stored -------------------------------------------------
+
+def test_redact_url_blanks_the_key_but_keeps_the_url_readable():
+    url = f"https://api.the-odds-api.com/v4/sports/x/odds?apiKey={KEY}&regions=us"
+    redacted = op.redact_url(url)
+    assert KEY not in redacted
+    assert "apiKey=REDACTED" in redacted
+    assert "regions=us" in redacted
+
+
+def test_redact_url_leaves_a_url_without_secrets_alone():
+    url = "https://site.api.espn.com/scoreboard?limit=300&groups=80"
+    assert op.redact_url(url) == url
+
+
+@pytest.mark.parametrize("param", ["apiKey", "api_key", "key", "token"])
+def test_every_spelling_of_a_key_parameter_is_redacted(param):
+    assert KEY not in op.redact_url(f"https://api.the-odds-api.com/v4/x?{param}={KEY}")
+
+
+def test_the_stored_raw_row_carries_no_key(monkeypatch):
+    _, _, http = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
+    # It must genuinely have been sent...
+    assert any(KEY in url for url, _ in http.calls), "the request itself needs the key"
+
+
+def test_the_key_reaches_the_request_but_not_the_store(monkeypatch, tmp_path):
+    """The whole point, end to end: sent on the wire, absent from every stored row."""
+    monkeypatch.setenv("ODDS_API_KEY", KEY)
+    store = op.MemoryStore()
+    ctx = op.Context(store, "nfl", "pregame", NOW, NOW + timedelta(days=1))
+    http = FakeHttp({"the-odds-api": [feed_event()]}, default=[])
+    client = op.HttpClient(ctx, request_fn=http, sleep_fn=lambda _s: None)
+    client.fetch(f"https://{op.ODDS_API_HOST}/v4/sports/x/odds", "oddsapi",
+                 params={"apiKey": KEY, "regions": "us"})
+
+    assert any(KEY in url for url, _ in http.calls)
+    for raw in store.raw:
+        assert KEY not in raw.url, "the API key was written to raw_responses"
+        assert "apiKey=REDACTED" in raw.url
+
+
+# --- host allowlist ---------------------------------------------------------------
+
+def test_the_feed_host_is_reachable_and_others_are_not():
+    assert op.SOURCE_HOSTS["oddsapi"] == {op.ODDS_API_HOST}
+    store = op.MemoryStore()
+    ctx = op.Context(store, "nfl", "pregame", NOW, NOW + timedelta(days=1))
+    client = op.HttpClient(ctx, request_fn=FakeHttp({}, default=[]), sleep_fn=lambda _s: None)
+    assert client.fetch("https://evil.example.com/v4/odds", "oddsapi") is None
+    assert ctx.errors == 1
+
+
+# --- quota ------------------------------------------------------------------------
+
+def test_the_remaining_credit_count_survives_into_the_summary(monkeypatch):
+    class QuotaHttp(FakeHttp):
+        def __call__(self, url, headers, timeout):
+            self.calls.append((url, headers))
+            return (200, {"x-requests-remaining": "417", "x-requests-used": "83"},
+                    json.dumps([feed_event()]).encode())
+
+    monkeypatch.setenv("ODDS_API_KEY", KEY)
+    monkeypatch.setattr(sl, "upcoming_games", lambda *a, **k: board())
+    monkeypatch.setattr(sl, "last_polled", lambda *a, **k: None)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        sl.main(BASE_ARGV, request_fn=QuotaHttp({}), sleep_fn=lambda _s: None, clock=lambda: NOW)
+    summary = json.loads(buffer.getvalue().strip().splitlines()[-1])
+    assert summary["credits_remaining"] == 417
+
+
+def test_an_exhausted_budget_stops_the_poll_entirely():
+    poll, reason = sl.should_poll(board(), None, NOW, credits_left=12)
+    assert poll is False
+    assert "12 credits left" in reason
+
+
+def test_a_low_budget_still_polls_a_game_about_to_start():
+    soon = board(at=NOW + timedelta(hours=2))
+    assert sl.should_poll(soon, None, NOW, credits_left=60)[0] is True
+
+
+def test_a_low_budget_declines_a_game_days_away():
+    far = board(at=NOW + timedelta(days=3))
+    poll, reason = sl.should_poll(far, None, NOW, credits_left=60)
+    assert poll is False
+    assert "saving them" in reason
+
+
+# --- throttling -------------------------------------------------------------------
+
+def test_a_recent_poll_blocks_another_one():
+    poll, reason = sl.should_poll(board(), NOW - timedelta(minutes=30), NOW, None)
+    assert poll is False
+    assert "0.5h ago" in reason
+
+
+def test_near_kickoff_the_interval_is_short():
+    # Two hours out, a three-hour-old poll is stale enough to refresh.
+    assert sl.should_poll(board(), NOW - timedelta(hours=4), NOW, None)[0] is True
+
+
+def test_midweek_the_interval_is_long():
+    far = board(at=NOW + timedelta(days=4))
+    assert sl.should_poll(far, NOW - timedelta(hours=4), NOW, None)[0] is False
+    assert sl.should_poll(far, NOW - timedelta(hours=30), NOW, None)[0] is True
+
+
+def test_an_empty_board_is_never_worth_a_credit():
+    poll, reason = sl.should_poll([], None, NOW, None)
+    assert poll is False
+    assert "no upcoming games" in reason
+
+
+def test_a_league_never_polled_is_polled():
+    assert sl.should_poll(board(), None, NOW, None)[0] is True
+
+
+# --- parsing ----------------------------------------------------------------------
+
+def test_outcomes_map_onto_our_sides_and_markets(monkeypatch):
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
+    assert summary["matched"] == 1
+    assert summary["books"] == 1
+
+
+def test_the_home_teams_point_becomes_the_home_line():
+    store = op.MemoryStore()
+    ctx = op.Context(store, "nfl", "pregame", NOW, NOW + timedelta(days=1))
+    rows = sl.quotes_from_event(feed_event(), "401", "nfl", NOW, ctx)
+    by = {(r[5], r[6]): r for r in rows}
+    assert by[("spread", "home")][7] == -1.0
+    assert by[("spread", "away")][7] == 1.0
+    assert by[("moneyline", "home")][8] == -120
+    assert by[("moneyline", "home")][7] is None
+    assert by[("total", "over")][7] == 44.5
+    assert by[("total", "under")][6] == "under"
+
+
+def test_every_row_declares_the_feed_as_its_source():
+    store = op.MemoryStore()
+    ctx = op.Context(store, "nfl", "pregame", NOW, NOW + timedelta(days=1))
+    rows = sl.quotes_from_event(feed_event(), "401", "nfl", NOW, ctx)
+    assert rows and all(row[9] == "oddsapi" for row in rows)
+    assert all(row[3] == "401" for row in rows), "rows must carry the ESPN event id"
+
+
+def test_an_outcome_naming_neither_team_is_refused_not_guessed():
+    store = op.MemoryStore()
+    ctx = op.Context(store, "nfl", "pregame", NOW, NOW + timedelta(days=1))
+    event = feed_event(books=[{"key": "x", "title": "X", "markets": [
+        {"key": "spreads", "outcomes": [outcome("Some Other Team", -110, -3.0)]}]}])
+    rows = sl.quotes_from_event(event, "401", "nfl", NOW, ctx)
+    assert rows == []
+    assert ctx.stats["oddsapi"]["unknown_outcome"] == 1
+
+
+def test_an_unpriced_outcome_is_skipped_rather_than_stored_as_null():
+    store = op.MemoryStore()
+    ctx = op.Context(store, "nfl", "pregame", NOW, NOW + timedelta(days=1))
+    event = feed_event(books=[{"key": "x", "title": "X", "markets": [
+        {"key": "spreads", "outcomes": [outcome("Houston Texans", None, None)]}]}])
+    assert sl.quotes_from_event(event, "401", "nfl", NOW, ctx) == []
+
+
+# --- matching is reported ----------------------------------------------------------
+
+def test_an_unmatched_game_is_a_warning_and_is_named(monkeypatch):
+    _, summary, _ = run(
+        {"the-odds-api": [feed_event(home="Nowhere State Foxes", away="Elsewhere Owls")]},
+        games=board(), monkeypatch=monkeypatch,
+    )
+    assert summary["unmatched"] == 1
+    assert summary["matched"] == 0
+    # A coverage gap, not a broken run -- but it must be visible.
+    assert summary["errors"] == 0
+    assert summary["warnings"] == 1
+    assert "Nowhere State Foxes" in summary["unmatched_detail"]
+
+
+def test_a_clean_slate_reports_no_unmatched(monkeypatch):
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
+    assert summary["unmatched"] == 0
+    assert summary["warnings"] == 0
+
+
+# --- run mechanics ----------------------------------------------------------------
+
+def test_a_missing_key_skips_quietly_rather_than_failing(monkeypatch):
+    monkeypatch.delenv("ODDS_API_KEY", raising=False)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = sl.main(BASE_ARGV, request_fn=FakeHttp({}), sleep_fn=lambda _s: None)
+    assert code == 3, "an unconfigured optional feature is not an error"
+    assert "not set" in json.loads(buffer.getvalue().strip().splitlines()[-1])["reason"]
+
+
+def test_a_rejected_key_exits_two(monkeypatch):
+    code, summary, _ = run({"the-odds-api": 401}, games=board(), monkeypatch=monkeypatch)
+    assert code == 2
+    assert summary["errors"] >= 1
+
+
+def test_a_dry_run_writes_nothing(monkeypatch):
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
+    assert summary["written"] == 0
+    assert summary["matched"] == 1
+
+
+def test_an_empty_feed_exits_three(monkeypatch):
+    code, summary, _ = run({"the-odds-api": []}, games=board(), monkeypatch=monkeypatch)
+    assert code == 3
+    assert summary["polled"] is True
+
+
+def test_the_request_asks_for_the_markets_we_pay_for(monkeypatch):
+    _, _, http = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
+    url = http.calls[0][0]
+    assert "regions=us" in url
+    assert "oddsFormat=american" in url
+    for market in ("h2h", "spreads", "totals"):
+        assert market in url
+
+
+def test_the_summary_explains_itself_even_when_it_does_nothing(monkeypatch):
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board(),
+                        last=NOW - timedelta(minutes=10), monkeypatch=monkeypatch)
+    assert summary["polled"] is False
+    assert summary["reason"]
+
+
+def test_force_overrides_the_throttle(monkeypatch):
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, argv=BASE_ARGV + ["--force"],
+                        games=board(), last=NOW - timedelta(minutes=10),
+                        monkeypatch=monkeypatch)
+    assert summary["polled"] is True
+    assert summary["reason"] == "forced"

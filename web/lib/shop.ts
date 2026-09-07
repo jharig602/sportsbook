@@ -30,6 +30,16 @@ export interface BookQuote {
   /** Price on the opposite side at the same book, needed to de-vig. */
   oppositePrice?: number | null;
   observedAt?: string;
+  /**
+   * Too old to price against today's board.
+   *
+   * A quote from Tuesday sitting in Sunday's consensus does not merely add noise, it
+   * adds a number the market has already moved past, and the gap it opens up reads as
+   * an edge. Stale quotes are therefore kept out of every consensus -- but still
+   * returned, so the page can say a book was checked and when, rather than quietly
+   * showing a thinner board than was actually observed.
+   */
+  stale?: boolean;
 }
 
 export interface ShopResult {
@@ -51,6 +61,7 @@ export interface ShopResult {
   /** Expected return per dollar staked. Negative means the vig eats it. */
   expectedRoi: number | null;
   booksCompared: number;
+  stale: boolean;
   note: string;
 }
 
@@ -122,7 +133,8 @@ export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopRe
   const density = model ? pointsToProbability(model) : 0;
 
   return quotes.map((quote) => {
-    const others = quotes.filter((q) => q.book !== quote.book);
+    // A stale quote never becomes anyone's reference.
+    const others = quotes.filter((q) => q.book !== quote.book && !q.stale);
     const base: ShopResult = {
       book: quote.book,
       market: quote.market,
@@ -136,8 +148,13 @@ export function shopSide(quotes: BookQuote[], model: MarginModel | null): ShopRe
       breakEven: impliedProbability(quote.price ?? null),
       expectedRoi: null,
       booksCompared: others.length,
+      stale: quote.stale === true,
       note: "",
     };
+
+    if (quote.stale) {
+      return { ...base, note: "Last seen too long ago to price against the current board." };
+    }
 
     if (others.length === 0) {
       return { ...base, note: "Only one book has this line; nothing to compare against." };
