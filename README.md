@@ -79,12 +79,44 @@ rules that produced them and retuning can never silently reinterpret history.
 
 ## Deploying
 
-1. Create a Neon project; copy the pooled connection string.
-2. Add it as the `DATABASE_URL` secret in **Settings → Secrets → Actions**.
-3. Push. `.github/workflows/collect.yml` polls every 30 min Fri–Sun and every 3 h Mon–Thu.
+### The web app (Vercel)
 
-Two operational gotchas:
+**Set Root Directory to `web`.** It lives under *Settings → Build and Deployment*, not
+General. Miss it and Vercel builds from the repo root, finds no Next.js app, and deploys
+an empty output — every route 404s including static files like `/sw.js`, while the build
+itself reports success. That symptom means this setting, essentially always.
 
+The database comes from the Vercel Neon integration (*Storage → Create Database*). It
+injects the connection variables itself. If it asks for a variable-name prefix, something
+called `DATABASE_URL` already exists in that project — check you are in the right project
+before accepting a prefix, because an existing `DATABASE_URL` takes priority over a
+prefixed one and the app would use the stale value.
+
+Then add the push variables by hand: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_SUBJECT`, `ALERT_DISPATCH_SECRET`, `ALERT_MIN_STRENGTH`.
+
+**Check it worked** on the Board, top right: `db · DATABASE_URL` means connected;
+`sample data` with an amber banner means it is serving the bundled fixture.
+
+### The collector (GitHub Actions)
+
+The Vercel integration only feeds Vercel, so the collector needs its own copy of the
+connection string.
+
+1. Copy the **pooled** Neon string (it has `-pooler` in the hostname).
+2. Add these in **Settings → Secrets and variables → Actions**:
+   - `DATABASE_URL` — exactly this name; the Python collector has no prefix fallback
+   - `APP_URL` — the Vercel URL, no trailing slash (enables notifications)
+   - `ALERT_DISPATCH_SECRET` — the same value set in Vercel
+3. Run the workflow manually once. Look for `"events_discovered": 80` on the NCAAF step.
+
+`.github/workflows/collect.yml` then polls every 30 min Fri–Sun and every 3 h Mon–Thu.
+
+### Operational gotchas
+
+- **Vercel Deployment Protection** blocks the whole site behind a login, including
+  `/api/dispatch-alerts`. Notifications fail silently and the app will not open on a
+  phone. Turn it off for production, or restrict it to preview deployments.
 - **Scheduled workflows auto-disable after 60 days of repository inactivity.** A quiet
   offseason will silently stop collection.
 - **Neon free-tier projects pause when idle.** The cron keeps it warm; a long gap
