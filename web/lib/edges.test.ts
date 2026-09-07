@@ -131,3 +131,36 @@ test("the model does not systematically favour the home side", () => {
     `every edge favoured the home side (${homeSides}/${edges.length})`,
   );
 });
+
+test("expected return prices the vig, not just the edge", () => {
+  // A coin flip at -110 must be a losing bet even though the "edge" is zero.
+  const g = game({
+    spread: { home: { line: 0, price: -110 }, away: { line: 0, price: -110 } },
+    moneyline: { home: { line: null, price: -110 }, away: { line: null, price: -110 } },
+  });
+  const [edge] = buildEdges([g], { nfl: model() });
+  assert.ok(edge.expectedRoi < 0, `a -110 coin flip must lose money, got ${edge.expectedRoi}`);
+  assert.ok(Math.abs(edge.breakEven - 0.5238) < 0.001, "break-even at -110 is 52.4%");
+});
+
+test("break-even follows the price", () => {
+  const at130 = buildEdges(
+    [game({ moneyline: { home: { line: null, price: 130 }, away: { line: null, price: -160 } } })],
+    { nfl: model() },
+  )[0];
+  assert.ok(Math.abs(at130.breakEven - 0.4348) < 0.001, "break-even at +130 is 43.5%");
+});
+
+test("expected return uses the shrunk probability, not the raw one", () => {
+  // Two identical games: shrinkage is estimated across the board, so a lone row with a
+  // big raw edge should still price close to break-even once shrunk.
+  const g = game({
+    spread: { home: { line: -10, price: -110 }, away: { line: 10, price: -110 } },
+    moneyline: { home: { line: null, price: -110 }, away: { line: null, price: -110 } },
+  });
+  const [edge] = buildEdges([g, { ...g, eventId: "E2" }], { nfl: model() });
+  assert.ok(
+    edge.expectedRoi < edge.edgePoints / 100,
+    "raw edge must not flow straight through to expected return",
+  );
+});

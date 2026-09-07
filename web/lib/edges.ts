@@ -45,6 +45,18 @@ export interface Edge {
   shrunkEdgePoints: number;
   /** True when the edge exceeds the model's own sampling noise. */
   outsideNoise: boolean;
+  /**
+   * Expected return per dollar staked, using the *shrunk* probability against the price
+   * actually offered.
+   *
+   * A positive edge is not a profitable bet. The edge compares the model against a
+   * de-vigged market, but you pay the vig: at -110 you need 52.4% to break even while a
+   * de-vigged coin flip is 50%, so roughly 2.4 points of edge buys you nothing at all.
+   * This is the number that answers "is this worth betting", and it is usually negative.
+   */
+  expectedRoi: number;
+  /** Break-even probability implied by the price, vig included. */
+  breakEven: number;
   games: number;
 }
 
@@ -107,6 +119,8 @@ export function buildEdges(
       edgePoints,
       standardErrorPoints: error,
       shrunkEdgePoints: 0, // filled in below, once the whole board is known
+      expectedRoi: 0,
+      breakEven: 0,
       outsideNoise: edgePoints > error,
       games: model.games,
     });
@@ -121,6 +135,17 @@ export function buildEdges(
   );
   for (const edge of edges) {
     edge.shrunkEdgePoints = shrink(edge.edgePoints, shrinkage);
+
+    // Rebuild the probability from the shrunk edge, then price it. Using the raw model
+    // probability here would quietly undo the shrinkage at the last step.
+    const shrunkProbability = Math.min(
+      0.999,
+      Math.max(0.001, edge.market + (edge.side === "home" ? 1 : 1) * edge.shrunkEdgePoints / 100),
+    );
+    const decimal =
+      edge.price > 0 ? 1 + edge.price / 100 : 1 + 100 / -edge.price;
+    edge.breakEven = 1 / decimal;
+    edge.expectedRoi = shrunkProbability * (decimal - 1) - (1 - shrunkProbability);
   }
 
   return edges.sort((a, b) => b.shrunkEdgePoints - a.shrunkEdgePoints);

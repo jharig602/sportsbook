@@ -13,14 +13,15 @@ function EdgeRow({ edge }: { edge: Edge }) {
     <Card href={`/game/${edge.eventId}`} className="px-3 py-2.5">
       <div className="flex items-start gap-2.5">
         <div
-          className={`tabular flex h-11 w-14 shrink-0 flex-col items-center justify-center rounded-lg text-[15px] font-semibold ${
-            edge.outsideNoise
+          className={`tabular flex h-11 w-16 shrink-0 flex-col items-center justify-center rounded-lg text-[14px] font-semibold ${
+            edge.expectedRoi > 0
               ? "bg-emerald-500/12 text-emerald-300"
               : "bg-slate-700/40 text-slate-500"
           }`}
         >
-          +{edge.shrunkEdgePoints.toFixed(1)}
-          <span className="text-[9px] font-normal opacity-70">pts</span>
+          {edge.expectedRoi > 0 ? "+" : ""}
+          {(edge.expectedRoi * 100).toFixed(1)}%
+          <span className="text-[9px] font-normal opacity-70">return</span>
         </div>
 
         <div className="min-w-0 flex-1">
@@ -40,16 +41,21 @@ function EdgeRow({ edge }: { edge: Edge }) {
             <Pill>{formatLeague(edge.league)}</Pill>
             <span>market {formatPercent(edge.market, 1)}</span>
             <span>model {formatPercent(edge.model, 1)}</span>
-            <span title="What was observed, before correcting for the winner's curse">
+            <span title="Edge after correcting for the winner's curse">
+              edge +{edge.shrunkEdgePoints.toFixed(1)}
+            </span>
+            <span title="What was observed, before that correction">
               raw {edge.edgePoints.toFixed(1)}
             </span>
-            <span>&plusmn;{edge.standardErrorPoints.toFixed(1)} noise</span>
+            <span title="Win rate needed just to break even at this price">
+              need {formatPercent(edge.breakEven, 1)}
+            </span>
             <span>{formatKickoff(edge.commenceTime)}</span>
           </div>
 
-          {!edge.outsideNoise ? (
+          {edge.expectedRoi <= 0 ? (
             <p className="mt-1 text-[10px] text-slate-600">
-              Inside the model&rsquo;s own margin of error &mdash; not a finding.
+              The edge does not cover the vig at this price.
             </p>
           ) : null}
         </div>
@@ -68,7 +74,7 @@ export default async function EdgesPage() {
 
   const edges = buildEdges(games, models);
   const shrinkage = boardShrinkage(edges);
-  const real = edges.filter((e) => e.outsideNoise);
+  const worthBetting = edges.filter((e) => e.expectedRoi > 0);
   const calibrated = grades.length > 0;
 
   return (
@@ -102,13 +108,13 @@ export default async function EdgesPage() {
             <Card className="px-3 py-2.5 text-center">
               <p
                 className={`tabular text-lg font-semibold ${
-                  shrinkage.factor > 0.3 ? "text-emerald-300" : "text-slate-500"
+                  worthBetting.length > 0 ? "text-emerald-300" : "text-slate-500"
                 }`}
               >
-                {(shrinkage.factor * 100).toFixed(0)}%
+                {worthBetting.length}
               </p>
               <p className="text-[10px] uppercase tracking-wide text-slate-500">
-                signal kept
+                beat the vig
               </p>
             </Card>
           </div>
@@ -123,8 +129,16 @@ export default async function EdgesPage() {
 
       <Card className="mt-4 px-3.5 py-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Why the top of this list is not a bet
+          Reading this list
         </h2>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          The big number is <span className="font-medium text-slate-300">expected
+          return per dollar</span>, which is the only one that answers whether a bet is
+          worth making. An edge is not enough on its own: it compares the model against a
+          de-vigged market, but you pay the vig. At -110 you need 52.4% while a de-vigged
+          coin flip is 50%, so about 2.4 points of edge buys you exactly nothing. Most
+          rows are negative, and that is the honest state of an efficient board.
+        </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           Taking the largest of {edges.length} noisy numbers selects the largest error.
           Simulated against a board where every true edge is exactly zero, the biggest
