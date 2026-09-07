@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { SignedInput } from "./SignedInput";
 import type { Game, Market, Side } from "@/lib/types";
 
 const FIELD =
@@ -151,44 +152,29 @@ export function BetForm({ games }: { games: Game[] }) {
         </label>
 
         {market !== "moneyline" ? (
-          <label className="block">
-            <span className="text-[11px] uppercase tracking-wide text-slate-500">Line</span>
-            <input
-              type="number"
-              step="0.5"
-              inputMode="decimal"
-              value={line}
-              onChange={(e) => setLine(e.target.value)}
-              placeholder="-3.5"
-              className={FIELD}
-            />
-          </label>
+          <SignedInput
+            label="Line"
+            value={line}
+            onChange={setLine}
+            step="0.5"
+            placeholder="3.5"
+          />
         ) : null}
 
-        <label className="block">
-          <span className="text-[11px] uppercase tracking-wide text-slate-500">
-            Price you got
-          </span>
-          <input
-            type="number"
-            step="1"
-            inputMode="numeric"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            placeholder="-110"
-            className={FIELD}
-          />
-        </label>
+        <SignedInput
+          label="Price you got"
+          value={price}
+          onChange={setPrice}
+          placeholder="110"
+        />
 
         <label className="block">
           <span className="text-[11px] uppercase tracking-wide text-slate-500">Stake</span>
           <input
-            type="number"
-            step="1"
-            min="1"
+            type="text"
             inputMode="decimal"
             value={stake}
-            onChange={(e) => setStake(e.target.value)}
+            onChange={(e) => setStake(e.target.value.replace(/[^0-9.]/g, ""))}
             className={FIELD}
           />
         </label>
