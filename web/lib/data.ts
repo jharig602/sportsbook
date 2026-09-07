@@ -12,6 +12,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { databaseUrl } from "./env";
+import { collapseAlerts, normalizeRow } from "./rows";
 
 import type {
   Alert,
@@ -22,6 +23,8 @@ import type {
   RecordRow,
   TrackRecord,
 } from "./types";
+
+export { collapseAlerts, normalizeRow };
 
 /** Mirrors calibration.py. Below this many decided games, no rate is published. */
 export const MIN_SAMPLES = 50;
@@ -187,7 +190,7 @@ async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
   try {
     const result = await pool.query(sql, params);
     databaseIssue = null;
-    return result.rows as T[];
+    return (result.rows as Record<string, unknown>[]).map((row) => normalizeRow<T>(row));
   } catch (error) {
     // A freshly provisioned database has no tables until the collector first runs.
     // That is a normal step in setup, not a fault, and answering it with a 500 hides
@@ -272,30 +275,6 @@ const STRENGTH_BUCKETS: Array<[number, number]> = [
   [80, 99],
 ];
 
-
-/**
- * Collapse alerts that describe the same market move. A two-sided market prices both
- * sides, so one shift often appears twice — the over growing pricier and the under
- * growing cheaper are the same money moving. Mirrors collapse_for_display() in Python.
- */
-export function collapseAlerts(alerts: Alert[]): Alert[] {
-  const best = new Map<string, Alert>();
-  for (const alert of alerts) {
-    const key = [
-      alert.event_id,
-      alert.market,
-      alert.kind,
-      alert.predicted_side,
-      alert.created_at,
-    ].join("|");
-    const current = best.get(key);
-    if (!current || alert.move_strength > current.move_strength) best.set(key, alert);
-  }
-  return [...best.values()].sort(
-    (a, b) =>
-      b.move_strength - a.move_strength || b.created_at.localeCompare(a.created_at),
-  );
-}
 
 function summarise(label: string, grades: Grade[]): RecordRow {
   const decidedLine = grades.filter((g) => g.line_value_won !== null);
