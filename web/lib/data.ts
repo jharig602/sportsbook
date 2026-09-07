@@ -11,6 +11,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { databaseUrl } from "./env";
+
 import type {
   Alert,
   Game,
@@ -161,7 +163,7 @@ async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
   if (!pool) {
     const { Pool } = await import("pg");
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: databaseUrl() ?? undefined,
       ssl: { rejectUnauthorized: false },
       max: 3,
     });
@@ -224,7 +226,7 @@ const postgresSource: DataSource = {
 };
 
 export function getData(): DataSource {
-  return process.env.DATABASE_URL ? postgresSource : fixtureSource;
+  return databaseUrl() ? postgresSource : fixtureSource;
 }
 
 // --- derived views -------------------------------------------------------------

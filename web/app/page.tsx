@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
 import { getData } from "@/lib/data";
+import { databaseUrl, databaseUrlSource, isPooled } from "@/lib/env";
 import {
   formatKickoff,
   formatLeague,
@@ -92,6 +93,13 @@ export default async function BoardPage({
   const { league = "all" } = await searchParams;
   const data = getData();
   const all = await data.games();
+  const source = databaseUrlSource() ?? "none";
+  // Surfaced on hover: an unpooled URL works but exhausts connections under
+  // serverless load, which shows up as intermittent failures rather than an error.
+  const backendDetail =
+    data.backend === "postgres"
+      ? `${source}${isPooled(databaseUrl()) ? " (pooled)" : " (NOT pooled)"}`
+      : "No database URL set; serving the bundled fixture.";
   const games = league === "all" ? all : all.filter((g) => g.league === league);
 
   const byDay = new Map<string, Game[]>();
@@ -110,8 +118,18 @@ export default async function BoardPage({
         title="Board"
         subtitle={`Current DraftKings prices. ${all.length} games with quotes.`}
       >
-        <span className="text-[11px] text-slate-600">{data.backend}</span>
+        <span className="text-[11px] text-slate-600" title={backendDetail}>
+          {data.backend === "postgres" ? `db · ${source}` : "sample data"}
+        </span>
       </PageHeader>
+
+      {data.backend === "fixture" ? (
+        <p className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-200/90">
+          Showing bundled sample data. No database URL is set, so these prices are a
+          snapshot and will not update. Set <code>DATABASE_URL</code> (or{" "}
+          <code>POSTGRES_URL</code>) to connect the live one.
+        </p>
+      ) : null}
 
       <div className="mb-4 flex gap-2">
         {LEAGUES.map((option) => (

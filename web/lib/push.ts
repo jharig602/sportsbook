@@ -6,21 +6,24 @@
  * to have saved something — a silently dropped subscription looks identical to working
  * notifications right up until the moment one matters.
  */
+import { databaseUrl } from "./env";
 import type { Alert } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let pool: any = null;
 
 async function getPool() {
-  if (!process.env.DATABASE_URL) {
+  const url = databaseUrl();
+  if (!url) {
     throw new Error(
-      "DATABASE_URL is not configured, so notifications cannot be stored yet.",
+      "No database URL is configured (DATABASE_URL / POSTGRES_URL), so "
+      + "notifications cannot be stored yet.",
     );
   }
   if (!pool) {
     const { Pool } = await import("pg");
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: url,
       ssl: { rejectUnauthorized: false },
       max: 3,
     });
