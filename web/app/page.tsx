@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
-import { getData } from "@/lib/data";
+import { databaseStatus, getData } from "@/lib/data";
 import { databaseUrl, databaseUrlSource, isPooled } from "@/lib/env";
 import {
   formatKickoff,
@@ -93,6 +93,7 @@ export default async function BoardPage({
   const { league = "all" } = await searchParams;
   const data = getData();
   const all = await data.games();
+  const issue = databaseStatus();
   const source = databaseUrlSource() ?? "none";
   // Surfaced on hover: an unpooled URL works but exhausts connections under
   // serverless load, which shows up as intermittent failures rather than an error.
@@ -128,6 +129,21 @@ export default async function BoardPage({
           Showing bundled sample data. No database URL is set, so these prices are a
           snapshot and will not update. Set <code>DATABASE_URL</code> (or{" "}
           <code>POSTGRES_URL</code>) to connect the live one.
+        </p>
+      ) : null}
+
+      {issue === "schema_missing" ? (
+        <p className="mb-3 rounded-lg border border-sky-500/25 bg-sky-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-sky-200/90">
+          Database connected, but no tables yet — the collector has never run. Trigger the{" "}
+          <span className="font-medium">collect</span> workflow in GitHub Actions once; it
+          creates the schema and fills it on the first run.
+        </p>
+      ) : null}
+
+      {issue === "unreachable" ? (
+        <p className="mb-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-rose-200/90">
+          Could not reach the database. Check the connection string is the pooled one and
+          that the Neon project is not paused. The server log has the underlying error.
         </p>
       ) : null}
 

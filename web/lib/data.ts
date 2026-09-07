@@ -159,6 +159,21 @@ SELECT market, side, line, price, observed_at AS "observedAt"
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let pool: any = null;
 
+/** Postgres error codes worth handling rather than crashing on. */
+const UNDEFINED_TABLE = "42P01";
+
+/**
+ * Why the database has no data, when that is the case.
+ *
+ * Module-level rather than returned, so pages can render normally and read the reason
+ * afterwards. Reset on every successful query.
+ */
+let databaseIssue: "schema_missing" | "unreachable" | null = null;
+
+export function databaseStatus() {
+  return databaseIssue;
+}
+
 async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
   if (!pool) {
     const { Pool } = await import("pg");
@@ -168,8 +183,26 @@ async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
       max: 3,
     });
   }
-  const result = await pool.query(sql, params);
-  return result.rows as T[];
+
+  try {
+    const result = await pool.query(sql, params);
+    databaseIssue = null;
+    return result.rows as T[];
+  } catch (error) {
+    // A freshly provisioned database has no tables until the collector first runs.
+    // That is a normal step in setup, not a fault, and answering it with a 500 hides
+    // the one thing the person needs to be told: run the collector.
+    if ((error as { code?: string })?.code === UNDEFINED_TABLE) {
+      databaseIssue = "schema_missing";
+      return [];
+    }
+    // Anything else — bad credentials, paused compute, network — must not take the
+    // whole page down either. The banner says the database is unreachable and the
+    // real error still reaches the server logs.
+    databaseIssue = "unreachable";
+    console.error("database query failed:", error);
+    return [];
+  }
 }
 
 interface QuoteRow {
