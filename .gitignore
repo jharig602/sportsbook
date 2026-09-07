@@ -23,3 +23,7 @@ out/
 # OS
 Thumbs.db
 desktop.ini
+
+# Generated production credentials. Never commit.
+PRODUCTION-SECRETS.txt
+*SECRETS*.txt
