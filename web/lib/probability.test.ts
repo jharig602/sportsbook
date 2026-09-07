@@ -12,6 +12,7 @@ import {
   type MarginModel,
   coverProbability,
   deVig,
+  effectiveSpread,
   impliedProbability,
   lineProbability,
   residualAbove,
@@ -186,4 +187,47 @@ test("cover probability reports a push separately from a loss", () => {
   const result = coverProbability(model(), 0)!;
   assert.ok(result.cover > 0 && result.cover < 1);
   assert.ok(result.push >= 0);
+});
+
+// --- juice-adjusted spread ------------------------------------------------------
+
+test("an evenly priced spread is taken at face value", () => {
+  const m = model();
+  assert.equal(effectiveSpread(m, -3, 0.5), -3);
+});
+
+test("a spread the book charges extra for is shorter than posted", () => {
+  // Houston: posted -1.5, priced +102/-122, which de-vigs to home covering 47.4%.
+  // The book does not believe -1.5.
+  const m = model({ sd: 12.3 });
+  const adjusted = effectiveSpread(m, -1.5, 0.474);
+  assert.ok(adjusted > -1.5, "should lay fewer points than posted");
+  assert.ok(adjusted > -1.2 && adjusted < -0.3, `expected about -0.7, got ${adjusted}`);
+});
+
+test("a spread the book discounts is longer than posted", () => {
+  const m = model({ sd: 12.3 });
+  assert.ok(effectiveSpread(m, -3, 0.55) < -3);
+});
+
+test("the adjustment never flips which side is favoured", () => {
+  const m = model({ sd: 12.3 });
+  // An extreme cover probability must not turn a home favourite into a home dog.
+  assert.ok(effectiveSpread(m, -1, 0.2) <= 0);
+});
+
+test("no cover probability means no adjustment", () => {
+  const m = model();
+  assert.equal(effectiveSpread(m, -7, null), -7);
+});
+
+test("juice shrinks an overstated edge", () => {
+  const m = model({ sd: 12.3 });
+  const naive = lineProbability("moneyline", "home", -110, -110, -1.5, m);
+  const adjusted = lineProbability("moneyline", "home", -110, -110, -1.5, m, 0.474);
+  assert.ok(
+    adjusted.model! < naive.model!,
+    "accounting for juice should lower the model's confidence",
+  );
+  assert.match(adjusted.note, /priced like/);
 });

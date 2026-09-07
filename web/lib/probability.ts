@@ -115,6 +115,43 @@ export function residualAt(model: MarginModel, value: number): number {
 }
 
 /**
+ * The line the book actually believes, given what it charges for it.
+ *
+ * A posted spread is only the book's true opinion when both sides are priced evenly.
+ * Houston posted at -1.5 but juiced +102 / -122 de-vigs to home covering just 47.4% of
+ * the time — the book does not believe -1.5, it believes something nearer -0.7. Reading
+ * the posted number literally overstated a 1-point favourite as a 1.5-point one and
+ * manufactured a 6.6-point "edge" that two books, checked by hand, did not agree existed.
+ *
+ * Converts the excess cover probability into points using the residual density at the
+ * line, which is the standard local-linear approximation and is accurate for the small
+ * shifts that juice implies.
+ */
+export function effectiveSpread(
+  model: MarginModel,
+  postedSpread: number,
+  coverProbability: number | null,
+): number {
+  if (coverProbability === null || model.sd <= 0) return postedSpread;
+
+  // Density of the residual at zero, per point: the peak of a normal with this sd.
+  const densityAtZero = 1 / (model.sd * Math.sqrt(2 * Math.PI));
+  if (densityAtZero <= 0) return postedSpread;
+
+  // At the book's true line the cover probability would be 50%. Posting a line the
+  // market only covers `p` of the time means the true line sits (0.5 - p) / density
+  // points away — toward zero when p < 0.5, further out when p > 0.5.
+  const shiftPoints = (0.5 - coverProbability) / densityAtZero;
+  const adjusted = postedSpread + shiftPoints;
+
+  // Never let the adjustment flip the favourite; that would be reading noise as a
+  // different opinion entirely.
+  return Math.sign(postedSpread) === Math.sign(adjusted) || postedSpread === 0
+    ? adjusted
+    : 0;
+}
+
+/**
  * P(this side wins outright), derived from the spread alone.
  *
  * A side laying `spread` points wins when margin > 0, i.e. when the residual exceeds
@@ -171,6 +208,8 @@ export function lineProbability(
   priceOtherSide: number | null,
   homeSpread: number | null,
   model: MarginModel | null,
+  /** De-vigged probability that the home side covers the posted spread, if known. */
+  homeCoverProbability: number | null = null,
 ): LineProbability {
   const fair = deVig(priceThisSide, priceOtherSide);
   const marketProbability = fair ? fair.a : impliedProbability(priceThisSide);
@@ -191,7 +230,9 @@ export function lineProbability(
     };
   }
 
-  const modelProbability = winProbabilityFromSpread(model, homeSpread, side);
+  // Use what the book charges for the spread, not just the number it posts.
+  const trueSpread = effectiveSpread(model, homeSpread, homeCoverProbability);
+  const modelProbability = winProbabilityFromSpread(model, trueSpread, side);
   const edgePoints =
     modelProbability !== null && marketProbability !== null
       ? (modelProbability - marketProbability) * 100
@@ -202,6 +243,11 @@ export function lineProbability(
     model: modelProbability,
     edgePoints,
     hold,
-    note: `Spread implies this win rate from ${model.games} past games; moneyline states its own.`,
+    note:
+      `Spread implies this win rate from ${model.games} past games; moneyline states ` +
+      `its own.` +
+      (Math.abs(trueSpread - homeSpread) >= 0.25
+        ? ` The posted ${homeSpread} is priced like ${trueSpread.toFixed(1)}.`
+        : ""),
   };
 }

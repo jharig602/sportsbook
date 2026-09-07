@@ -5,7 +5,7 @@ import { Probability } from "@/components/Probability";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Card, Empty, NotAdvice, Pill } from "@/components/ui";
 import { collapseAlerts, getData } from "@/lib/data";
-import { lineProbability, type MarginModel } from "@/lib/probability";
+import { deVig, lineProbability, type MarginModel } from "@/lib/probability";
 import {
   formatKickoff,
   formatKind,
@@ -86,6 +86,7 @@ function MarketPanel({
   homeTeam,
   awayTeam,
   homeSpread,
+  homeCoverProbability,
   model,
 }: {
   market: Market;
@@ -93,6 +94,7 @@ function MarketPanel({
   homeTeam: string;
   awayTeam: string;
   homeSpread: number | null;
+  homeCoverProbability: number | null;
   model: MarginModel | null;
 }) {
   const sides = [...new Set(points.map((p) => p.side))];
@@ -129,6 +131,7 @@ function MarketPanel({
             otherLatest?.price ?? null,
             homeSpread,
             model,
+            homeCoverProbability,
           );
 
           return (
@@ -199,7 +202,17 @@ export default async function GamePage({
   const model = models[league] ?? null;
   // The current home handicap is what the model converts into a win probability.
   const spreadHistory = history.filter((p) => p.market === "spread" && p.side === "home");
-  const homeSpread = spreadHistory[spreadHistory.length - 1]?.line ?? null;
+  const awaySpreadHistory = history.filter(
+    (p) => p.market === "spread" && p.side === "away",
+  );
+  const latestHomeSpread = spreadHistory[spreadHistory.length - 1];
+  const latestAwaySpread = awaySpreadHistory[awaySpreadHistory.length - 1];
+  const homeSpread = latestHomeSpread?.line ?? null;
+  // What the book charges for the spread says how much of it it actually believes: a
+  // -1.5 juiced +102/-122 is really about -0.7, and reading the posted number literally
+  // overstates the favourite.
+  const homeCoverProbability =
+    deVig(latestHomeSpread?.price ?? null, latestAwaySpread?.price ?? null)?.a ?? null;
 
   return (
     <>
@@ -257,6 +270,7 @@ export default async function GamePage({
               homeTeam={homeTeam}
               awayTeam={awayTeam}
               homeSpread={homeSpread}
+              homeCoverProbability={homeCoverProbability}
               model={model}
             />
           ))}
