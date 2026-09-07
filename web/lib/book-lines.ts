@@ -212,3 +212,55 @@ export function quotesForGame(
 
   return quotes;
 }
+
+/**
+ * The latest quote from every book, across every game at once.
+ *
+ * The per-game read answers "what does this game look like"; this answers the question
+ * a weekend of collection actually poses — "did anything, anywhere, disagree enough to
+ * be worth a bet". Without it the only way to find out is to open sixty-six pages,
+ * which means the answer is in the database and nowhere a person will ever see it.
+ *
+ * Scoped to games that have not started. A gap on a game already kicked off is history,
+ * not an opportunity.
+ */
+const LATEST_ALL = `
+  SELECT DISTINCT ON (b.event_id, b.book, b.market, b.side)
+         b.quote_id, b.observed_at, b.league, b.event_id, b.book, b.market, b.side,
+         b.line, b.price, b.source, b.note
+    FROM book_lines b
+   WHERE b.observed_at > NOW() - INTERVAL '48 hours'
+   ORDER BY b.event_id, b.book, b.market, b.side, b.observed_at DESC
+`;
+
+export async function allBookLines(): Promise<Map<string, BookLineRow[]>> {
+  const byEvent = new Map<string, BookLineRow[]>();
+  let db;
+  try {
+    db = await getPool();
+  } catch {
+    // No database configured (the fixture backend). An empty map is the honest
+    // answer: nothing has been collected, rather than an error on a working page.
+    return byEvent;
+  }
+  try {
+    const result = await db.query(LATEST_ALL);
+    for (const raw of result.rows as Record<string, unknown>[]) {
+      const row: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(raw)) {
+        if (value instanceof Date) row[key] = value.toISOString();
+        else if ((key === "price" || key === "line") && typeof value === "string") {
+          row[key] = Number(value);
+        } else row[key] = value;
+      }
+      const typed = row as unknown as BookLineRow;
+      const bucket = byEvent.get(typed.event_id);
+      if (bucket) bucket.push(typed);
+      else byEvent.set(typed.event_id, [typed]);
+    }
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return byEvent;
+    throw error;
+  }
+  return byEvent;
+}

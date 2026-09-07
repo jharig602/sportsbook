@@ -35,12 +35,19 @@ const TABS: Tab[] = [
     ),
   },
   {
-    href: "/edges",
-    label: "Edges",
+    // Shop takes the slot Edges used to hold.
+    //
+    // Edges asks whether one book agrees with itself, which has a structural answer of
+    // zero -- confirmed on 8,357 games. It is still worth keeping as a detector for a
+    // stale moneyline, but it is a diagnostic, not something to open every day, and
+    // giving it a permanent tab put the one list that cannot find anything in front of
+    // the one that can. It is linked from Shop instead.
+    href: "/shop",
+    label: "Shop",
     icon: (
       <>
-        <path d="M12 3v18M5 8l7-5 7 5" {...stroke} />
-        <path d="M4 14h16" {...stroke} />
+        <path d="M4 7h16l-1.2 12.2a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8Z" {...stroke} />
+        <path d="M9 7V5a3 3 0 0 1 6 0v2" {...stroke} />
       </>
     ),
   },

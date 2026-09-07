@@ -1,0 +1,191 @@
+import { TeamLogo } from "@/components/TeamLogo";
+import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { allBookLines } from "@/lib/book-lines";
+import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
+import { getData } from "@/lib/data";
+import { formatKickoff, formatLeague, formatLine, formatPrice } from "@/lib/format";
+import type { Side } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
+
+function sideLabel(row: BoardEdge): string {
+  const side: Side = row.side;
+  if (side === "home") return row.homeTeam;
+  if (side === "away") return row.awayTeam;
+  return side;
+}
+
+function Row({ row }: { row: BoardEdge }) {
+  const good = (row.expectedRoi ?? -1) > 0;
+  const teamId =
+    row.side === "home" ? row.homeTeamId : row.side === "away" ? row.awayTeamId : null;
+
+  return (
+    <Card href={`/game/${row.eventId}`} className="px-3 py-2.5">
+      <div className="flex items-start gap-2.5">
+        <div
+          className={`tabular flex h-11 w-16 shrink-0 flex-col items-center justify-center rounded-lg text-[14px] font-semibold ${
+            good ? "bg-emerald-500/12 text-emerald-300" : "bg-slate-700/40 text-slate-500"
+          }`}
+        >
+          {row.expectedRoi === null
+            ? "—"
+            : `${row.expectedRoi > 0 ? "+" : ""}${(row.expectedRoi * 100).toFixed(1)}%`}
+          <span className="text-[9px] font-normal opacity-70">return</span>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 text-[14px] font-medium text-slate-100">
+            {teamId ? (
+              <TeamLogo league={row.league} teamId={teamId} name={sideLabel(row)} size={20} />
+            ) : null}
+            <span className="min-w-0 truncate">{sideLabel(row)}</span>
+            <span className="shrink-0 text-[11px] font-normal text-slate-400">
+              {row.market}
+            </span>
+          </p>
+
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            at <span className="font-medium text-slate-300">{row.book}</span>
+            {" · "}
+            {row.awayTeam} <span className="text-slate-600">@</span> {row.homeTeam}
+          </p>
+
+          <div className="tabular mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-slate-600">
+            <Pill>{formatLeague(row.league)}</Pill>
+            <span className="text-slate-400">
+              {row.line !== null ? formatLine(row.market, row.side, row.line) : ""}{" "}
+              {formatPrice(row.price)}
+            </span>
+            {row.consensusLine !== null ? (
+              <span>others {formatLine(row.market, row.side, row.consensusLine)}</span>
+            ) : null}
+            {row.advantagePoints !== null && row.advantagePoints !== 0 ? (
+              <span className={row.advantagePoints > 0 ? "text-emerald-400/80" : ""}>
+                {row.advantagePoints > 0 ? "+" : ""}
+                {row.advantagePoints.toFixed(1)} pts
+              </span>
+            ) : null}
+            <span>vs {row.booksCompared} books</span>
+            <span>{formatKickoff(row.commenceTime)}</span>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export default async function ShopPage() {
+  const data = getData();
+  const [games, models, lines] = await Promise.all([
+    data.games(),
+    data.marginModels(),
+    data.backend === "postgres" ? allBookLines() : Promise.resolve(new Map()),
+  ]);
+
+  const shop = buildBoardShop(games, lines, models);
+
+  return (
+    <>
+      <PageHeader
+        title="Shop"
+        subtitle="Where one book disagrees with the others, biggest first"
+      />
+
+      {shop.gamesWithSecondBook === 0 ? (
+        <Empty
+          title="No second book yet"
+          detail="Nothing has been collected from other books for an upcoming game. The feed polls near kickoff, so this fills in as game day approaches."
+        />
+      ) : (
+        <>
+          <div className="mb-3 grid grid-cols-3 gap-2">
+            <Card className="px-2 py-2.5 text-center">
+              <p className="tabular text-lg font-semibold text-slate-100">
+                {shop.gamesWithSecondBook}
+              </p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">games</p>
+            </Card>
+            <Card className="px-2 py-2.5 text-center">
+              <p className="tabular text-lg font-semibold text-slate-100">
+                {shop.books.length}
+              </p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">books</p>
+            </Card>
+            <Card className="px-2 py-2.5 text-center">
+              <p
+                className={`tabular text-lg font-semibold ${
+                  shop.positive.length > 0 ? "text-emerald-300" : "text-slate-500"
+                }`}
+              >
+                {shop.positive.length}
+              </p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                beat the vig
+              </p>
+            </Card>
+          </div>
+
+          {shop.positive.length === 0 && shop.best ? (
+            <Card className="mb-3 px-3.5 py-2.5">
+              <p className="text-[12px] leading-relaxed text-slate-400">
+                Nothing clears the vig right now. The closest is{" "}
+                <span className="font-medium text-slate-200">
+                  {shop.best.book} {sideLabel(shop.best)}
+                </span>{" "}
+                at{" "}
+                <span className="tabular text-slate-200">
+                  {((shop.best.expectedRoi ?? 0) * 100).toFixed(1)}%
+                </span>
+                , against about &minus;4.5% for a book that matches consensus. That
+                distance is the finding.
+              </p>
+            </Card>
+          ) : null}
+
+          <div className="space-y-1.5">
+            {shop.rows.slice(0, 40).map((row) => (
+              <Row key={`${row.eventId}-${row.book}-${row.market}-${row.side}`} row={row} />
+            ))}
+          </div>
+        </>
+      )}
+
+      <Card className="mt-4 px-3.5 py-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Why this list and not Edges
+        </h2>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          Edges asks whether DraftKings&rsquo; spread agrees with DraftKings&rsquo; own
+          moneyline. A book that prices its board coherently cannot disagree with itself
+          by more than rounding noise, so the honest ceiling there is zero &mdash; and
+          seven seasons of history made that verdict more confident, not less.
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          This asks whether one book disagrees with the <em>others</em>. A point of line
+          is worth about 3.2 points of win probability in the NFL and 2.6 in college,
+          against the 2.4 that &minus;110 charges. So a one-point disagreement clears the
+          vig outright and half a point does not &mdash; which makes this the only
+          comparison at this scale whose answer can be positive.
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          Every book is measured against the median of the <em>others</em>, never
+          including itself, and quotes over a day old are shown on the game page but kept
+          out of every consensus. Books listed here are whatever the feed returns; some
+          may be ones you cannot bet at, and a number you cannot get is not an
+          opportunity.
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          <a href="/edges" className="text-sky-400 underline underline-offset-2">
+            Edges
+          </a>{" "}
+          is still there and still worth a look when a price looks stuck: if
+          DraftKings&rsquo; moneyline stops tracking its own spread, that is where it
+          shows up.
+        </p>
+      </Card>
+
+      <NotAdvice className="mt-6" />
+    </>
+  );
+}
