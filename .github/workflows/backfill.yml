@@ -1,8 +1,15 @@
 name: backfill
 
-# One-off historical load, run by hand. Not scheduled: it fetches a season of final
-# scores plus one closing line per completed game, which is thousands of requests and
-# has no reason to repeat once done.
+# One-off historical load, run by hand. Not scheduled: it fetches final scores plus one
+# closing line per completed game, which over several seasons is tens of thousands of
+# requests and has no reason to repeat once done.
+#
+# Sample size is the whole point. The model's uncertainty is the standard error of a
+# proportion, sqrt(p(1-p)/n), so it only falls with the square root of the games behind
+# it: one college season gives about +/-1.6 points, seven give about +/-0.6. Checked
+# first that this is worth buying — residual dispersion is near-constant across spread
+# sizes (sd ~15 college, ~12 NFL, whether the line is 1 point or 30), so the model is
+# not mis-specified and more data genuinely tightens it rather than hiding a bad shape.
 #
 # What it buys is the margin model — the distribution of (final margin + closing
 # spread) — which converts a spread into a win probability. That needs only history,
@@ -18,7 +25,7 @@ on:
       start:
         description: "Season start (YYYY-MM-DD)"
         required: true
-        default: "2025-08-23"
+        default: "2019-08-01"
       end:
         description: "Season end (YYYY-MM-DD)"
         required: true
@@ -31,7 +38,7 @@ concurrency:
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 300
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
@@ -62,7 +69,7 @@ jobs:
       # One request per completed game. Slower than the scores pass, and the reason
       # this workflow has a long timeout.
       - name: Backfill closing lines
-        run: python collector/backfill_lines.py --postgres --limit 4000
+        run: python collector/backfill_lines.py --postgres --limit 30000
 
       - name: Fit the margin model
         run: python collector/fit_margins.py --postgres
