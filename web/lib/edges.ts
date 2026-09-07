@@ -1,4 +1,5 @@
 import { deVig, effectiveSpread, winProbabilityFromSpread, type MarginModel } from "./probability.ts";
+import { estimateShrinkage, shrink, type Shrinkage } from "./shrink.ts";
 import type { Game, League, Side } from "./types";
 
 /**
@@ -36,6 +37,12 @@ export interface Edge {
   edgePoints: number;
   /** Standard error of the model estimate, in percentage points. */
   standardErrorPoints: number;
+  /**
+   * The edge after correcting for the winner's curse: what is left once the list's own
+   * scatter is compared against the scatter noise alone would produce. This is the
+   * number worth acting on; `edgePoints` is what was observed.
+   */
+  shrunkEdgePoints: number;
   /** True when the edge exceeds the model's own sampling noise. */
   outsideNoise: boolean;
   games: number;
@@ -99,10 +106,30 @@ export function buildEdges(
       model: modelProbability,
       edgePoints,
       standardErrorPoints: error,
+      shrunkEdgePoints: 0, // filled in below, once the whole board is known
       outsideNoise: edgePoints > error,
       games: model.games,
     });
   }
 
-  return edges.sort((a, b) => b.edgePoints - a.edgePoints);
+  // Shrinkage is estimated across the whole board, so it needs every row before any
+  // single row can be judged. Sorting by the shrunk value keeps the ranking honest:
+  // the top of the list is the best surviving estimate, not the largest error.
+  const shrinkage = estimateShrinkage(
+    edges.map((e) => e.edgePoints),
+    edges.map((e) => e.standardErrorPoints),
+  );
+  for (const edge of edges) {
+    edge.shrunkEdgePoints = shrink(edge.edgePoints, shrinkage);
+  }
+
+  return edges.sort((a, b) => b.shrunkEdgePoints - a.shrunkEdgePoints);
+}
+
+/** The board-wide shrinkage, for showing what produced the correction. */
+export function boardShrinkage(edges: Edge[]): Shrinkage {
+  return estimateShrinkage(
+    edges.map((e) => e.edgePoints),
+    edges.map((e) => e.standardErrorPoints),
+  );
 }

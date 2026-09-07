@@ -1,7 +1,7 @@
 import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
 import { getData } from "@/lib/data";
-import { buildEdges, type Edge } from "@/lib/edges";
+import { boardShrinkage, buildEdges, type Edge } from "@/lib/edges";
 import { formatKickoff, formatLeague, formatPercent, formatPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ function EdgeRow({ edge }: { edge: Edge }) {
               : "bg-slate-700/40 text-slate-500"
           }`}
         >
-          +{edge.edgePoints.toFixed(1)}
+          +{edge.shrunkEdgePoints.toFixed(1)}
           <span className="text-[9px] font-normal opacity-70">pts</span>
         </div>
 
@@ -40,6 +40,9 @@ function EdgeRow({ edge }: { edge: Edge }) {
             <Pill>{formatLeague(edge.league)}</Pill>
             <span>market {formatPercent(edge.market, 1)}</span>
             <span>model {formatPercent(edge.model, 1)}</span>
+            <span title="What was observed, before correcting for the winner's curse">
+              raw {edge.edgePoints.toFixed(1)}
+            </span>
             <span>&plusmn;{edge.standardErrorPoints.toFixed(1)} noise</span>
             <span>{formatKickoff(edge.commenceTime)}</span>
           </div>
@@ -64,6 +67,7 @@ export default async function EdgesPage() {
   ]);
 
   const edges = buildEdges(games, models);
+  const shrinkage = boardShrinkage(edges);
   const real = edges.filter((e) => e.outsideNoise);
   const calibrated = grades.length > 0;
 
@@ -98,13 +102,13 @@ export default async function EdgesPage() {
             <Card className="px-3 py-2.5 text-center">
               <p
                 className={`tabular text-lg font-semibold ${
-                  real.length > 0 ? "text-emerald-300" : "text-slate-500"
+                  shrinkage.factor > 0.3 ? "text-emerald-300" : "text-slate-500"
                 }`}
               >
-                {real.length}
+                {(shrinkage.factor * 100).toFixed(0)}%
               </p>
               <p className="text-[10px] uppercase tracking-wide text-slate-500">
-                beat the noise
+                signal kept
               </p>
             </Card>
           </div>
@@ -119,8 +123,19 @@ export default async function EdgesPage() {
 
       <Card className="mt-4 px-3.5 py-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Why sorting by this is not a bet list
+          Why the top of this list is not a bet
         </h2>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          Taking the largest of {edges.length} noisy numbers selects the largest error.
+          Simulated against a board where every true edge is exactly zero, the biggest
+          figure visible on a typical week is still about 4 points. So the numbers here
+          are shrunk: the scatter across the whole board is compared against the scatter
+          sampling noise alone would produce, and only the excess survives &mdash;
+          currently {(shrinkage.factor * 100).toFixed(0)}% of what was observed
+          ({shrinkage.observedSd.toFixed(1)} observed against{" "}
+          {shrinkage.noiseSd.toFixed(1)} expected from noise). When nothing is there,
+          everything collapses toward zero, which is the correct answer.
+        </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           The model is a sample estimate, so every number it produces carries a standard
           error &mdash; about {edges[0]?.standardErrorPoints.toFixed(1) ?? "3"} points at

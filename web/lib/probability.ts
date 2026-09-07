@@ -61,7 +61,7 @@ export function deVig(
   return { a: rawA / total, b: rawB / total, hold: total - 1 };
 }
 
-function normalCdf(z: number): number {
+export function normalCdf(z: number): number {
   // Abramowitz-Stegun 7.1.26 via erf approximation; plenty for display precision.
   const t = 1 / (1 + 0.2316419 * Math.abs(z));
   const d = 0.3989423 * Math.exp((-z * z) / 2);
