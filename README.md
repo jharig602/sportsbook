@@ -10,15 +10,15 @@ See [What this deliberately does not claim](#what-this-deliberately-does-not-cla
 
 | Piece | State |
 |---|---|
-| Collector (ESPN odds) | Working. 80 NCAAF + 14 NFL events per poll, 0 errors |
-| Results capture (final scores) | Working. 68 games in one request |
-| Signal engine (4 alert kinds) | Working, validated against live movement |
-| Grading + calibration | Working; awaiting settled games to grade |
-| Postgres / Neon backend | Written, not yet run against a real database |
-| GitHub Actions schedule | Written, not yet installed |
-| Next.js PWA (board, movers, game detail, track record) | Working against real data |
-| Stake sizing + web push | Built; push needs VAPID keys in Vercel |
-| 187 Python + 16 web tests | Passing |
+| Collector (ESPN odds) | Live on GitHub Actions, writing to Neon |
+| Results capture (final scores) | Live |
+| Signal engine (4 alert kinds) | Live, validated against real movement |
+| Grading + calibration | Live; awaiting settled games to grade |
+| Postgres / Neon backend | Live |
+| Next.js PWA on Vercel | Live |
+| Stake sizing | Live, flat until calibration earns Kelly |
+| Web push | Live, delivery verified |
+| 187 Python + 37 web tests | Passing |
 
 ## Setup
 
