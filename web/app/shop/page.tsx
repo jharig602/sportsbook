@@ -1,5 +1,5 @@
 import { TeamLogo } from "@/components/TeamLogo";
-import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { allBookLines } from "@/lib/book-lines";
 import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
 import { getData } from "@/lib/data";
@@ -75,7 +75,20 @@ function Row({ row }: { row: BoardEdge }) {
   );
 }
 
-export default async function ShopPage() {
+/**
+ * Filtering to the books you can actually reach.
+ *
+ * The first live board put every one of its best rows at Bovada, MyBookie, BetUS and
+ * LowVig -- offshore books, which lag, which is precisely why they disagree and
+ * precisely why they top the list. A number you cannot get is not an opportunity, and
+ * answering "is any of this at my book" by reading forty rows is how you stop asking.
+ */
+export default async function ShopPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ book?: string }>;
+}) {
+  const { book: bookFilter } = await searchParams;
   const data = getData();
   const [games, models, lines] = await Promise.all([
     data.games(),
@@ -84,6 +97,14 @@ export default async function ShopPage() {
   ]);
 
   const shop = buildBoardShop(games, lines, models);
+
+  const active = bookFilter && shop.books.includes(bookFilter) ? bookFilter : "all";
+  const visible = active === "all" ? shop.rows : shop.rows.filter((r) => r.book === active);
+  const visiblePositive = visible.filter((r) => (r.expectedRoi ?? -1) > 0);
+  const options = [
+    { key: "all", label: "All books" },
+    ...shop.books.map((b) => ({ key: b, label: b })),
+  ];
 
   return (
     <>
@@ -115,10 +136,10 @@ export default async function ShopPage() {
             <Card className="px-2 py-2.5 text-center">
               <p
                 className={`tabular text-lg font-semibold ${
-                  shop.positive.length > 0 ? "text-emerald-300" : "text-slate-500"
+                  visiblePositive.length > 0 ? "text-emerald-300" : "text-slate-500"
                 }`}
               >
-                {shop.positive.length}
+                {visiblePositive.length}
               </p>
               <p className="text-[10px] uppercase tracking-wide text-slate-500">
                 beat the vig
@@ -126,16 +147,23 @@ export default async function ShopPage() {
             </Card>
           </div>
 
-          {shop.positive.length === 0 && shop.best ? (
+          <Segmented
+            options={options}
+            active={active}
+            hrefFor={(key) => (key === "all" ? "/shop" : `/shop?book=${encodeURIComponent(key)}`)}
+          />
+
+          {visiblePositive.length === 0 && visible[0] ? (
             <Card className="mb-3 px-3.5 py-2.5">
               <p className="text-[12px] leading-relaxed text-slate-400">
-                Nothing clears the vig right now. The closest is{" "}
+                Nothing here clears the vig
+                {active === "all" ? " right now" : ` at ${active}`}. The closest is{" "}
                 <span className="font-medium text-slate-200">
-                  {shop.best.book} {sideLabel(shop.best)}
+                  {visible[0].book} {sideLabel(visible[0])}
                 </span>{" "}
                 at{" "}
                 <span className="tabular text-slate-200">
-                  {((shop.best.expectedRoi ?? 0) * 100).toFixed(1)}%
+                  {((visible[0].expectedRoi ?? 0) * 100).toFixed(1)}%
                 </span>
                 , against about &minus;4.5% for a book that matches consensus. That
                 distance is the finding.
@@ -144,7 +172,7 @@ export default async function ShopPage() {
           ) : null}
 
           <div className="space-y-1.5">
-            {shop.rows.slice(0, 40).map((row) => (
+            {visible.slice(0, 40).map((row) => (
               <Row key={`${row.eventId}-${row.book}-${row.market}-${row.side}`} row={row} />
             ))}
           </div>
@@ -171,9 +199,14 @@ export default async function ShopPage() {
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           Every book is measured against the median of the <em>others</em>, never
           including itself, and quotes over a day old are shown on the game page but kept
-          out of every consensus. Books listed here are whatever the feed returns; some
-          may be ones you cannot bet at, and a number you cannot get is not an
-          opportunity.
+          out of every consensus. The consensus always uses every book, including ones
+          you cannot reach &mdash; more opinions make a better reference. The filter
+          changes only whose <em>price</em> you are being offered.
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          Expect the best rows to sit at offshore books. They lag, which is exactly why
+          they disagree with the field, and exactly why they rank highest. Filter to a
+          book you actually hold before treating anything here as a bet.
         </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           <a href="/edges" className="text-sky-400 underline underline-offset-2">
