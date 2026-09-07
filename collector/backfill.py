@@ -60,7 +60,15 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
     parser.add_argument("--all-days", action="store_true",
                         help="Query every date, not just typical game days.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--max-error-rate", type=float, default=0.1,
+                        help="Fraction of dates allowed to fail before the run is "
+                             "considered unusable. A months-long bulk pull will hit "
+                             "the occasional transient 5xx; discarding hundreds of "
+                             "good games over one of them is worse than noting it.")
     args = parser.parse_args(argv)
+
+    if not 0.0 <= args.max_error_rate <= 1.0:
+        parser.error("--max-error-rate must be between 0 and 1")
 
     if args.end < args.start:
         parser.error("--end must not precede --start")
@@ -104,13 +112,26 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
                 store_results(handle, rows)
             total += len(rows)
 
+        # A recurring poll should fail loudly on any error, because a missed window is
+        # a gap in a time series. A one-off historical pull is different: the dates are
+        # independent, and a transient upstream blip on one of 123 is not a reason to
+        # throw away the other 122. Fail only when enough failed to make the fit
+        # untrustworthy, or when nothing came back at all.
+        error_rate = ctx.errors / len(days) if days else 0.0
+        too_many = error_rate > args.max_error_rate
+
         summary = {
             "type": "backfill_summary", "league": args.league,
             "start": args.start.isoformat(), "end": args.end.isoformat(),
             "dates_queried": len(days), "results": total,
             "errors": ctx.errors, "warnings": ctx.warnings,
+            "error_rate": round(error_rate, 4),
+            "max_error_rate": args.max_error_rate,
         }
-        summary["exit_code"] = 2 if ctx.errors else (0 if total else 3)
+        summary["exit_code"] = 2 if too_many else (0 if total else 3)
+        if ctx.errors and not too_many:
+            LOG.warning("%d of %d dates failed (%.1f%%), within tolerance; %d results kept.",
+                        ctx.errors, len(days), error_rate * 100, total)
         print(json.dumps(summary))
         return summary["exit_code"]
     except KeyboardInterrupt:

@@ -212,3 +212,44 @@ def test_repolling_a_game_does_not_duplicate_it(tmp_path):
 
     stored = connection.execute("SELECT home_score FROM game_results").fetchall()
     assert stored == [(28,)], "a re-poll should correct the row, not add a second one"
+
+
+# --- backfill error tolerance ---------------------------------------------------
+
+def test_backfill_tolerates_a_transient_failure():
+    """One bad date out of many must not discard the rest.
+
+    A months-long historical pull will hit the occasional upstream 5xx. Failing the
+    whole run over it threw away 912 successfully collected games in production.
+    """
+    import backfill
+
+    board = {"events": [event(competition(home_score="21", away_score="17"))]}
+    http = FakeHttp({"20250906": 502, "scoreboard": board})
+    code, summary, _ = _run_backfill(http, ["--league", "ncaaf", "--start", "2025-09-01",
+                                            "--end", "2025-09-30", "--all-days", "--dry-run"])
+    assert summary["errors"] >= 1, "the failure should still be reported"
+    assert summary["error_rate"] <= summary["max_error_rate"]
+    assert code == 0, "a tolerable failure rate must not fail the run"
+
+
+def test_backfill_fails_when_most_dates_fail():
+    """Tolerance is not blindness: a mostly-broken pull must still fail."""
+    http = FakeHttp({"scoreboard": 502})
+    code, summary, _ = _run_backfill(http, ["--league", "ncaaf", "--start", "2025-09-01",
+                                            "--end", "2025-09-30", "--all-days", "--dry-run"])
+    assert code == 2
+    assert summary["error_rate"] > summary["max_error_rate"]
+
+
+def _run_backfill(http, argv):
+    import backfill
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = backfill.main(argv, request_fn=http, sleep_fn=lambda _s: None)
+    summary = {}
+    for line in buffer.getvalue().splitlines():
+        payload = json.loads(line)
+        if payload.get("type") == "backfill_summary":
+            summary = payload
+    return code, summary, http
