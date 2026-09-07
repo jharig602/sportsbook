@@ -35,6 +35,16 @@ const TABS: Tab[] = [
     ),
   },
   {
+    href: "/edges",
+    label: "Edges",
+    icon: (
+      <>
+        <path d="M12 3v18M5 8l7-5 7 5" {...stroke} />
+        <path d="M4 14h16" {...stroke} />
+      </>
+    ),
+  },
+  {
     href: "/record",
     label: "Record",
     icon: (

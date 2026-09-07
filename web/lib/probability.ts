@@ -162,11 +162,27 @@ export function winProbabilityFromSpread(
   model: MarginModel,
   homeSpread: number,
   side: Side,
+  /**
+   * Whether to assume the closing line is unbiased.
+   *
+   * The fitted residual has a non-zero mean — +1.40 points in college, +0.35 in the
+   * NFL — meaning home teams beat the closing spread on average in the sample. Left in,
+   * that tilt applies to *every* game equally, so the model disagrees with the market
+   * in one direction everywhere: 34 of 40 "edges" favoured the home side and the top
+   * ten were all home teams. That is one hypothesis about the market, not forty
+   * opportunities, and dressing it as forty is how a systematic offset gets mistaken
+   * for a list of bets.
+   *
+   * Centring removes it, so a remaining edge is specific to that game. The bias itself
+   * is still worth testing — separately, once, as the single claim it is.
+   */
+  assumeUnbiased = true,
 ): number | null {
   if (model.sd <= 0) return null;
   // residual = margin + spread, so margin > 0 means residual > spread.
-  const homeWins = residualAbove(model, homeSpread);
-  const tie = residualAt(model, homeSpread);
+  const threshold = assumeUnbiased ? homeSpread + model.mean : homeSpread;
+  const homeWins = residualAbove(model, threshold);
+  const tie = residualAt(model, threshold);
   const decided = 1 - tie;
   if (decided <= 0) return null;
   const home = homeWins / decided;
