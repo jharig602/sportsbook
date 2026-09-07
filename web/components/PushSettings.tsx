@@ -46,6 +46,8 @@ function isStandalone(): boolean {
 export function PushSettings() {
   const [status, setStatus] = useState<Status>("loading");
   const [detail, setDetail] = useState<string>("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string>("");
 
   useEffect(() => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -102,6 +104,25 @@ export function PushSettings() {
     } catch (error) {
       setStatus("error");
       setDetail(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function sendTest() {
+    setTesting(true);
+    setTestResult("");
+    try {
+      const response = await fetch("/api/push/test", { method: "POST" });
+      const body = await response.json();
+      if (body.ok) {
+        setTestResult(`Sent to ${body.sent} device${body.sent === 1 ? "" : "s"}.`);
+      } else {
+        // Show the delivery error verbatim — a vague message here defeats the point.
+        setTestResult(body.error || body.failures?.[0] || "Delivery failed.");
+      }
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -167,12 +188,36 @@ export function PushSettings() {
           <p className="mt-1 text-sm text-emerald-300/90">
             Notifications are on for this device.
           </p>
-          <button
-            onClick={unsubscribe}
-            className="mt-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-inset ring-slate-700 transition-colors hover:text-slate-200"
-          >
-            Turn off
-          </button>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={sendTest}
+              disabled={testing}
+              className="rounded-lg bg-sky-500/15 px-3 py-1.5 text-sm font-medium text-sky-300 ring-1 ring-inset ring-sky-500/30 transition-colors hover:bg-sky-500/25 disabled:opacity-50"
+            >
+              {testing ? "Sending…" : "Send a test"}
+            </button>
+            <button
+              onClick={unsubscribe}
+              className="rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-inset ring-slate-700 transition-colors hover:text-slate-200"
+            >
+              Turn off
+            </button>
+          </div>
+          {testResult ? (
+            <p
+              className={`mt-2 text-xs leading-relaxed ${
+                testResult.startsWith("Sent")
+                  ? "text-emerald-300/90"
+                  : "text-rose-300/90"
+              }`}
+            >
+              {testResult}
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            Storing a subscription and delivering to it are different things. Send a test
+            so a broken key pair shows up now rather than as a missed alert later.
+          </p>
         </>
       ) : null}
 
