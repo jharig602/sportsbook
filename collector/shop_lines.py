@@ -22,10 +22,13 @@ this runs on every tick and decides for itself whether a poll is worth a credit 
 frequently near kickoff, barely at all midweek -- and backs off further as the budget
 runs down. Running out silently in November is the failure to design against.
 
-**It reports what it could not match.** Games are joined to ESPN by team name, and a
-game that fails to match records no second book -- which the app then shows as "only one
-book has priced this game", indistinguishable from "the books agree". Unmatched games
-are counted and named in the summary so that never passes silently.
+**It reports coverage in the direction that matters.** Games are joined to ESPN by team
+name, and a board game that fails to match records no second book -- which the app then
+shows as "only one book has priced this game", indistinguishable from "the books agree".
+So the warning is about board games left uncovered, NOT about feed games we have no
+board entry for: the feed returns a whole NFL season and college fixtures DraftKings
+never prices, and warning on those would bury the one real failure under hundreds of
+meaningless ones.
 """
 from __future__ import annotations
 
@@ -42,7 +45,7 @@ from odds_poller import (Context, DuckStore, HttpClient, MemoryStore, ODDS_API_H
                          american_price, http_request, mapping, new_id, number, utcnow)
 from db import Database, clean_database_url, insert_sql
 from schema import ensure_analytics_schema
-from team_match import Candidate, match_events, summarize_unmatched
+from team_match import Candidate, match_events
 
 LOG = logging.getLogger("shop_lines")
 UTC = timezone.utc
@@ -347,17 +350,41 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
 
         feed = feed_candidates(result.data)
         matches, unmatched = match_events(feed, games)
+
+        # Which direction of "unmatched" actually matters.
+        #
+        # The feed returns everything it has -- a whole NFL season, and college games
+        # our board never carries because DraftKings does not price FBS-versus-FCS. So
+        # feed games with no board entry are the normal case, not a fault: the first
+        # live run had 256 of them in the NFL against 16 real games, and warning on
+        # those would bury the one alias failure worth seeing under 255 that mean
+        # nothing.
+        #
+        # What matters is the opposite direction: a game on OUR board that got no
+        # second book. That one is invisible downstream -- the page just says "only one
+        # book has priced this game", which reads exactly like "the books agree".
+        matched_espn = {match.espn_key for match in matches}
+        uncovered = [game for game in games if game.key not in matched_espn]
+        coverage = len(matches) / len(games) if games else 0.0
+
         summary["matched"] = len(matches)
-        summary["unmatched"] = len(unmatched)
         summary["feed_games"] = len(feed)
         summary["board_games"] = len(games)
+        summary["coverage"] = round(coverage, 3)
+        # Informational only: kept so a sudden change is visible, but not warned on.
+        summary["feed_only"] = len(unmatched)
 
-        if unmatched:
-            # A warning, not an error: an unmatched game is a gap in coverage, not a
-            # broken run. But it is named, because a silent gap looks like agreement.
-            ctx.issue(SOURCE, "unmatched_events", summarize_unmatched(unmatched),
-                      severity="warning")
-            summary["unmatched_detail"] = summarize_unmatched(unmatched)
+        if uncovered:
+            detail = "; ".join(f"{game.away} @ {game.home}" for game in uncovered[:10])
+            more = f" (+{len(uncovered) - 10} more)" if len(uncovered) > 10 else ""
+            message = (f"{len(uncovered)} of {len(games)} board games got no second "
+                       f"book: {detail}{more}")
+            ctx.issue(SOURCE, "uncovered_board_games", message, severity="warning")
+            summary["uncovered_detail"] = message
+            LOG.warning("board coverage %.0f%%", coverage * 100)
+        else:
+            LOG.info("board coverage 100%% (%d games, %d feed games ignored)",
+                     len(games), len(unmatched))
 
         by_key = {}
         for item in result.data if isinstance(result.data, list) else []:

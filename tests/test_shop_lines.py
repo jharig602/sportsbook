@@ -243,22 +243,23 @@ def test_an_unpriced_outcome_is_skipped_rather_than_stored_as_null():
 
 # --- matching is reported ----------------------------------------------------------
 
-def test_an_unmatched_game_is_a_warning_and_is_named(monkeypatch):
+def test_a_feed_that_covers_none_of_the_board_is_a_warning_and_is_named(monkeypatch):
     _, summary, _ = run(
         {"the-odds-api": [feed_event(home="Nowhere State Foxes", away="Elsewhere Owls")]},
         games=board(), monkeypatch=monkeypatch,
     )
-    assert summary["unmatched"] == 1
     assert summary["matched"] == 0
-    # A coverage gap, not a broken run -- but it must be visible.
+    assert summary["coverage"] == 0.0
+    # A coverage gap, not a broken run -- but it must be visible, and it must name the
+    # BOARD game that went uncovered, since that is the one the app will misreport.
     assert summary["errors"] == 0
     assert summary["warnings"] == 1
-    assert "Nowhere State Foxes" in summary["unmatched_detail"]
+    assert "Houston Texans" in summary["uncovered_detail"]
 
 
-def test_a_clean_slate_reports_no_unmatched(monkeypatch):
+def test_a_clean_slate_reports_full_coverage(monkeypatch):
     _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
-    assert summary["unmatched"] == 0
+    assert summary["coverage"] == 1.0
     assert summary["warnings"] == 0
 
 
@@ -313,3 +314,41 @@ def test_force_overrides_the_throttle(monkeypatch):
                         monkeypatch=monkeypatch)
     assert summary["polled"] is True
     assert summary["reason"] == "forced"
+
+
+# --- coverage is measured in the direction that matters ---------------------------
+
+def test_feed_games_absent_from_our_board_are_not_warnings(monkeypatch):
+    """The first live run had 256 of these in the NFL against 16 real games.
+
+    The feed returns a whole season plus fixtures DraftKings never prices. Warning on
+    them would bury the one alias failure worth seeing under hundreds that mean nothing.
+    """
+    _, summary, _ = run(
+        {"the-odds-api": [feed_event(), feed_event(key="fe2", home="Elsewhere Owls",
+                                                  away="Nowhere State Foxes")]},
+        games=board(), monkeypatch=monkeypatch,
+    )
+    assert summary["matched"] == 1
+    assert summary["coverage"] == 1.0
+    assert summary["feed_only"] == 1, "counted, so a sudden change is visible"
+    assert summary["warnings"] == 0, "but not warned on"
+
+
+def test_a_board_game_left_without_a_second_book_is_warned_and_named(monkeypatch):
+    # This is the failure that hides: downstream it looks exactly like agreement.
+    from team_match import Candidate
+    two = board() + [Candidate("402", "Miami Hurricanes", "Florida State Seminoles", KICK)]
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=two, monkeypatch=monkeypatch)
+    assert summary["matched"] == 1
+    assert summary["board_games"] == 2
+    assert summary["coverage"] == 0.5
+    assert summary["warnings"] == 1
+    assert "Miami Hurricanes" in summary["uncovered_detail"]
+
+
+def test_full_coverage_reports_no_warning(monkeypatch):
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board(), monkeypatch=monkeypatch)
+    assert summary["coverage"] == 1.0
+    assert summary["warnings"] == 0
+    assert "uncovered_detail" not in summary
