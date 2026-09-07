@@ -60,11 +60,15 @@ CREATE TABLE IF NOT EXISTS margin_models (
     pmf_json VARCHAR NOT NULL,
     -- Residual dispersion measured separately by how big the spread was.
     --
-    -- One number for the whole league says a point of line is worth the same on a
-    -- pick'em as on a 42-point blowout. It is not: results scatter further when the
-    -- teams are mismatched, so the density at the middle is lower and a point buys
-    -- less. Quoting the league-wide figure out there overstates every gap, which is
-    -- how a 2-point difference on Notre Dame -42.5 came to top the board.
+    -- One number for the whole league asserts a point of line is worth the same on a
+    -- pick'em as on a 42-point blowout. Measuring it was meant to show big spreads
+    -- scatter more; on 6,142 college games they do not. The sd is flat from 0 to 35
+    -- (15.16-16.02 against a league 15.43) and LOWER above 35 (13.63 over 412 games,
+    -- about four standard errors below), so a point out there buys slightly MORE
+    -- probability rather than less.
+    --
+    -- Stored anyway: an assumption replaced by a measurement, and that 35+ band is a
+    -- real effect. The prediction it was built to confirm was simply wrong.
     --
     -- JSON array of {lo, hi, games, mean, sd}, keyed on |home_spread|. Nullable
     -- because it arrives with schema v5 and an older row simply has none.

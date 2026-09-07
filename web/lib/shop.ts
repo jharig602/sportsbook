@@ -93,13 +93,21 @@ export function median(values: number[]): number | null {
 }
 
 /**
- * Points of win probability bought by one point of line, at the middle of the
- * distribution. This is the peak density of the fitted residual, 1/(sd*sqrt(2pi)) —
- * the same local-linear approximation `effectiveSpread` uses to price juice, applied
- * in the opposite direction.
+ * Points of win probability bought by one point of line. The peak density of the
+ * fitted residual, 1/(sd*sqrt(2pi)) — the same local-linear approximation
+ * `effectiveSpread` uses to price juice, applied in the opposite direction.
  *
- * Being local, it is honest near a coin flip and overstates the value of a point far
- * out in the tail. Gaps large enough to matter here are small enough for it to hold.
+ * Takes the dispersion measured for lines of this size rather than one league-wide
+ * figure. That began as a suspicion that big spreads scatter more, so a point out
+ * there should buy less. **Measured on 6,142 college games, that is false.** The
+ * residual sd is flat from 0 to 35 points — 15.16 to 16.02 against a league 15.43,
+ * every band within about one standard error — and *above* 35 it is markedly LOWER,
+ * 13.63 across 412 games, roughly four standard errors below the league figure. So a
+ * point on a 40-point line is worth more than a point on a pick'em, not less.
+ *
+ * The lookup is kept because it replaces an assumption with a measurement, and
+ * because that 35+ band is a real effect worth carrying. It is not kept because it
+ * shrinks big-spread edges: it enlarges them.
  */
 export function pointsToProbability(
   model: MarginModel,

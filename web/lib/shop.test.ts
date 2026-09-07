@@ -270,27 +270,57 @@ test("the spread path is untouched by the moneyline band", () => {
 
 // --- dispersion by line size ------------------------------------------------------
 
-/** NCAAF shaped like the real fit: tight near pick'em, much wider on blowouts. */
+/**
+ * NCAAF as actually fitted, on 6,142 games from seven seasons.
+ *
+ * Worth reading before trusting any intuition about big spreads: the dispersion is
+ * FLAT from 0 to 35 points, and drops at 35+. It does not widen with the spread, which
+ * is what this fixture was originally written (wrongly) to assert.
+ */
 const CFB_BUCKETED: MarginModel = {
   ...CFB,
   sd: 15.43,
   buckets: [
-    { lo: 0, hi: 3, games: 900, mean: 0.1, sd: 13.2 },
-    { lo: 3, hi: 7, games: 1200, mean: 0.2, sd: 14.1 },
-    { lo: 7, hi: 14, games: 1600, mean: 0.2, sd: 15.0 },
-    { lo: 14, hi: 21, games: 1100, mean: 0.3, sd: 16.4 },
-    { lo: 21, hi: 28, games: 700, mean: 0.3, sd: 17.8 },
-    { lo: 28, hi: 35, games: 400, mean: 0.4, sd: 19.5 },
-    { lo: 35, hi: 999, games: 250, mean: 0.5, sd: 21.6 },
+    { lo: 0, hi: 3, games: 785, mean: -0.07, sd: 15.7 },
+    { lo: 3, hi: 7, games: 1432, mean: 0.8, sd: 15.45 },
+    { lo: 7, hi: 10, games: 736, mean: 0.11, sd: 15.85 },
+    { lo: 10, hi: 14, games: 781, mean: 0.49, sd: 15.46 },
+    { lo: 14, hi: 21, games: 1007, mean: -0.73, sd: 15.16 },
+    { lo: 21, hi: 28, games: 624, mean: -0.36, sd: 15.63 },
+    { lo: 28, hi: 35, games: 365, mean: 1.52, sd: 16.02 },
+    // The one band that genuinely differs, about four standard errors below.
+    { lo: 35, hi: 999, games: 412, mean: 1.12, sd: 13.63 },
   ],
 };
 
-test("a point is worth less on a blowout than on a pick'em", () => {
-  const near = pointsToProbability(CFB_BUCKETED, 1.5) * 100;
-  const far = pointsToProbability(CFB_BUCKETED, 42.5) * 100;
-  assert.ok(near > far, "wider scatter means a point buys less");
-  assert.ok(near > 2.9 && near < 3.1, `pick'em should be about 3.0, got ${near}`);
-  assert.ok(far > 1.7 && far < 1.9, `42-point should be about 1.8, got ${far}`);
+/** Invented, not measured: used only to prove the lookup responds to the band. */
+const SYNTHETIC_WIDENING: MarginModel = {
+  ...CFB,
+  sd: 15.43,
+  buckets: [
+    { lo: 0, hi: 3, games: 900, mean: 0, sd: 13.2 },
+    { lo: 35, hi: 999, games: 400, mean: 0, sd: 21.6 },
+  ],
+};
+
+test("the density follows whichever band the line falls in", () => {
+  const near = pointsToProbability(SYNTHETIC_WIDENING, 1.5) * 100;
+  const far = pointsToProbability(SYNTHETIC_WIDENING, 42.5) * 100;
+  assert.ok(near > far, "wider scatter must mean a point buys less");
+  assert.ok(near > 2.9 && near < 3.1);
+  assert.ok(far > 1.7 && far < 1.9);
+});
+
+test("measured football does NOT widen with the spread", () => {
+  // The hypothesis this whole lookup was built to act on, tested against the fit.
+  // Every band from 0 to 35 sits within a few hundredths of the league figure...
+  const league = pointsToProbability(CFB_BUCKETED, null) * 100;
+  for (const size of [1.5, 5, 8.5, 12, 17, 24, 31]) {
+    const d = pointsToProbability(CFB_BUCKETED, size) * 100;
+    assert.ok(Math.abs(d - league) < 0.12, `band at ${size} moved to ${d} from ${league}`);
+  }
+  // ...and above 35 a point is worth MORE, not less.
+  assert.ok(pointsToProbability(CFB_BUCKETED, 42.5) * 100 > league + 0.25);
 });
 
 test("the league figure is used when no buckets are fitted", () => {
@@ -306,7 +336,7 @@ test("the sign of the spread does not matter, only its size", () => {
   assert.equal(pointsToProbability(CFB_BUCKETED, 42.5), pointsToProbability(CFB_BUCKETED, -42.5));
 });
 
-test("the Notre Dame row: a blowout gap is worth far less than it looked", () => {
+test("the Notre Dame row: measuring made it larger, not smaller", () => {
   // What started this. FanDuel -42.5 against a field at -44.5 is a genuine 2-point
   // difference, and priced at the league-wide density it read +5.3% and topped the
   // board. The gap is real; what was wrong was how much a point out there is worth.
@@ -320,13 +350,16 @@ test("the Notre Dame row: a blowout gap is worth far less than it looked", () =>
 
   assert.equal(naive.advantagePoints, 2);
   assert.equal(fixed.advantagePoints, 2, "the gap itself is unchanged; only its worth");
+  // The uncomfortable part. I expected this correction to shrink the row; the 35+
+  // band is tighter than the league, so it grows. Keeping the test in this direction
+  // so nobody "fixes" the model back toward the intuition it disproved.
   assert.ok(
-    fixed.expectedRoi! < naive.expectedRoi! * 0.6,
-    "measuring dispersion where the line actually is roughly halves the estimate",
+    fixed.expectedRoi! > naive.expectedRoi!,
+    "the tighter 35+ band makes a point out there worth more",
   );
 });
 
-test("a blowout gap no longer outranks the same gap near pick'em", () => {
+test("a synthetic widening band does reorder the board", () => {
   // The ranking failure this fix is really about. Two identical 2-point gaps: at the
   // league-wide density they price the same and the blowout can top the board on
   // rounding alone. Measured properly, the near-pick'em one is plainly worth more.
@@ -335,11 +368,11 @@ test("a blowout gap no longer outranks the same gap near pick'em", () => {
   });
   const blowout = shopSide(
     [at(-42.5, "X"), at(-44.5, "A"), at(-44.5, "B"), at(-44.5, "C")],
-    CFB_BUCKETED,
+    SYNTHETIC_WIDENING,
   ).find((r) => r.book === "X")!;
   const pickem = shopSide(
     [at(1, "X"), at(-1, "A"), at(-1, "B"), at(-1, "C")],
-    CFB_BUCKETED,
+    SYNTHETIC_WIDENING,
   ).find((r) => r.book === "X")!;
 
   assert.equal(blowout.advantagePoints, 2);
