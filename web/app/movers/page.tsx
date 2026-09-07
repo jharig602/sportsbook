@@ -1,6 +1,6 @@
 import { Stake } from "@/components/Stake";
 import { TeamLogo } from "@/components/TeamLogo";
-import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
+import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { calibratedProbability, collapseAlerts, getData } from "@/lib/data";
 import {
   formatKickoff,
@@ -186,11 +186,17 @@ export default async function MoversPage({
   const collapsed = collapseAlerts(rawAlerts);
   const probabilityFor = (strength: number) => calibratedProbability(grades, strength);
 
+  const movement = collapsed.filter((a) => a.kind !== "first_price");
+
+  // A quiet market leaves the Movement tab genuinely empty, which reads as a broken
+  // app rather than as "nothing has moved". Falling back to opening prices keeps the
+  // screen useful and says plainly which of the two you are looking at.
+  const fellBack = kind === "movement" && movement.length === 0;
   const matching =
     kind === "all"
       ? collapsed
       : kind === "movement"
-        ? collapsed.filter((a) => a.kind !== "first_price")
+        ? (fellBack ? collapsed.filter((a) => a.kind === "first_price") : movement)
         : collapsed.filter((a) => a.kind === (kind as AlertKind));
 
   // Rendering every alert meant hundreds of cards and well over 700 logo requests on
@@ -209,6 +215,14 @@ export default async function MoversPage({
         active={kind}
         hrefFor={(key) => (key === "movement" ? "/movers" : `/movers?kind=${key}`)}
       />
+
+      {fellBack && shown.length > 0 ? (
+        <Banner tone="info">
+          No line has moved past the alert threshold yet — 97% of prices are unchanged
+          between polls this far from kickoff. Showing opening prices instead. Movement
+          picks up as the slate firms through the week.
+        </Banner>
+      ) : null}
 
       {shown.length === 0 ? (
         <Empty
