@@ -92,6 +92,19 @@ export function strengthTone(strength: number): string {
   return "bg-slate-700/40 text-slate-500";
 }
 
+/**
+ * Per-side colour, so a two-line chart is readable at a glance without a legend hunt.
+ * Sky for home/over, amber for away/under — kept consistent across the whole app so
+ * the association is learned once. Deliberately not red/green: those read as
+ * bad/good, and these are just two sides of a market.
+ */
+export function sideTone(side: Side): { text: string; dot: string; label: string } {
+  const home = side === "home" || side === "over";
+  return home
+    ? { text: "text-sky-400", dot: "bg-sky-400", label: side }
+    : { text: "text-amber-400", dot: "bg-amber-400", label: side };
+}
+
 export function teamShort(name: string | null): string {
   // Dropping the last word to strip the mascot turns "Arizona State Sun Devils" into
   // "Arizona State Sun", which is worse than the full name. ESPN display names have no

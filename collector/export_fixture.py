@@ -61,6 +61,10 @@ SELECT g.grade_id, g.alert_id, g.graded_at, g.rule_version_id, g.market,
 
 ACTIVE_RULE = "SELECT rule_version_id FROM active_rule WHERE id = 1"
 
+MARGIN_MODELS = """
+SELECT league, games, mean, sd, lo, hi, pmf_json FROM margin_models
+"""
+
 RESULTS = """
 SELECT event_id, league, home_team, away_team, home_score, away_score,
        went_overtime, commence_time
@@ -140,12 +144,19 @@ def main(argv: list[str] | None = None) -> int:
             "event_id", "league", "home_team", "away_team", "home_score",
             "away_score", "went_overtime", "commence_time"])
         active = database.fetchone(ACTIVE_RULE)
+        margin_models = {}
+        for league, games, mean, sd, lo, hi, pmf_json in database.fetchall(MARGIN_MODELS):
+            margin_models[league] = {
+                "league": league, "games": games, "mean": mean, "sd": sd,
+                "lo": lo, "hi": hi, "pmf": json.loads(pmf_json),
+            }
     finally:
         database.close()
 
     payload = {
         "generatedAt": datetime.now(UTC).isoformat(),
         "activeRuleVersion": active[0] if active else None,
+        "marginModels": margin_models,
         "games": build_board(quotes),
         "history": build_history(history_rows),
         "alerts": alerts,
@@ -159,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         "type": "export_summary", "out": str(args.out),
         "games": len(payload["games"]), "alerts": len(alerts),
         "grades": len(grades), "results": len(results),
+        "margin_models": len(margin_models),
         "bytes": args.out.stat().st_size,
     }))
     return 0

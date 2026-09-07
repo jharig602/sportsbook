@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { Probability } from "@/components/Probability";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Card, Empty, NotAdvice, Pill } from "@/components/ui";
 import { collapseAlerts, getData } from "@/lib/data";
+import { lineProbability, type MarginModel } from "@/lib/probability";
 import {
   formatKickoff,
   formatKind,
@@ -11,6 +13,7 @@ import {
   formatLine,
   formatPrice,
   formatRelative,
+  sideTone,
   strengthTone,
 } from "@/lib/format";
 import type { HistoryPoint, League, Market, Side } from "@/lib/types";
@@ -77,9 +80,27 @@ function Sparkline({ points }: { points: HistoryPoint[] }) {
   );
 }
 
-function MarketPanel({ market, points }: { market: Market; points: HistoryPoint[] }) {
+function MarketPanel({
+  market,
+  points,
+  homeTeam,
+  awayTeam,
+  homeSpread,
+  model,
+}: {
+  market: Market;
+  points: HistoryPoint[];
+  homeTeam: string;
+  awayTeam: string;
+  homeSpread: number | null;
+  model: MarginModel | null;
+}) {
   const sides = [...new Set(points.map((p) => p.side))];
   if (sides.length === 0) return null;
+
+  // Spread and moneyline sides are teams; showing the team name beats "home"/"away".
+  const labelFor = (side: string) =>
+    market === "total" ? side : side === "home" ? homeTeam : awayTeam;
 
   return (
     <Card className="px-3.5 py-3">
@@ -96,10 +117,29 @@ function MarketPanel({ market, points }: { market: Market; points: HistoryPoint[
             opening?.line !== null &&
             latest?.line !== opening?.line;
 
+          const tone = sideTone(side as Side);
+
+          // De-vigging needs the opposing price, so the other side's latest is read here.
+          const otherSeries = points.filter((p) => p.side !== side);
+          const otherLatest = otherSeries[otherSeries.length - 1];
+          const probability = lineProbability(
+            market,
+            side as Side,
+            latest?.price ?? null,
+            otherLatest?.price ?? null,
+            homeSpread,
+            model,
+          );
+
           return (
             <div key={side}>
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[13px] capitalize text-slate-300">{side}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${tone.dot}`} />
+                  <span className="truncate text-[13px] capitalize text-slate-300">
+                    {labelFor(side)}
+                  </span>
+                </span>
                 <span className="tabular text-[14px] font-medium text-slate-100">
                   {formatLine(market, side as Side, latest?.line)}
                   <span className="ml-1.5 text-[11px] font-normal text-slate-500">
@@ -108,7 +148,9 @@ function MarketPanel({ market, points }: { market: Market; points: HistoryPoint[
                 </span>
               </div>
 
-              <div className={moved ? "text-accent" : "text-slate-600"}>
+              <Probability value={probability} />
+
+              <div className={moved ? tone.text : "text-slate-700"}>
                 <Sparkline points={series} />
               </div>
 
@@ -137,11 +179,12 @@ export default async function GamePage({
 }) {
   const { eventId } = await params;
   const data = getData();
-  const [games, allAlerts, results, history] = await Promise.all([
+  const [games, allAlerts, results, history, models] = await Promise.all([
     data.games(),
     data.alerts(),
     data.results(),
     data.history(eventId),
+    data.marginModels(),
   ]);
 
   const game = games.find((g) => g.eventId === eventId);
@@ -153,6 +196,10 @@ export default async function GamePage({
   const homeTeam = game?.homeTeam ?? result?.home_team ?? "Home";
   const awayTeam = game?.awayTeam ?? result?.away_team ?? "Away";
   const markets: Market[] = ["spread", "total", "moneyline"];
+  const model = models[league] ?? null;
+  // The current home handicap is what the model converts into a win probability.
+  const spreadHistory = history.filter((p) => p.market === "spread" && p.side === "home");
+  const homeSpread = spreadHistory[spreadHistory.length - 1]?.line ?? null;
 
   return (
     <>
@@ -207,6 +254,10 @@ export default async function GamePage({
               key={market}
               market={market}
               points={history.filter((p) => p.market === market)}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
+              homeSpread={homeSpread}
+              model={model}
             />
           ))}
         </div>

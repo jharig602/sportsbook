@@ -12,6 +12,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { databaseUrl } from "./env";
+import type { MarginModel } from "./probability";
 import { collapseAlerts, normalizeRow } from "./rows";
 
 import type {
@@ -42,6 +43,8 @@ export interface DataSource {
   history(eventId: string): Promise<HistoryPoint[]>;
   grades(): Promise<Grade[]>;
   results(): Promise<GameResult[]>;
+  /** Fitted residual model per league; empty until fit_margins has run. */
+  marginModels(): Promise<Record<string, MarginModel>>;
   backend: "postgres" | "fixture";
 }
 
@@ -55,6 +58,7 @@ interface Snapshot {
   alerts: Alert[];
   grades: Grade[];
   results: GameResult[];
+  marginModels?: Record<string, MarginModel>;
 }
 
 let cached: Snapshot | null = null;
@@ -87,6 +91,7 @@ async function snapshot(): Promise<Snapshot> {
       alerts: [],
       grades: [],
       results: [],
+      marginModels: {},
     };
   }
   return cached;
@@ -114,6 +119,7 @@ const fixtureSource: DataSource = {
     return activeOnly(data.grades, data.activeRuleVersion);
   },
   results: async () => (await snapshot()).results,
+  marginModels: async () => (await snapshot()).marginModels ?? {},
 };
 
 // --- postgres backend ----------------------------------------------------------
@@ -152,6 +158,10 @@ const RESULTS = `
 SELECT event_id, league, home_team, away_team, home_score, away_score,
        went_overtime, commence_time
   FROM game_results WHERE completed = TRUE`;
+
+const MARGIN_MODELS = `
+SELECT league, games, mean, sd, lo, hi, pmf_json
+  FROM margin_models`;
 
 const HISTORY = `
 SELECT market, side, line, price, observed_at AS "observedAt"
@@ -263,6 +273,21 @@ const postgresSource: DataSource = {
   history: async (eventId) => query<HistoryPoint>(HISTORY, [eventId]),
   grades: async () => query<Grade>(GRADES),
   results: async () => query<GameResult>(RESULTS),
+  marginModels: async () => {
+    const rows = await query<{
+      league: string; games: number; mean: number; sd: number;
+      lo: number; hi: number; pmf_json: string;
+    }>(MARGIN_MODELS);
+    const models: Record<string, MarginModel> = {};
+    for (const row of rows) {
+      try {
+        models[row.league] = { ...row, pmf: JSON.parse(row.pmf_json) };
+      } catch {
+        // A corrupt pmf must not take the page down; the league simply has no model.
+      }
+    }
+    return models;
+  },
 };
 
 export function getData(): DataSource {

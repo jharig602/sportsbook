@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 1
+ANALYTICS_SCHEMA_VERSION = 2
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -32,6 +32,32 @@ CREATE TABLE IF NOT EXISTS game_results (
     run_id VARCHAR NOT NULL,
     response_id VARCHAR NOT NULL,
     CHECK (home_score >= 0 AND away_score >= 0)
+);
+
+-- Closing spread/total for completed games, used to fit the margin model.
+-- Kept apart from odds_snapshots because these are a one-off historical pull with a
+-- present-day observation time, not forward observations, and must never be mistaken
+-- for line movement.
+CREATE TABLE IF NOT EXISTS historical_lines (
+    event_id VARCHAR PRIMARY KEY,
+    league VARCHAR NOT NULL,
+    provider VARCHAR,
+    home_spread DOUBLE PRECISION,
+    total DOUBLE PRECISION,
+    fetched_at TIMESTAMPTZ NOT NULL
+);
+
+-- Fitted residual-margin model per league. Small, and refit from history rather than
+-- from forward observations, so it is available before any alert has been graded.
+CREATE TABLE IF NOT EXISTS margin_models (
+    league VARCHAR PRIMARY KEY,
+    fitted_at TIMESTAMPTZ NOT NULL,
+    games INTEGER NOT NULL,
+    mean DOUBLE PRECISION NOT NULL,
+    sd DOUBLE PRECISION NOT NULL,
+    lo INTEGER NOT NULL,
+    hi INTEGER NOT NULL,
+    pmf_json VARCHAR NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS alerts (
@@ -134,3 +160,9 @@ def ensure_analytics_schema(connection) -> None:
             f"Database analytics schema is v{existing}, newer than this code "
             f"(v{ANALYTICS_SCHEMA_VERSION}). Upgrade the code rather than downgrading data."
         )
+    if existing < ANALYTICS_SCHEMA_VERSION:
+        # Every migration so far is additive and already applied by the DDL above,
+        # which is all CREATE TABLE IF NOT EXISTS. Record the new version.
+        connection.execute("DELETE FROM analytics_meta")
+        connection.execute("INSERT INTO analytics_meta VALUES (?)",
+                           [ANALYTICS_SCHEMA_VERSION])
