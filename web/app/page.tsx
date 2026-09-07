@@ -1,6 +1,5 @@
-import Link from "next/link";
-
-import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { TeamLogo } from "@/components/TeamLogo";
+import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { databaseStatus, getData } from "@/lib/data";
 import { databaseUrl, databaseUrlSource, isPooled } from "@/lib/env";
 import {
@@ -9,7 +8,6 @@ import {
   formatLine,
   formatPrice,
   formatRelative,
-  teamShort,
 } from "@/lib/format";
 import type { Game, Side } from "@/lib/types";
 
@@ -25,22 +23,30 @@ function SideRow({ game, side }: { game: Game; side: "home" | "away" }) {
   const team = side === "home" ? game.homeTeam : game.awayTeam;
   const spread = game.spread[side];
   const moneyline = game.moneyline[side];
+  const favourite =
+    spread?.line !== null && spread?.line !== undefined && spread.line < 0;
 
   return (
-    <div className="flex items-center gap-3 py-1">
-      <span className="min-w-0 flex-1 truncate text-sm text-slate-200">
-        {teamShort(team)}
-        {side === "home" ? (
-          <span className="ml-1 text-[11px] text-slate-500">(H)</span>
-        ) : null}
+    <div className="flex items-center gap-2.5 py-[5px]">
+      <TeamLogo
+        league={game.league}
+        teamId={side === "home" ? game.homeTeamId : game.awayTeamId}
+        name={team}
+      />
+      <span
+        className={`min-w-0 flex-1 truncate text-[14px] ${
+          favourite ? "font-medium text-slate-100" : "text-slate-300"
+        }`}
+      >
+        {team ?? "?"}
       </span>
-      <span className="tabular w-20 text-right text-sm text-slate-100">
+      <span className="tabular w-[72px] text-right text-[14px] font-medium text-slate-100">
         {formatLine("spread", side, spread?.line)}
-        <span className="ml-1 text-[11px] text-slate-500">
+        <span className="ml-1 text-[10px] font-normal text-slate-500">
           {formatPrice(spread?.price)}
         </span>
       </span>
-      <span className="tabular w-14 text-right text-sm text-slate-300">
+      <span className="tabular w-14 text-right text-[13px] text-slate-400">
         {formatPrice(moneyline?.price)}
       </span>
     </div>
@@ -52,15 +58,15 @@ function GameCard({ game }: { game: Game }) {
   const under = game.total.under;
 
   return (
-    <Card href={`/game/${game.eventId}`} className="px-3 py-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <Card href={`/game/${game.eventId}`} className="px-3 py-2.5">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Pill>{formatLeague(game.league)}</Pill>
           <span className="text-[11px] text-slate-500">
             {formatKickoff(game.commenceTime)}
           </span>
         </div>
-        <span className="text-[11px] text-slate-600">
+        <span className="text-[10px] text-slate-600">
           {formatRelative(game.lastObserved)}
         </span>
       </div>
@@ -69,15 +75,15 @@ function GameCard({ game }: { game: Game }) {
       <SideRow game={game} side="home" />
 
       {over || under ? (
-        <div className="mt-2 flex items-center gap-3 border-t border-edge pt-2 text-[11px] text-slate-400">
-          <span className="flex-1">Total</span>
-          <span className="tabular w-20 text-right">
-            {formatLine("total", "over" as Side, over?.line)}{" "}
-            <span className="text-slate-500">{formatPrice(over?.price)}</span>
+        <div className="mt-2 flex items-center gap-2.5 border-t border-edge/70 pt-2 text-[11px]">
+          <span className="flex-1 uppercase tracking-wider text-slate-600">Total</span>
+          <span className="tabular text-slate-300">
+            {formatLine("total", "over" as Side, over?.line)}
+            <span className="ml-1 text-slate-500">{formatPrice(over?.price)}</span>
           </span>
-          <span className="tabular w-20 text-right">
-            {formatLine("total", "under" as Side, under?.line)}{" "}
-            <span className="text-slate-500">{formatPrice(under?.price)}</span>
+          <span className="tabular text-slate-300">
+            {formatLine("total", "under" as Side, under?.line)}
+            <span className="ml-1 text-slate-500">{formatPrice(under?.price)}</span>
           </span>
         </div>
       ) : null}
@@ -115,53 +121,38 @@ export default async function BoardPage({
 
   return (
     <>
-      <PageHeader
-        title="Board"
-        subtitle={`Current DraftKings prices. ${all.length} games with quotes.`}
-      >
-        <span className="text-[11px] text-slate-600" title={backendDetail}>
-          {data.backend === "postgres" ? `db · ${source}` : "sample data"}
+      <PageHeader title="Board" subtitle={`${all.length} games with live prices`}>
+        <span className="text-[10px] text-slate-600" title={backendDetail}>
+          {data.backend === "postgres" ? "live" : "sample"}
         </span>
       </PageHeader>
 
       {data.backend === "fixture" ? (
-        <p className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-200/90">
+        <Banner tone="warn">
           Showing bundled sample data. No database URL is set, so these prices are a
-          snapshot and will not update. Set <code>DATABASE_URL</code> (or{" "}
-          <code>POSTGRES_URL</code>) to connect the live one.
-        </p>
+          snapshot and will not update.
+        </Banner>
       ) : null}
 
       {issue === "schema_missing" ? (
-        <p className="mb-3 rounded-lg border border-sky-500/25 bg-sky-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-sky-200/90">
+        <Banner tone="info">
           Database connected, but no tables yet — the collector has never run. Trigger the{" "}
-          <span className="font-medium">collect</span> workflow in GitHub Actions once; it
-          creates the schema and fills it on the first run.
-        </p>
+          <span className="font-medium">collect</span> workflow in GitHub Actions once.
+        </Banner>
       ) : null}
 
       {issue === "unreachable" ? (
-        <p className="mb-3 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-rose-200/90">
+        <Banner tone="error">
           Could not reach the database. Check the connection string is the pooled one and
-          that the Neon project is not paused. The server log has the underlying error.
-        </p>
+          that the Neon project is not paused.
+        </Banner>
       ) : null}
 
-      <div className="mb-4 flex gap-2">
-        {LEAGUES.map((option) => (
-          <Link
-            key={option.key}
-            href={option.key === "all" ? "/" : `/?league=${option.key}`}
-            className={`rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition-colors ${
-              league === option.key
-                ? "bg-sky-500/15 text-sky-300 ring-sky-500/30"
-                : "text-slate-400 ring-slate-700 hover:text-slate-200"
-            }`}
-          >
-            {option.label}
-          </Link>
-        ))}
-      </div>
+      <Segmented
+        options={LEAGUES}
+        active={league}
+        hrefFor={(key) => (key === "all" ? "/" : `/?league=${key}`)}
+      />
 
       {games.length === 0 ? (
         <Empty
@@ -175,16 +166,16 @@ export default async function BoardPage({
           }
         />
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {[...byDay.entries()].map(([day, dayGames]) => (
             <section key={day}>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                {day}
-                <span className="ml-2 font-normal normal-case text-slate-600">
-                  {dayGames.length} games
+              <h2 className="mb-2 flex items-baseline gap-2 px-0.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  {day}
                 </span>
+                <span className="text-[11px] text-slate-600">{dayGames.length}</span>
               </h2>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {dayGames.map((game) => (
                   <GameCard key={game.eventId} game={game} />
                 ))}

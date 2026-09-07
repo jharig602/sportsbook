@@ -60,13 +60,20 @@ export function normalizeRow<T>(row: Record<string, unknown>): T {
 export function collapseAlerts(alerts: Alert[]): Alert[] {
   const best = new Map<string, Alert>();
   for (const alert of alerts) {
-    const key = [
-      alert.event_id,
-      alert.market,
-      alert.kind,
-      alert.predicted_side,
-      alert.created_at,
-    ].join("|");
+    // A game getting its opening numbers fires once per market and per side — six
+    // cards for one event, which reads as six findings rather than one. Those collapse
+    // to a single card. Movement alerts stay split by market, because a spread moving
+    // and a total moving really are two separate pieces of information.
+    const key =
+      alert.kind === "first_price"
+        ? [alert.event_id, alert.kind, alert.created_at].join("|")
+        : [
+            alert.event_id,
+            alert.market,
+            alert.kind,
+            alert.predicted_side,
+            alert.created_at,
+          ].join("|");
     const current = best.get(key);
     if (!current || alert.move_strength > current.move_strength) best.set(key, alert);
   }

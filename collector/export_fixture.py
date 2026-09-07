@@ -24,15 +24,15 @@ UTC = timezone.utc
 # identical statement runs on DuckDB and Postgres.
 LATEST_QUOTES = """
 WITH ranked AS (
-    SELECT event_id, league, commence_time, home_team, away_team, market, side,
-           line, price, observed_at,
+    SELECT event_id, league, commence_time, home_team, away_team,
+           home_team_id, away_team_id, market, side, line, price, observed_at,
            row_number() OVER (PARTITION BY event_id, market, side
                               ORDER BY observed_at DESC) AS rn
       FROM odds_snapshots
      WHERE observation_kind = 'pregame_observation'
 )
-SELECT event_id, league, commence_time, home_team, away_team, market, side,
-       line, price, observed_at
+SELECT event_id, league, commence_time, home_team, away_team,
+       home_team_id, away_team_id, market, side, line, price, observed_at
   FROM ranked WHERE rn = 1
 """
 
@@ -86,7 +86,9 @@ def build_board(quotes: list[dict]) -> list[dict]:
         game = games.setdefault(quote["event_id"], {
             "eventId": quote["event_id"], "league": quote["league"],
             "commenceTime": quote["commence_time"], "homeTeam": quote["home_team"],
-            "awayTeam": quote["away_team"], "lastObserved": quote["observed_at"],
+            "awayTeam": quote["away_team"],
+            "homeTeamId": quote["home_team_id"], "awayTeamId": quote["away_team_id"],
+            "lastObserved": quote["observed_at"],
             "spread": {}, "total": {}, "moneyline": {},
         })
         game[quote["market"]][quote["side"]] = {
@@ -121,7 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         quotes = rows_to_dicts(database, LATEST_QUOTES, [
             "event_id", "league", "commence_time", "home_team", "away_team",
-            "market", "side", "line", "price", "observed_at"])
+            "home_team_id", "away_team_id", "market", "side", "line", "price",
+            "observed_at"])
         history_rows = rows_to_dicts(database, HISTORY, [
             "event_id", "market", "side", "line", "price", "observed_at"])
         alerts = rows_to_dicts(database, ALERTS, [

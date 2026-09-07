@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-07T01:24:00.355001+00:00",
+ "generatedAt": "2026-09-07T03:33:54.903282+00:00",
  "activeRuleVersion": "f5f8329efe7e9b9f",
  "games": [
   {
@@ -8,6 +8,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Michigan Wolverines",
    "awayTeam": "Oklahoma Sooners",
+   "homeTeamId": "130",
+   "awayTeamId": "201",
    "lastObserved": "2026-09-06T22:52:08.388756+00:00",
    "spread": {
     "home": {
@@ -46,6 +48,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Texas A&M Aggies",
    "awayTeam": "Arizona State Sun Devils",
+   "homeTeamId": "245",
+   "awayTeamId": "9",
    "lastObserved": "2026-09-06T22:52:07.547078+00:00",
    "spread": {
     "home": {
@@ -84,6 +88,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Kansas State Wildcats",
    "awayTeam": "Washington State Cougars",
+   "homeTeamId": "2306",
+   "awayTeamId": "265",
    "lastObserved": "2026-09-06T22:52:10.034997+00:00",
    "spread": {
     "home": {
@@ -122,6 +128,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Oklahoma State Cowboys",
    "awayTeam": "Oregon Ducks",
+   "homeTeamId": "197",
+   "awayTeamId": "2483",
    "lastObserved": "2026-09-06T22:52:05.881499+00:00",
    "spread": {
     "home": {
@@ -160,6 +168,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Virginia Tech Hokies",
    "awayTeam": "Old Dominion Monarchs",
+   "homeTeamId": "259",
+   "awayTeamId": "295",
    "lastObserved": "2026-09-06T22:52:11.700000+00:00",
    "spread": {
     "home": {
@@ -198,6 +208,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Purdue Boilermakers",
    "awayTeam": "Wake Forest Demon Deacons",
+   "homeTeamId": "2509",
+   "awayTeamId": "154",
    "lastObserved": "2026-09-06T22:52:12.508024+00:00",
    "spread": {
     "home": {
@@ -236,6 +248,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Temple Owls",
    "awayTeam": "Penn State Nittany Lions",
+   "homeTeamId": "218",
+   "awayTeamId": "213",
    "lastObserved": "2026-09-06T22:52:09.215388+00:00",
    "spread": {
     "home": {
@@ -274,6 +288,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "Army Black Knights",
    "awayTeam": "South Florida Bulls",
+   "homeTeamId": "349",
+   "awayTeamId": "58",
    "lastObserved": "2026-09-06T22:52:13.337329+00:00",
    "spread": {
     "home": {
@@ -312,6 +328,8 @@
    "commenceTime": "2026-09-12T16:00:00+00:00",
    "homeTeam": "East Carolina Pirates",
    "awayTeam": "App State Mountaineers",
+   "homeTeamId": "151",
+   "awayTeamId": "2026",
    "lastObserved": "2026-09-06T22:52:14.166593+00:00",
    "spread": {
     "home": {
@@ -350,6 +368,8 @@
    "commenceTime": "2026-09-12T16:45:00+00:00",
    "homeTeam": "Georgia Bulldogs",
    "awayTeam": "Western Kentucky Hilltoppers",
+   "homeTeamId": "61",
+   "awayTeamId": "98",
    "lastObserved": "2026-09-06T22:52:15.887441+00:00",
    "spread": {
     "home": {
@@ -379,6 +399,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Kentucky Wildcats",
    "awayTeam": "Alabama Crimson Tide",
+   "homeTeamId": "96",
+   "awayTeamId": "333",
    "lastObserved": "2026-09-06T22:52:20.818541+00:00",
    "spread": {
     "home": {
@@ -417,6 +439,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Minnesota Golden Gophers",
    "awayTeam": "Mississippi State Bulldogs",
+   "homeTeamId": "135",
+   "awayTeamId": "344",
    "lastObserved": "2026-09-06T22:52:23.319353+00:00",
    "spread": {
     "home": {
@@ -455,6 +479,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Pittsburgh Panthers",
    "awayTeam": "UCF Knights",
+   "homeTeamId": "221",
+   "awayTeamId": "2116",
    "lastObserved": "2026-09-06T22:52:24.973919+00:00",
    "spread": {
     "home": {
@@ -493,6 +519,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "BYU Cougars",
    "awayTeam": "Arizona Wildcats",
+   "homeTeamId": "252",
+   "awayTeamId": "12",
    "lastObserved": "2026-09-06T22:52:21.663878+00:00",
    "spread": {
     "home": {
@@ -531,6 +559,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Syracuse Orange",
    "awayTeam": "California Golden Bears",
+   "homeTeamId": "183",
+   "awayTeamId": "25",
    "lastObserved": "2026-09-06T22:52:25.822470+00:00",
    "spread": {
     "home": {
@@ -569,6 +599,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Illinois Fighting Illini",
    "awayTeam": "Duke Blue Devils",
+   "homeTeamId": "356",
+   "awayTeamId": "150",
    "lastObserved": "2026-09-06T22:52:26.654239+00:00",
    "spread": {
     "home": {
@@ -607,6 +639,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Michigan State Spartans",
    "awayTeam": "Eastern Michigan Eagles",
+   "homeTeamId": "127",
+   "awayTeamId": "2199",
    "lastObserved": "2026-09-06T22:52:27.476035+00:00",
    "spread": {
     "home": {
@@ -645,6 +679,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "UConn Huskies",
    "awayTeam": "Maryland Terrapins",
+   "homeTeamId": "41",
+   "awayTeamId": "120",
    "lastObserved": "2026-09-06T22:52:28.312241+00:00",
    "spread": {
     "home": {
@@ -683,6 +719,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Washington Huskies",
    "awayTeam": "Utah State Aggies",
+   "homeTeamId": "264",
+   "awayTeamId": "328",
    "lastObserved": "2026-09-06T22:52:22.489135+00:00",
    "spread": {
     "home": {
@@ -721,6 +759,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Notre Dame Fighting Irish",
    "awayTeam": "Rice Owls",
+   "homeTeamId": "87",
+   "awayTeamId": "242",
    "lastObserved": "2026-09-06T22:52:19.953505+00:00",
    "spread": {
     "home": {
@@ -750,6 +790,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "Texas State Bobcats",
    "awayTeam": "UTSA Roadrunners",
+   "homeTeamId": "326",
+   "awayTeamId": "2636",
    "lastObserved": "2026-09-06T22:52:29.135419+00:00",
    "spread": {
     "home": {
@@ -788,6 +830,8 @@
    "commenceTime": "2026-09-12T19:30:00+00:00",
    "homeTeam": "UAB Blazers",
    "awayTeam": "UL Monroe Warhawks",
+   "homeTeamId": "5",
+   "awayTeamId": "2433",
    "lastObserved": "2026-09-06T22:52:29.955255+00:00",
    "spread": {
     "home": {
@@ -826,6 +870,8 @@
    "commenceTime": "2026-09-12T19:45:00+00:00",
    "homeTeam": "North Texas Mean Green",
    "awayTeam": "UNLV Rebels",
+   "homeTeamId": "249",
+   "awayTeamId": "2439",
    "lastObserved": "2026-09-06T22:52:34.091958+00:00",
    "spread": {
     "home": {
@@ -864,6 +910,8 @@
    "commenceTime": "2026-09-12T20:15:00+00:00",
    "homeTeam": "Vanderbilt Commodores",
    "awayTeam": "Delaware Blue Hens",
+   "homeTeamId": "238",
+   "awayTeamId": "48",
    "lastObserved": "2026-09-06T22:52:38.200865+00:00",
    "spread": {
     "home": {
@@ -902,6 +950,8 @@
    "commenceTime": "2026-09-12T22:00:00+00:00",
    "homeTeam": "Boise State Broncos",
    "awayTeam": "Memphis Tigers",
+   "homeTeamId": "68",
+   "awayTeamId": "235",
    "lastObserved": "2026-09-06T22:52:39.845259+00:00",
    "spread": {
     "home": {
@@ -940,6 +990,8 @@
    "commenceTime": "2026-09-12T22:00:00+00:00",
    "homeTeam": "Florida International Panthers",
    "awayTeam": "Buffalo Bulls",
+   "homeTeamId": "2229",
+   "awayTeamId": "2084",
    "lastObserved": "2026-09-06T22:52:40.715487+00:00",
    "spread": {
     "home": {
@@ -978,6 +1030,8 @@
    "commenceTime": "2026-09-12T22:00:00+00:00",
    "homeTeam": "Ohio Bobcats",
    "awayTeam": "Jacksonville State Gamecocks",
+   "homeTeamId": "195",
+   "awayTeamId": "55",
    "lastObserved": "2026-09-06T22:52:41.608204+00:00",
    "spread": {
     "home": {
@@ -1016,6 +1070,8 @@
    "commenceTime": "2026-09-12T23:00:00+00:00",
    "homeTeam": "Georgia Tech Yellow Jackets",
    "awayTeam": "Tennessee Volunteers",
+   "homeTeamId": "59",
+   "awayTeamId": "2633",
    "lastObserved": "2026-09-06T22:52:44.083790+00:00",
    "spread": {
     "home": {
@@ -1054,6 +1110,8 @@
    "commenceTime": "2026-09-12T23:00:00+00:00",
    "homeTeam": "Nebraska Cornhuskers",
    "awayTeam": "Bowling Green Falcons",
+   "homeTeamId": "158",
+   "awayTeamId": "189",
    "lastObserved": "2026-09-06T22:52:47.374844+00:00",
    "spread": {
     "home": {
@@ -1092,6 +1150,8 @@
    "commenceTime": "2026-09-12T23:00:00+00:00",
    "homeTeam": "Sam Houston Bearkats",
    "awayTeam": "Tulsa Golden Hurricane",
+   "homeTeamId": "2534",
+   "awayTeamId": "202",
    "lastObserved": "2026-09-06T22:52:48.985931+00:00",
    "spread": {
     "home": {
@@ -1130,6 +1190,8 @@
    "commenceTime": "2026-09-12T23:00:00+00:00",
    "homeTeam": "Tulane Green Wave",
    "awayTeam": "South Alabama Jaguars",
+   "homeTeamId": "2655",
+   "awayTeamId": "6",
    "lastObserved": "2026-09-06T22:52:50.620794+00:00",
    "spread": {
     "home": {
@@ -1168,6 +1230,8 @@
    "commenceTime": "2026-09-12T23:00:00+00:00",
    "homeTeam": "Kennesaw State Owls",
    "awayTeam": "Georgia State Panthers",
+   "homeTeamId": "338",
+   "awayTeamId": "2247",
    "lastObserved": "2026-09-06T22:52:52.321687+00:00",
    "spread": {
     "home": {
@@ -1206,6 +1270,8 @@
    "commenceTime": "2026-09-12T23:00:00+00:00",
    "homeTeam": "Marshall Thundering Herd",
    "awayTeam": "Middle Tennessee Blue Raiders",
+   "homeTeamId": "276",
+   "awayTeamId": "2393",
    "lastObserved": "2026-09-06T22:52:53.135841+00:00",
    "spread": {
     "home": {
@@ -1244,6 +1310,8 @@
    "commenceTime": "2026-09-12T23:15:00+00:00",
    "homeTeam": "UCLA Bruins",
    "awayTeam": "San Diego State Aztecs",
+   "homeTeamId": "26",
+   "awayTeamId": "21",
    "lastObserved": "2026-09-06T22:52:54.783430+00:00",
    "spread": {
     "home": {
@@ -1282,6 +1350,8 @@
    "commenceTime": "2026-09-12T23:30:00+00:00",
    "homeTeam": "Texas Longhorns",
    "awayTeam": "Ohio State Buckeyes",
+   "homeTeamId": "251",
+   "awayTeamId": "194",
    "lastObserved": "2026-09-06T22:52:56.426225+00:00",
    "spread": {
     "home": {
@@ -1320,6 +1390,8 @@
    "commenceTime": "2026-09-12T23:30:00+00:00",
    "homeTeam": "Oregon State Beavers",
    "awayTeam": "Texas Tech Red Raiders",
+   "homeTeamId": "204",
+   "awayTeamId": "2641",
    "lastObserved": "2026-09-06T22:52:58.065007+00:00",
    "spread": {
     "home": {
@@ -1358,6 +1430,8 @@
    "commenceTime": "2026-09-12T23:30:00+00:00",
    "homeTeam": "Iowa Hawkeyes",
    "awayTeam": "Iowa State Cyclones",
+   "homeTeamId": "2294",
+   "awayTeamId": "66",
    "lastObserved": "2026-09-06T22:52:58.902013+00:00",
    "spread": {
     "home": {
@@ -1396,6 +1470,8 @@
    "commenceTime": "2026-09-12T23:30:00+00:00",
    "homeTeam": "Clemson Tigers",
    "awayTeam": "Georgia Southern Eagles",
+   "homeTeamId": "228",
+   "awayTeamId": "290",
    "lastObserved": "2026-09-06T22:52:59.724355+00:00",
    "spread": {
     "home": {
@@ -1434,6 +1510,8 @@
    "commenceTime": "2026-09-12T23:30:00+00:00",
    "homeTeam": "Florida Atlantic Owls",
    "awayTeam": "Navy Midshipmen",
+   "homeTeamId": "2226",
+   "awayTeamId": "2426",
    "lastObserved": "2026-09-06T22:53:00.553670+00:00",
    "spread": {
     "home": {
@@ -1472,6 +1550,8 @@
    "commenceTime": "2026-09-12T23:30:00+00:00",
    "homeTeam": "LSU Tigers",
    "awayTeam": "Louisiana Tech Bulldogs",
+   "homeTeamId": "99",
+   "awayTeamId": "2348",
    "lastObserved": "2026-09-06T22:52:57.238554+00:00",
    "spread": {
     "home": {
@@ -1510,6 +1590,8 @@
    "commenceTime": "2026-09-12T23:45:00+00:00",
    "homeTeam": "Auburn Tigers",
    "awayTeam": "Southern Miss Golden Eagles",
+   "homeTeamId": "2",
+   "awayTeamId": "2572",
    "lastObserved": "2026-09-06T22:53:03.031696+00:00",
    "spread": {
     "home": {
@@ -1548,6 +1630,8 @@
    "commenceTime": "2026-09-12T23:45:00+00:00",
    "homeTeam": "Ole Miss Rebels",
    "awayTeam": "Charlotte 49ers",
+   "homeTeamId": "145",
+   "awayTeamId": "2429",
    "lastObserved": "2026-09-06T22:53:02.216458+00:00",
    "spread": {
     "home": {
@@ -1577,6 +1661,8 @@
    "commenceTime": "2026-09-13T02:00:00+00:00",
    "homeTeam": "Air Force Falcons",
    "awayTeam": "North Dakota State Bison",
+   "homeTeamId": "2005",
+   "awayTeamId": "2449",
    "lastObserved": "2026-09-06T22:53:07.191308+00:00",
    "spread": {
     "home": {
@@ -1615,6 +1701,8 @@
    "commenceTime": "2026-09-13T02:15:00+00:00",
    "homeTeam": "Utah Utes",
    "awayTeam": "Arkansas Razorbacks",
+   "homeTeamId": "254",
+   "awayTeamId": "8",
    "lastObserved": "2026-09-06T22:53:08.033477+00:00",
    "spread": {
     "home": {
@@ -1653,6 +1741,8 @@
    "commenceTime": "2026-09-13T02:30:00+00:00",
    "homeTeam": "Fresno State Bulldogs",
    "awayTeam": "Sacramento State Hornets",
+   "homeTeamId": "278",
+   "awayTeamId": "16",
    "lastObserved": "2026-09-06T22:53:08.848043+00:00",
    "spread": {
     "home": {
@@ -1691,6 +1781,8 @@
    "commenceTime": "2026-09-13T03:00:00+00:00",
    "homeTeam": "USC Trojans",
    "awayTeam": "Louisiana Ragin' Cajuns",
+   "homeTeamId": "30",
+   "awayTeamId": "309",
    "lastObserved": "2026-09-06T22:53:10.497021+00:00",
    "spread": {
     "home": {
@@ -1729,6 +1821,8 @@
    "commenceTime": "2026-09-13T03:59:00+00:00",
    "homeTeam": "Hawai'i Rainbow Warriors",
    "awayTeam": "New Mexico State Aggies",
+   "homeTeamId": "62",
+   "awayTeamId": "166",
    "lastObserved": "2026-09-06T22:53:11.323979+00:00",
    "spread": {
     "home": {
@@ -1767,6 +1861,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Pittsburgh Steelers",
    "awayTeam": "Atlanta Falcons",
+   "homeTeamId": "23",
+   "awayTeamId": "1",
    "lastObserved": "2026-09-06T22:53:26.425424+00:00",
    "spread": {
     "home": {
@@ -1805,6 +1901,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Indianapolis Colts",
    "awayTeam": "Baltimore Ravens",
+   "homeTeamId": "11",
+   "awayTeamId": "33",
    "lastObserved": "2026-09-06T22:53:25.604377+00:00",
    "spread": {
     "home": {
@@ -1843,6 +1941,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Houston Texans",
    "awayTeam": "Buffalo Bills",
+   "homeTeamId": "34",
+   "awayTeamId": "2",
    "lastObserved": "2026-09-06T22:53:28.884024+00:00",
    "spread": {
     "home": {
@@ -1881,6 +1981,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Carolina Panthers",
    "awayTeam": "Chicago Bears",
+   "homeTeamId": "29",
+   "awayTeamId": "3",
    "lastObserved": "2026-09-06T22:53:27.254091+00:00",
    "spread": {
     "home": {
@@ -1919,6 +2021,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Jacksonville Jaguars",
    "awayTeam": "Cleveland Browns",
+   "homeTeamId": "30",
+   "awayTeamId": "5",
    "lastObserved": "2026-09-06T22:53:28.076070+00:00",
    "spread": {
     "home": {
@@ -1957,6 +2061,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Detroit Lions",
    "awayTeam": "New Orleans Saints",
+   "homeTeamId": "8",
+   "awayTeamId": "18",
    "lastObserved": "2026-09-06T22:53:23.926093+00:00",
    "spread": {
     "home": {
@@ -1995,6 +2101,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Tennessee Titans",
    "awayTeam": "New York Jets",
+   "homeTeamId": "10",
+   "awayTeamId": "20",
    "lastObserved": "2026-09-06T22:53:24.756947+00:00",
    "spread": {
     "home": {
@@ -2033,6 +2141,8 @@
    "commenceTime": "2026-09-13T17:00:00+00:00",
    "homeTeam": "Cincinnati Bengals",
    "awayTeam": "Tampa Bay Buccaneers",
+   "homeTeamId": "4",
+   "awayTeamId": "27",
    "lastObserved": "2026-09-06T22:53:23.108872+00:00",
    "spread": {
     "home": {
@@ -2071,6 +2181,8 @@
    "commenceTime": "2026-09-13T20:25:00+00:00",
    "homeTeam": "Los Angeles Chargers",
    "awayTeam": "Arizona Cardinals",
+   "homeTeamId": "24",
+   "awayTeamId": "22",
    "lastObserved": "2026-09-06T22:53:32.313478+00:00",
    "spread": {
     "home": {
@@ -2109,6 +2221,8 @@
    "commenceTime": "2026-09-13T20:25:00+00:00",
    "homeTeam": "Minnesota Vikings",
    "awayTeam": "Green Bay Packers",
+   "homeTeamId": "16",
+   "awayTeamId": "9",
    "lastObserved": "2026-09-06T22:53:30.649172+00:00",
    "spread": {
     "home": {
@@ -2147,6 +2261,8 @@
    "commenceTime": "2026-09-13T20:25:00+00:00",
    "homeTeam": "Las Vegas Raiders",
    "awayTeam": "Miami Dolphins",
+   "homeTeamId": "13",
+   "awayTeamId": "15",
    "lastObserved": "2026-09-06T22:53:29.835373+00:00",
    "spread": {
     "home": {
@@ -2185,6 +2301,8 @@
    "commenceTime": "2026-09-13T20:25:00+00:00",
    "homeTeam": "Philadelphia Eagles",
    "awayTeam": "Washington Commanders",
+   "homeTeamId": "21",
+   "awayTeamId": "28",
    "lastObserved": "2026-09-06T22:53:31.469464+00:00",
    "spread": {
     "home": {
@@ -2223,6 +2341,8 @@
    "commenceTime": "2026-09-14T00:20:00+00:00",
    "homeTeam": "New York Giants",
    "awayTeam": "Dallas Cowboys",
+   "homeTeamId": "19",
+   "awayTeamId": "6",
    "lastObserved": "2026-09-06T22:53:33.135866+00:00",
    "spread": {
     "home": {
@@ -2261,6 +2381,8 @@
    "commenceTime": "2026-09-15T00:15:00+00:00",
    "homeTeam": "Kansas City Chiefs",
    "awayTeam": "Denver Broncos",
+   "homeTeamId": "12",
+   "awayTeamId": "7",
    "lastObserved": "2026-09-06T22:53:34.926812+00:00",
    "spread": {
     "home": {

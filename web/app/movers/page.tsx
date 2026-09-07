@@ -1,7 +1,6 @@
-import Link from "next/link";
-
 import { Stake } from "@/components/Stake";
-import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { TeamLogo } from "@/components/TeamLogo";
+import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { calibratedProbability, collapseAlerts, getData } from "@/lib/data";
 import {
   formatKickoff,
@@ -9,13 +8,12 @@ import {
   formatLeague,
   formatRelative,
   strengthTone,
-  teamShort,
 } from "@/lib/format";
-import type { Alert, AlertKind } from "@/lib/types";
+import type { Alert, AlertKind, Game } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const FILTERS: Array<{ key: string; label: string }> = [
+const FILTERS = [
   { key: "movement", label: "Movement" },
   { key: "all", label: "All" },
   { key: "steam", label: "Steam" },
@@ -24,6 +22,41 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "drift", label: "Drift" },
 ];
 
+/** Alerts store team names but not ids, so crests come from the board lookup. */
+type TeamIds = Map<string, { home: string | null; away: string | null }>;
+
+function Matchup({
+  alert,
+  ids,
+  size = 20,
+}: {
+  alert: Alert;
+  ids: TeamIds;
+  size?: number;
+}) {
+  const pair = ids.get(alert.event_id);
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <TeamLogo
+        league={alert.league}
+        teamId={pair?.away ?? null}
+        name={alert.away_team}
+        size={size}
+      />
+      <TeamLogo
+        league={alert.league}
+        teamId={pair?.home ?? null}
+        name={alert.home_team}
+        size={size}
+      />
+      <span className="ml-0.5 min-w-0 truncate">
+        {alert.away_team ?? "?"} <span className="text-slate-600">@</span>{" "}
+        {alert.home_team ?? "?"}
+      </span>
+    </span>
+  );
+}
+
 /**
  * The single largest move on the board. Called "biggest move" and not "best pick"
  * because that is exactly what it is: the ranking is by measured movement, which has
@@ -31,37 +64,48 @@ const FILTERS: Array<{ key: string; label: string }> = [
  */
 function TopMover({
   alert,
+  ids,
   probability,
 }: {
   alert: Alert;
+  ids: TeamIds;
   probability: number | null;
 }) {
   return (
     <Card
       href={`/game/${alert.event_id}`}
-      className="mb-4 border-amber-500/25 bg-amber-500/[0.04] px-3 py-3"
+      className="mb-3 border-amber-500/25 px-3.5 py-3"
     >
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-300/90">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
           Biggest move
         </span>
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[10px] text-slate-600">
           {probability === null ? "not yet graded" : "calibrated"}
         </span>
+        <span
+          className={`tabular ml-auto rounded-md px-2 py-0.5 text-[13px] font-semibold ${strengthTone(
+            alert.move_strength,
+          )}`}
+        >
+          {alert.move_strength}
+        </span>
       </div>
-      <p className="mt-1 text-base font-semibold text-slate-100">
-        {teamShort(alert.away_team)} @ {teamShort(alert.home_team)}
+
+      <p className="flex text-[15px] font-semibold text-slate-100">
+        <Matchup alert={alert} ids={ids} size={22} />
       </p>
-      <p className="mt-0.5 text-sm text-slate-400">{alert.message}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+      <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{alert.message}</p>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-slate-500">
         <Pill>{formatLeague(alert.league)}</Pill>
         <span className="capitalize">{alert.market}</span>
         <span>
           money toward{" "}
           <span className="font-medium text-slate-300">{alert.predicted_side}</span>
         </span>
-        <span>strength {alert.move_strength}</span>
       </div>
+
       <Stake price={alert.price_at_alert} calibratedProbability={probability} />
     </Card>
   );
@@ -69,18 +113,18 @@ function TopMover({
 
 function AlertCard({
   alert,
+  ids,
   probability,
 }: {
   alert: Alert;
+  ids: TeamIds;
   probability: number | null;
 }) {
-  const matchup = `${teamShort(alert.away_team)} @ ${teamShort(alert.home_team)}`;
-
   return (
-    <Card href={`/game/${alert.event_id}`} className="px-3 py-3">
-      <div className="flex items-start gap-3">
+    <Card href={`/game/${alert.event_id}`} className="px-3 py-2.5">
+      <div className="flex items-start gap-2.5">
         <div
-          className={`tabular flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg text-sm font-semibold ring-1 ring-inset ${strengthTone(
+          className={`tabular flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[15px] font-semibold ${strengthTone(
             alert.move_strength,
           )}`}
           title="Move Strength: how unusual this move is, not a win probability"
@@ -89,29 +133,30 @@ function AlertCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Pill>{formatLeague(alert.league)}</Pill>
+          <p className="flex text-[14px] font-medium text-slate-100">
+            <Matchup alert={alert} ids={ids} />
+          </p>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-slate-400">
+            {alert.message}
+          </p>
+
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-slate-600">
             <Pill>{formatKind(alert.kind)}</Pill>
-            <span className="text-[11px] capitalize text-slate-500">{alert.market}</span>
-          </div>
-
-          <p className="mt-1 truncate text-sm font-medium text-slate-100">{matchup}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-slate-400">{alert.message}</p>
-
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+            <span className="capitalize">{alert.market}</span>
             <span>
-              money toward{" "}
-              <span className="font-medium text-slate-400">{alert.predicted_side}</span>
+              toward <span className="text-slate-400">{alert.predicted_side}</span>
             </span>
             <span>{formatRelative(alert.created_at)}</span>
             <span>{formatKickoff(alert.commence_time)}</span>
           </div>
 
-          <Stake
-            price={alert.price_at_alert}
-            calibratedProbability={probability}
-            compact
-          />
+          <div className="mt-1.5">
+            <Stake
+              price={alert.price_at_alert}
+              calibratedProbability={probability}
+              compact
+            />
+          </div>
         </div>
       </div>
     </Card>
@@ -125,69 +170,82 @@ export default async function MoversPage({
 }) {
   const { kind = "movement" } = await searchParams;
   const data = getData();
-  const [rawAlerts, grades] = await Promise.all([data.alerts(), data.grades()]);
+  const [rawAlerts, grades, games] = await Promise.all([
+    data.alerts(),
+    data.grades(),
+    data.games(),
+  ]);
+
+  const ids: TeamIds = new Map(
+    games.map((game: Game) => [
+      game.eventId,
+      { home: game.homeTeamId, away: game.awayTeamId },
+    ]),
+  );
+
   const collapsed = collapseAlerts(rawAlerts);
   const probabilityFor = (strength: number) => calibratedProbability(grades, strength);
 
-  const shown =
+  const matching =
     kind === "all"
       ? collapsed
       : kind === "movement"
         ? collapsed.filter((a) => a.kind !== "first_price")
         : collapsed.filter((a) => a.kind === (kind as AlertKind));
 
+  // Rendering every alert meant hundreds of cards and well over 700 logo requests on
+  // one screen. The list is ranked, so anything past the first page is not what you
+  // came to see; the count below says what was left off.
+  const LIMIT = 60;
+  const shown = matching.slice(0, LIMIT);
+  const hidden = matching.length - shown.length;
+
   return (
     <>
-      <PageHeader
-        title="Movers"
-        subtitle="Ranked by how unusual the move is. Biggest first."
-      />
+      <PageHeader title="Movers" subtitle="Ranked by how unusual the move is" />
 
-      <div className="scroll-x mb-4 -mx-3 px-3">
-        <div className="flex w-max gap-2">
-          {FILTERS.map((filter) => (
-            <Link
-              key={filter.key}
-              href={
-                filter.key === "movement" ? "/movers" : `/movers?kind=${filter.key}`
-              }
-              className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition-colors ${
-                kind === filter.key
-                  ? "bg-sky-500/15 text-sky-300 ring-sky-500/30"
-                  : "text-slate-400 ring-slate-700 hover:text-slate-200"
-              }`}
-            >
-              {filter.label}
-            </Link>
-          ))}
-        </div>
-      </div>
+      <Segmented
+        options={FILTERS}
+        active={kind}
+        hrefFor={(key) => (key === "movement" ? "/movers" : `/movers?kind=${key}`)}
+      />
 
       {shown.length === 0 ? (
         <Empty
           title="Nothing has moved yet"
           detail={
             <>
-              Movement alerts need at least two polls of the same market to compare. If
-              collection started recently, the first ones appear after the next poll —
-              lines are checked every 30 minutes from Friday through Sunday.
+              Movement alerts need at least two polls of the same market to compare, and
+              nothing has shifted past the threshold since the last one. Lines are checked
+              every 30 minutes Friday through Sunday.
             </>
           }
         />
       ) : (
         <>
-          <TopMover alert={shown[0]} probability={probabilityFor(shown[0].move_strength)} />
-          <div className="space-y-2">
+          <TopMover
+            alert={shown[0]}
+            ids={ids}
+            probability={probabilityFor(shown[0].move_strength)}
+          />
+          <div className="space-y-1.5">
             {shown.slice(1).map((alert) => (
               <AlertCard
                 key={alert.alert_id}
                 alert={alert}
+                ids={ids}
                 probability={probabilityFor(alert.move_strength)}
               />
             ))}
           </div>
         </>
       )}
+
+      {hidden > 0 ? (
+        <p className="mt-3 text-center text-[11px] text-slate-600">
+          Showing the {shown.length} strongest of {matching.length}.
+        </p>
+      ) : null}
 
       <NotAdvice className="mt-8" />
     </>

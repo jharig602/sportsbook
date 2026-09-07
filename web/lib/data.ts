@@ -121,15 +121,15 @@ const fixtureSource: DataSource = {
 // Queries are kept identical to collector/export_fixture.py so the two cannot drift.
 const LATEST_QUOTES = `
 WITH ranked AS (
-    SELECT event_id, league, commence_time, home_team, away_team, market, side,
-           line, price, observed_at,
+    SELECT event_id, league, commence_time, home_team, away_team,
+           home_team_id, away_team_id, market, side, line, price, observed_at,
            row_number() OVER (PARTITION BY event_id, market, side
                               ORDER BY observed_at DESC) AS rn
       FROM odds_snapshots
      WHERE observation_kind = 'pregame_observation'
 )
-SELECT event_id, league, commence_time, home_team, away_team, market, side,
-       line, price, observed_at
+SELECT event_id, league, commence_time, home_team, away_team,
+       home_team_id, away_team_id, market, side, line, price, observed_at
   FROM ranked WHERE rn = 1`;
 
 const ALERTS = `
@@ -214,6 +214,8 @@ interface QuoteRow {
   commence_time: string;
   home_team: string | null;
   away_team: string | null;
+  home_team_id: string | null;
+  away_team_id: string | null;
   market: string;
   side: string;
   line: number | null;
@@ -233,6 +235,8 @@ export function buildBoard(rows: QuoteRow[]): Game[] {
         commenceTime: new Date(row.commence_time).toISOString(),
         homeTeam: row.home_team,
         awayTeam: row.away_team,
+        homeTeamId: row.home_team_id,
+        awayTeamId: row.away_team_id,
         lastObserved: new Date(row.observed_at).toISOString(),
         spread: {},
         total: {},

@@ -14,6 +14,9 @@ export interface Game {
   commenceTime: string;
   homeTeam: string | null;
   awayTeam: string | null;
+  /** ESPN team ids. Logo URLs are derived from these; see lib/logos.ts. */
+  homeTeamId: string | null;
+  awayTeamId: string | null;
   lastObserved: string;
   spread: Partial<Record<Side, Quote>>;
   total: Partial<Record<Side, Quote>>;

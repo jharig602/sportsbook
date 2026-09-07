@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { TeamLogo } from "@/components/TeamLogo";
+import { Card, Empty, NotAdvice, Pill } from "@/components/ui";
 import { collapseAlerts, getData } from "@/lib/data";
 import {
   formatKickoff,
@@ -12,13 +13,14 @@ import {
   formatRelative,
   strengthTone,
 } from "@/lib/format";
-import type { HistoryPoint, Market, Side } from "@/lib/types";
+import type { HistoryPoint, League, Market, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Inline SVG sparkline of one market's line over time. No chart library: the shape is
- * trivial and a dependency here would cost more than it saves.
+ * Inline SVG sparkline with an area fill. No chart library: the shape is trivial and a
+ * dependency would cost more bundle than it saves. A flat line still renders as a flat
+ * line rather than vanishing, which matters — "did not move" is a real answer.
  */
 function Sparkline({ points }: { points: HistoryPoint[] }) {
   const values = points
@@ -29,46 +31,62 @@ function Sparkline({ points }: { points: HistoryPoint[] }) {
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  const width = 260;
-  const height = 40;
+  const width = 300;
+  const height = 44;
+  const pad = 4;
+  const usable = height - pad * 2;
 
-  const path = values
-    .map((value, index) => {
-      const x = (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / span) * height;
-      return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
+  const coords = values.map((value, index) => {
+    const x = (index / (values.length - 1)) * width;
+    // A flat series would otherwise divide by its own zero range; centre it instead.
+    const y = max === min ? height / 2 : pad + usable - ((value - min) / span) * usable;
+    return [x, y] as const;
+  });
+
+  const line = coords
+    .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`)
     .join(" ");
+  const area = `${line} L${width},${height} L0,${height} Z`;
+  const id = `g${points[0]?.market ?? "m"}${points[0]?.side ?? "s"}`;
 
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="h-10 w-full"
+      className="h-11 w-full"
       preserveAspectRatio="none"
       role="img"
-      aria-label={`Line moved from ${values[0]} to ${values[values.length - 1]}`}
+      aria-label={`Moved from ${values[0]} to ${values[values.length - 1]}`}
     >
-      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${id})`} />
+      <path
+        d={line}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }
 
-function MarketPanel({
-  market,
-  points,
-}: {
-  market: Market;
-  points: HistoryPoint[];
-}) {
+function MarketPanel({ market, points }: { market: Market; points: HistoryPoint[] }) {
   const sides = [...new Set(points.map((p) => p.side))];
   if (sides.length === 0) return null;
 
   return (
-    <Card className="px-3 py-3">
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+    <Card className="px-3.5 py-3">
+      <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         {market}
       </h2>
-      <div className="space-y-3">
+      <div className="space-y-3.5">
         {sides.map((side) => {
           const series = points.filter((p) => p.side === side);
           const latest = series[series.length - 1];
@@ -81,23 +99,29 @@ function MarketPanel({
           return (
             <div key={side}>
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm capitalize text-slate-300">{side}</span>
-                <span className="tabular text-sm text-slate-100">
-                  {formatLine(market, side as Side, latest?.line)}{" "}
-                  <span className="text-slate-500">{formatPrice(latest?.price)}</span>
+                <span className="text-[13px] capitalize text-slate-300">{side}</span>
+                <span className="tabular text-[14px] font-medium text-slate-100">
+                  {formatLine(market, side as Side, latest?.line)}
+                  <span className="ml-1.5 text-[11px] font-normal text-slate-500">
+                    {formatPrice(latest?.price)}
+                  </span>
                 </span>
               </div>
-              {moved ? (
-                <p className="text-[11px] text-slate-500">
-                  opened {formatLine(market, side as Side, opening.line)}
-                </p>
-              ) : null}
-              <div className="text-sky-400/70">
+
+              <div className={moved ? "text-accent" : "text-slate-600"}>
                 <Sparkline points={series} />
               </div>
-              <p className="text-[11px] text-slate-600">
-                {series.length} observation{series.length === 1 ? "" : "s"}
-              </p>
+
+              <div className="flex items-baseline justify-between text-[10px] text-slate-600">
+                <span>
+                  {moved
+                    ? `opened ${formatLine(market, side as Side, opening.line)}`
+                    : "unchanged since first seen"}
+                </span>
+                <span>
+                  {series.length} obs
+                </span>
+              </div>
             </div>
           );
         })}
@@ -125,6 +149,7 @@ export default async function GamePage({
   if (!game && !result) notFound();
 
   const alerts = collapseAlerts(allAlerts.filter((a) => a.event_id === eventId));
+  const league: League = game?.league ?? result?.league ?? "ncaaf";
   const homeTeam = game?.homeTeam ?? result?.home_team ?? "Home";
   const awayTeam = game?.awayTeam ?? result?.away_team ?? "Away";
   const markets: Market[] = ["spread", "total", "moneyline"];
@@ -133,34 +158,42 @@ export default async function GamePage({
     <>
       <Link
         href="/"
-        className="mb-3 inline-block text-xs text-slate-500 hover:text-slate-300"
+        className="mb-3 inline-flex items-center gap-1 text-[12px] text-slate-500"
       >
         &larr; Board
       </Link>
 
-      <PageHeader
-        title={`${awayTeam} @ ${homeTeam}`}
-        subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            <Pill>{formatLeague(game?.league ?? result?.league ?? "ncaaf")}</Pill>
-            <span>{formatKickoff(game?.commenceTime ?? result?.commence_time ?? null)}</span>
+      <Card className="mb-3 px-3.5 py-3">
+        <div className="mb-2 flex items-center gap-2">
+          <Pill>{formatLeague(league)}</Pill>
+          <span className="text-[11px] text-slate-500">
+            {formatKickoff(game?.commenceTime ?? result?.commence_time ?? null)}
           </span>
-        }
-      />
+        </div>
 
-      {result ? (
-        <Card className="mb-4 px-3 py-3">
-          <div className="flex items-baseline justify-between">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Final</span>
-            <span className="tabular text-lg font-semibold text-slate-100">
-              {result.away_score} &ndash; {result.home_score}
-              {result.went_overtime ? (
-                <span className="ml-2 text-xs font-normal text-amber-400">OT</span>
-              ) : null}
+        {[
+          { name: awayTeam, id: game?.awayTeamId ?? null, score: result?.away_score },
+          { name: homeTeam, id: game?.homeTeamId ?? null, score: result?.home_score },
+        ].map((team, index) => (
+          <div key={index} className="flex items-center gap-2.5 py-1">
+            <TeamLogo league={league} teamId={team.id} name={team.name} size={30} />
+            <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-slate-100">
+              {team.name}
             </span>
+            {result ? (
+              <span className="tabular text-[19px] font-semibold text-slate-50">
+                {team.score}
+              </span>
+            ) : null}
           </div>
-        </Card>
-      ) : null}
+        ))}
+
+        {result ? (
+          <p className="mt-1.5 border-t border-edge/70 pt-1.5 text-[10px] uppercase tracking-wider text-slate-500">
+            Final{result.went_overtime ? " · OT" : ""}
+          </p>
+        ) : null}
+      </Card>
 
       {history.length === 0 ? (
         <Empty
@@ -168,7 +201,7 @@ export default async function GamePage({
           detail="This game has been discovered but the book has not posted numbers for it yet."
         />
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {markets.map((market) => (
             <MarketPanel
               key={market}
@@ -180,26 +213,26 @@ export default async function GamePage({
       )}
 
       {alerts.length > 0 ? (
-        <section className="mt-6">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <section className="mt-5">
+          <h2 className="mb-2 px-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Alerts on this game
           </h2>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {alerts.map((alert) => (
-              <Card key={alert.alert_id} className="flex items-start gap-3 px-3 py-2">
+              <Card key={alert.alert_id} className="flex items-start gap-2.5 px-3 py-2.5">
                 <span
-                  className={`tabular flex h-8 w-8 shrink-0 items-center justify-center rounded text-xs font-semibold ring-1 ring-inset ${strengthTone(
+                  className={`tabular flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[13px] font-semibold ${strengthTone(
                     alert.move_strength,
                   )}`}
                 >
                   {alert.move_strength}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-slate-300">
+                  <p className="text-[12px] text-slate-300">
                     <span className="font-medium">{formatKind(alert.kind)}</span>{" "}
                     <span className="text-slate-500">{alert.message}</span>
                   </p>
-                  <p className="text-[11px] text-slate-600">
+                  <p className="text-[10px] text-slate-600">
                     {formatRelative(alert.created_at)}
                   </p>
                 </div>

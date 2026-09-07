@@ -86,10 +86,10 @@ export function formatRelative(iso: string | null): string {
  * bet is good. It only says the move was unusual.
  */
 export function strengthTone(strength: number): string {
-  if (strength >= 80) return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
-  if (strength >= 60) return "bg-sky-500/15 text-sky-300 ring-sky-500/30";
-  if (strength >= 40) return "bg-slate-500/15 text-slate-300 ring-slate-500/30";
-  return "bg-slate-700/30 text-slate-400 ring-slate-600/30";
+  if (strength >= 80) return "bg-amber-500/15 text-amber-300";
+  if (strength >= 60) return "bg-sky-500/15 text-sky-300";
+  if (strength >= 40) return "bg-slate-500/15 text-slate-300";
+  return "bg-slate-700/40 text-slate-500";
 }
 
 export function teamShort(name: string | null): string {
