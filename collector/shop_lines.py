@@ -145,7 +145,17 @@ def should_poll(games: list[Candidate], last: datetime | None, now: datetime,
     if not games:
         return False, "no upcoming games on the board for this league"
 
-    soonest = min(game.commence_time for game in games)
+    # Only games that have not started. `upcoming_games` deliberately reaches six hours
+    # back so a just-kicked-off game still resolves on the board, but a game already
+    # under way is not something to shop -- and taken as "the next kickoff" it reports a
+    # NEGATIVE number of hours, which is trivially "within 12h" and pins the league to
+    # the three-hour interval for six hours after the last game of the night starts.
+    # Observed live: "next game -0.6h out" on a Monday with nothing else until Friday.
+    ahead = [game for game in games if game.commence_time > now]
+    if not ahead:
+        return False, "every game on the board has already started"
+
+    soonest = min(game.commence_time for game in ahead)
     hours_to_kickoff = (soonest - now).total_seconds() / 3600.0
 
     if credits_left is not None and credits_left < LOW_CREDITS:

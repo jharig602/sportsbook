@@ -352,3 +352,38 @@ def test_full_coverage_reports_no_warning(monkeypatch):
     assert summary["coverage"] == 1.0
     assert summary["warnings"] == 0
     assert "uncovered_detail" not in summary
+
+
+def test_a_game_already_under_way_is_not_the_next_kickoff():
+    """Observed live: "next game -0.6h out" on a Monday with nothing until Friday.
+
+    `upcoming_games` reaches six hours back so a just-started game still resolves on the
+    board. Treated as the next kickoff it yields a negative number of hours, which is
+    trivially "within 12h", pinning the league to the three-hour interval and spending
+    credits for six hours after the last game of the night has started.
+    """
+    from team_match import Candidate
+    started = Candidate("401", "Home", "Away", NOW - timedelta(minutes=36))
+    friday = Candidate("402", "Home2", "Away2", NOW + timedelta(hours=54))
+
+    poll, reason = sl.should_poll([started, friday], NOW - timedelta(hours=4), NOW, None)
+    assert poll is False, "a 4h-old poll should not refresh for a game 54h away"
+    assert "54.0h out" in reason
+    assert "interval is 24h" in reason
+
+
+def test_a_board_of_only_started_games_is_never_worth_a_credit():
+    from team_match import Candidate
+    started = [Candidate("401", "Home", "Away", NOW - timedelta(hours=2))]
+    poll, reason = sl.should_poll(started, None, NOW, None)
+    assert poll is False
+    assert "already started" in reason
+
+
+def test_a_started_game_does_not_hide_a_genuine_upcoming_one():
+    from team_match import Candidate
+    started = Candidate("401", "Home", "Away", NOW - timedelta(hours=2))
+    soon = Candidate("402", "Home2", "Away2", NOW + timedelta(hours=2))
+    poll, reason = sl.should_poll([started, soon], NOW - timedelta(hours=4), NOW, None)
+    assert poll is True
+    assert "2.0h out" in reason
