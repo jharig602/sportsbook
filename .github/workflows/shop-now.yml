@@ -1,0 +1,43 @@
+name: shop-now
+
+# Force one odds-feed poll, ignoring the throttle. Manual only.
+#
+# The collector normally decides for itself whether a poll is worth a credit, which is
+# right in production and unhelpful when you need fresh data to develop against. Costs
+# 3 credits per league against a 500/month free tier, so use it deliberately.
+
+on:
+  workflow_dispatch:
+    inputs:
+      league:
+        description: "League to poll"
+        required: true
+        default: "nfl"
+        type: choice
+        options: [nfl, ncaaf, both]
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  shop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Poll
+        run: |
+          if [ "${{ inputs.league }}" = "both" ]; then leagues="ncaaf nfl"; else leagues="${{ inputs.league }}"; fi
+          for league in $leagues; do
+            python collector/shop_lines.py --league $league --postgres --force || \
+              { code=$?; [ $code -eq 3 ] && echo "no data for $league" || exit $code; }
+          done
