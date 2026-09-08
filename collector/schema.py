@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 6
+ANALYTICS_SCHEMA_VERSION = 7
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -236,6 +236,34 @@ CREATE TABLE IF NOT EXISTS shop_notifications (
     last_roi DOUBLE PRECISION NOT NULL,
     notified_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS season_games (
+    -- The whole season as the odds feed sees it, matched to ESPN or not.
+    --
+    -- `book_lines` only keeps games that matched a game on our board, which is right
+    -- for line shopping: an unmatched game has no ESPN event id to hang a comparison
+    -- on. But the feed returns all 272 NFL fixtures, and a survivor pool is a question
+    -- about the whole season at once -- which team to spend in which week, given you
+    -- may spend each only one time. Throwing away week 9 because it is not on this
+    -- week's board makes that question unanswerable.
+    --
+    -- Keyed by the feed's own id, deliberately. There is no ESPN id for most of these
+    -- and inventing one would be a lie; this table is not joined to results.
+    feed_event_id VARCHAR PRIMARY KEY,
+    league VARCHAR NOT NULL,
+    commence_time TIMESTAMPTZ NOT NULL,
+    home_team VARCHAR NOT NULL,
+    away_team VARCHAR NOT NULL,
+    -- Median across books, or NULL when nobody has priced it yet. Far-future weeks are
+    -- usually unpriced, which is a fact about the market and not a gap to paper over.
+    home_spread DOUBLE PRECISION,
+    home_price BIGINT,
+    away_price BIGINT,
+    books INTEGER NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS season_games_when ON season_games (league, commence_time);
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint VARCHAR PRIMARY KEY,

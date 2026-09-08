@@ -65,6 +65,9 @@ REGIONS = "us"
 COLUMNS = ["quote_id", "observed_at", "league", "event_id", "book", "market", "side",
            "line", "price", "source", "note"]
 
+SEASON_COLUMNS = ["feed_event_id", "league", "commence_time", "home_team", "away_team",
+                  "home_spread", "home_price", "away_price", "books", "observed_at"]
+
 #: How long a stored quote stays fresh enough to be worth replacing. Poll often when a
 #: game is close, hardly at all when none is.
 NEAR_KICKOFF_HOURS = 12.0
@@ -194,6 +197,73 @@ def feed_candidates(payload: Any) -> list[Candidate]:
         games.append(Candidate(str(key), event.get("home_team"), event.get("away_team"), parsed))
     return games
 
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def season_rows(payload: Any, league: str, observed_at: datetime) -> list[list]:
+    """Every fixture the feed returned, priced or not.
+
+    A survivor pool asks which team to spend in which week across a whole season, so it
+    needs week 12 to exist in September even though nobody has priced it. The consensus
+    spread is the median across books and is None when the game is unpriced -- which is
+    a fact about the market, not a gap to fill in with a guess.
+    """
+    rows: list[list] = []
+    for item in payload if isinstance(payload, list) else []:
+        event = mapping(item)
+        key, commence = event.get("id"), event.get("commence_time")
+        home, away = event.get("home_team"), event.get("away_team")
+        if not (key and commence and home and away):
+            continue
+        try:
+            when = datetime.fromisoformat(str(commence).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+
+        spreads, home_prices, away_prices, books = [], [], [], 0
+        for bookmaker in event.get("bookmakers") or []:
+            book = mapping(bookmaker)
+            books += 1
+            for market_payload in book.get("markets") or []:
+                market = mapping(market_payload)
+                kind = str(market.get("key"))
+                for outcome_payload in market.get("outcomes") or []:
+                    outcome = mapping(outcome_payload)
+                    name = outcome.get("name")
+                    if kind == "spreads" and name == home:
+                        point = number(outcome.get("point"))
+                        if point is not None:
+                            spreads.append(point)
+                    elif kind == "h2h":
+                        price = american_price(outcome.get("price"))
+                        if price is None:
+                            continue
+                        if name == home:
+                            home_prices.append(price)
+                        elif name == away:
+                            away_prices.append(price)
+
+        home_price = _median([float(p) for p in home_prices])
+        away_price = _median([float(p) for p in away_prices])
+        rows.append([
+            str(key), league, when, str(home), str(away),
+            _median(spreads),
+            int(round(home_price)) if home_price is not None else None,
+            int(round(away_price)) if away_price is not None else None,
+            books, observed_at,
+        ])
+    return rows
 
 def quotes_from_event(event: dict, event_id: str, league: str, observed_at: datetime,
                       ctx: Context) -> list[list]:
@@ -412,10 +482,23 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
         summary["books"] = len({row[4] for row in rows})
         ctx.count(SOURCE, "quotes", len(rows))
 
-        if rows and not args.dry_run and database is not None:
-            database.executemany(insert_sql("book_lines", COLUMNS), rows)
+        # The whole slate, matched or not. Line shopping needs an ESPN id to hang a
+        # comparison on; a survivor pool needs week 12 to exist in September.
+        season = season_rows(result.data, league, result.received_at)
+        summary["season_games"] = len(season)
+        summary["season_priced"] = sum(1 for row in season if row[5] is not None)
+
+        if not args.dry_run and database is not None:
+            if rows:
+                database.executemany(insert_sql("book_lines", COLUMNS), rows)
+                summary["written"] = len(rows)
+            for row in season:
+                # Replaced rather than appended: this is the current view of a fixture,
+                # and its movement is already recorded in book_lines for matched games.
+                database.execute(
+                    "DELETE FROM season_games WHERE feed_event_id = ?", [row[0]])
+                database.execute(insert_sql("season_games", SEASON_COLUMNS), row)
             database.commit()
-            summary["written"] = len(rows)
 
         summary["errors"] = ctx.errors
         summary["warnings"] = ctx.warnings

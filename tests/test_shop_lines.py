@@ -387,3 +387,51 @@ def test_a_started_game_does_not_hide_a_genuine_upcoming_one():
     poll, reason = sl.should_poll([started, soon], NOW - timedelta(hours=4), NOW, None)
     assert poll is True
     assert "2.0h out" in reason
+
+
+# --- the whole season, for the survivor picker ------------------------------------
+
+def test_the_full_slate_is_stored_even_when_unmatched():
+    """book_lines needs an ESPN id; a survivor pool needs week 12 to exist in September.
+
+    The feed returns all 272 NFL fixtures. Keeping only the handful on this week's
+    board makes "which team should I spend in which week" unanswerable.
+    """
+    rows = sl.season_rows([feed_event(), feed_event(key="fe2", home="Green Bay Packers",
+                                                    away="Chicago Bears")], "nfl", NOW)
+    assert len(rows) == 2
+    assert [r[0] for r in rows] == ["fe1", "fe2"]
+    assert all(r[1] == "nfl" for r in rows)
+
+
+def test_the_consensus_spread_and_prices_are_medians():
+    def book(title, spread, home_price, away_price):
+        return {"key": title.lower(), "title": title, "markets": [
+            {"key": "spreads", "outcomes": [outcome("Houston Texans", -110, spread),
+                                            outcome("Chicago Bears", -110, -spread)]},
+            {"key": "h2h", "outcomes": [outcome("Houston Texans", home_price),
+                                        outcome("Chicago Bears", away_price)]},
+        ]}
+    event = feed_event(books=[book("A", -3.0, -160, 140), book("B", -3.5, -170, 150),
+                             book("C", -2.5, -150, 130)])
+    row = sl.season_rows([event], "nfl", NOW)[0]
+    assert row[5] == -3.0, "median spread"
+    assert row[6] == -160, "median home price"
+    assert row[7] == 140, "median away price"
+    assert row[8] == 3, "three books"
+
+
+def test_an_unpriced_future_game_is_kept_with_no_line():
+    # Week 12 in September. A null spread is a fact about the market, not a gap to
+    # paper over with a guess.
+    event = feed_event(key="fe9", books=[])
+    row = sl.season_rows([event], "nfl", NOW)[0]
+    assert row[5] is None and row[6] is None and row[7] is None
+    assert row[8] == 0
+
+
+def test_a_malformed_fixture_is_skipped_rather_than_stored_half_built():
+    bad = {"id": "x", "home_team": "A"}          # no commence_time, no away team
+    worse = {"commence_time": "2026-09-13T17:00:00Z", "home_team": "A", "away_team": "B"}
+    assert sl.season_rows([bad, worse, feed_event()], "nfl", NOW) == sl.season_rows(
+        [feed_event()], "nfl", NOW)
