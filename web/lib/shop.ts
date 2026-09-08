@@ -60,6 +60,19 @@ export interface ShopResult {
   breakEven: number | null;
   /** Expected return per dollar staked. Negative means the vig eats it. */
   expectedRoi: number | null;
+  /**
+   * The edge on the PROBABILITY scale, in percentage points: how far the consensus
+   * fair probability sits above the one this price requires to break even.
+   *
+   * Kept alongside expectedRoi because the two rank differently and only this one is
+   * comparable across prices. EV is roughly the probability edge divided by the
+   * implied probability, so a flat EV threshold silently demands 1.33 points from a
+   * -200 favourite and 0.40 from a +400 underdog. That is not one bar, it is a
+   * different bar at every price, and the loosest sits exactly where pricing noise is
+   * largest -- which is why every alert the first version sent was a longshot
+   * moneyline.
+   */
+  edgePoints: number | null;
   booksCompared: number;
   /** Fewer than three other books, so the reference is one or two opinions. */
   thinConsensus: boolean;
@@ -203,6 +216,7 @@ export function shopSide(
       fairProbability: null,
       breakEven: impliedProbability(quote.price ?? null),
       expectedRoi: null,
+      edgePoints: null,
       booksCompared: others.length,
       thinConsensus: others.length < ROBUST_CONSENSUS_BOOKS,
       stale: quote.stale === true,
@@ -253,6 +267,7 @@ export function shopSide(
         consensusProbability,
         fairProbability: consensusProbability,
         expectedRoi: expectedRoi(consensusProbability, quote.price),
+        edgePoints: (consensusProbability - (base.breakEven ?? consensusProbability)) * 100,
         note: `Priced against the median of ${others.length} other book${others.length === 1 ? "" : "s"}.`,
       };
     }
@@ -292,6 +307,10 @@ export function shopSide(
       expectedRoi:
         fairProbability !== null && quote.price !== null
           ? expectedRoi(fairProbability, quote.price)
+          : null,
+      edgePoints:
+        fairProbability !== null && base.breakEven !== null
+          ? (fairProbability - base.breakEven) * 100
           : null,
       note:
         density > 0

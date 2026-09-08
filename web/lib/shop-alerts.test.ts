@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import type { BoardEdge } from "./board-shop.ts";
 import {
-  MIN_ALERT_ROI,
+  MIN_ALERT_EDGE_POINTS,
   RENOTIFY_IMPROVEMENT,
   offerKey,
   selectAlerts,
@@ -23,6 +23,7 @@ function edge(over: Partial<BoardEdge> = {}): BoardEdge {
     fairProbability: 0.552,
     breakEven: 0.524,
     expectedRoi: 0.053,
+    edgePoints: 2.8,
     booksCompared: 8,
     thinConsensus: false,
     stale: false,
@@ -59,13 +60,54 @@ test("nothing is sent until books have been chosen", () => {
 test("a row that merely clears the vig is not worth an interruption", () => {
   // +0.4% is arithmetically positive and inside the error of the consensus it is
   // measured against. The page still shows it.
-  assert.deepEqual(selectAlerts([edge({ expectedRoi: 0.004 })], MINE, []), []);
-  assert.equal(selectAlerts([edge({ expectedRoi: MIN_ALERT_ROI })], MINE, []).length, 1);
+  assert.deepEqual(selectAlerts([edge({ edgePoints: 0.4, expectedRoi: 0.004 })], MINE, []), []);
+  assert.equal(
+    selectAlerts([edge({ edgePoints: MIN_ALERT_EDGE_POINTS })], MINE, []).length,
+    1,
+  );
 });
 
-test("a negative row never alerts", () => {
+test("THE BUG: a longshot with a huge return but a tiny real edge is refused", () => {
+  // Every alert the first version sent looked like this. A +390 dog needs only 0.4
+  // points of probability to show +2% return, so a flat EV bar fires on it constantly
+  // -- 76% of the time in a simulated market with no edge in it at all. Measured where
+  // the noise lives, it is nothing.
+  const longshot = edge({
+    market: "moneyline", line: null, price: 390, advantagePoints: null,
+    edgePoints: 0.5, expectedRoi: 0.043,
+  });
+  assert.deepEqual(selectAlerts([longshot], MINE, []), []);
+});
+
+test("a longshot with a genuinely large edge still alerts", () => {
+  // The rule must not simply silence moneylines; it must price them on the same scale
+  // as everything else.
+  const real = edge({
+    market: "moneyline", line: null, price: 390, advantagePoints: null,
+    edgePoints: 3.2, expectedRoi: 0.16,
+  });
+  assert.equal(selectAlerts([real], MINE, []).length, 1);
+});
+
+test("a big spread edge outranks a flashier longshot return", () => {
+  // Ranking by EV would put every longshot above every spread, whatever the threshold.
+  const picked = selectAlerts(
+    [
+      edge({ book: "FanDuel", market: "moneyline", line: null, price: 390,
+             edgePoints: 1.8, expectedRoi: 0.09 }),
+      edge({ book: "BetMGM", edgePoints: 3.2, expectedRoi: 0.06 }),
+    ],
+    MINE,
+    [],
+  );
+  assert.deepEqual(picked.map((d) => d.row.book), ["BetMGM", "FanDuel"]);
+});
+
+test("an edge the vig still eats never alerts", () => {
+  // Both conditions must hold: real on the probability scale AND worth staking.
   assert.deepEqual(selectAlerts([edge({ expectedRoi: -0.045 })], MINE, []), []);
   assert.deepEqual(selectAlerts([edge({ expectedRoi: null })], MINE, []), []);
+  assert.deepEqual(selectAlerts([edge({ edgePoints: null })], MINE, []), []);
 });
 
 test("a thin reference never earns an interruption", () => {
@@ -78,30 +120,30 @@ test("a stale quote never alerts", () => {
 });
 
 test("the same offer does not buzz twice", () => {
-  const sent = [{ offer_key: offerKey(edge()), last_roi: 0.053 }];
+  const sent = [{ offer_key: offerKey(edge()), last_roi: 2.8 }];
   assert.deepEqual(selectAlerts([edge()], MINE, sent), []);
 });
 
 test("a wiggle in price is not a new opportunity", () => {
-  const sent = [{ offer_key: offerKey(edge()), last_roi: 0.053 }];
-  assert.deepEqual(selectAlerts([edge({ expectedRoi: 0.058, price: -108 })], MINE, sent), []);
+  const sent = [{ offer_key: offerKey(edge()), last_roi: 2.8 }];
+  assert.deepEqual(selectAlerts([edge({ edgePoints: 3.1, price: -108 })], MINE, sent), []);
 });
 
 test("a materially better version of the same offer does buzz again", () => {
-  const sent = [{ offer_key: offerKey(edge()), last_roi: 0.053 }];
-  const better = edge({ expectedRoi: 0.053 + RENOTIFY_IMPROVEMENT });
+  const sent = [{ offer_key: offerKey(edge()), last_roi: 2.8 }];
+  const better = edge({ edgePoints: 2.8 + RENOTIFY_IMPROVEMENT });
   const picked = selectAlerts([better], MINE, sent);
   assert.equal(picked.length, 1);
-  assert.equal(picked[0].previousRoi, 0.053);
+  assert.equal(picked[0].previousRoi, 2.8);
 });
 
 test("the same game at a different book is a different offer", () => {
-  const sent = [{ offer_key: offerKey(edge()), last_roi: 0.053 }];
+  const sent = [{ offer_key: offerKey(edge()), last_roi: 2.8 }];
   assert.equal(selectAlerts([edge({ book: "FanDuel" })], MINE, sent).length, 1);
 });
 
 test("the other side of the same game is a different offer", () => {
-  const sent = [{ offer_key: offerKey(edge()), last_roi: 0.053 }];
+  const sent = [{ offer_key: offerKey(edge()), last_roi: 2.8 }];
   assert.equal(selectAlerts([edge({ side: "away" })], MINE, sent).length, 1);
 });
 
@@ -112,9 +154,9 @@ test("the price is deliberately not part of the offer's identity", () => {
 test("alerts come back best first", () => {
   const picked = selectAlerts(
     [
-      edge({ book: "FanDuel", expectedRoi: 0.031 }),
-      edge({ book: "BetMGM", expectedRoi: 0.066 }),
-      edge({ book: "BetRivers", expectedRoi: 0.045 }),
+      edge({ book: "FanDuel", edgePoints: 1.7 }),
+      edge({ book: "BetMGM", edgePoints: 4.1 }),
+      edge({ book: "BetRivers", edgePoints: 2.6 }),
     ],
     MINE,
     [],
@@ -134,7 +176,7 @@ test("the notification says what to bet, where, and at what number", () => {
 });
 
 test("a repeat notification replaces the earlier card rather than stacking", () => {
-  const sent = [{ offer_key: offerKey(edge()), last_roi: 0.04 }];
+  const sent = [{ offer_key: offerKey(edge()), last_roi: 1.2 }];
   const [decision] = selectAlerts([edge()], MINE, sent);
   const push = shopNotification(decision);
   assert.equal(push.tag, `shop-401|BetMGM|spread|home`);
@@ -143,7 +185,7 @@ test("a repeat notification replaces the earlier card rather than stacking", () 
 
 test("a total reads as over/under rather than a signed number", () => {
   const [decision] = selectAlerts(
-    [edge({ market: "total", side: "under", line: 55, advantagePoints: 1 })],
+    [edge({ market: "total", side: "under", line: 55, advantagePoints: 1, edgePoints: 2.6 })],
     MINE,
     [],
   );
@@ -152,7 +194,7 @@ test("a total reads as over/under rather than a signed number", () => {
 
 test("a moneyline carries no line", () => {
   const [decision] = selectAlerts(
-    [edge({ market: "moneyline", line: null, price: 275, advantagePoints: null })],
+    [edge({ market: "moneyline", line: null, price: 275, advantagePoints: null, edgePoints: 2.2 })],
     MINE,
     [],
   );

@@ -4,9 +4,10 @@ import type { BoardEdge } from "./board-shop";
  * Deciding which cross-book gaps are worth waking you up for.
  *
  * The bar here is deliberately higher than the bar for showing a row on a page. A page
- * is read when you choose to read it; a notification interrupts. So this asks three
- * things a page does not: is the return big enough to be worth acting on, is it at a
- * book you can actually reach, and have I already told you about this exact offer.
+ * is read when you choose to read it; a notification interrupts. So this asks four
+ * things a page does not: is the edge real on the probability scale, does enough of it
+ * survive the vig, is it at a book you can actually reach, and have I already told you
+ * about this exact offer.
  *
  * The alternative — buzzing on every row that clears the vig — produces a stream of
  * +0.2% alerts that get muted within a weekend, and a muted channel carries no
@@ -14,23 +15,34 @@ import type { BoardEdge } from "./board-shop";
  */
 
 /**
- * Minimum expected return before an alert is worth an interruption.
+ * Minimum edge, in points of probability, before an alert is worth an interruption.
  *
- * A row at +0.2% is arithmetically positive and practically noise: it sits inside the
- * error of the consensus it is measured against, and acting on it costs more in
- * attention than it returns. Two points is roughly the difference a full point of line
- * buys in college football, so it is the smallest gap that is unambiguously a real one.
+ * Measured on the probability scale, NOT on expected return, and this is the whole
+ * point. EV is approximately the probability edge divided by the implied probability,
+ * so a flat "+2% return" bar demands 1.33 points from a -200 favourite and 0.40 from a
+ * +400 underdog: five different thresholds wearing one name, loosest precisely where
+ * pricing noise is worst.
+ *
+ * That is not a theory. Simulating a PERFECTLY efficient market -- nine books, one
+ * shared true probability, differing only by pricing noise -- the old rule fired on
+ * 76% of boards at p=0.20 and 5% at p=0.50. Every alert the first version sent was a
+ * moneyline underdog between +125 and +390, which is exactly the shape noise makes.
+ *
+ * On the probability scale the same simulation gives a uniform false-alarm rate around
+ * 12%. Still not small: best-of-nine on a continuous price is a weak test whatever the
+ * threshold, and a spread on the half-point grid discriminates far better because most
+ * books agree exactly. Treat a moneyline alert as worth a look, not as a finding.
  */
-export const MIN_ALERT_ROI = 0.02;
+export const MIN_ALERT_EDGE_POINTS = 1.5;
 
 /**
- * How much better a repeat offer must be to interrupt again.
+ * How much better a repeat offer must be to interrupt again, in points of probability.
  *
- * A line that improves from +2.1% to +2.3% is the same opportunity, not a new one.
- * A full point of improvement is worth roughly 3 points of probability, so a
- * percentage point of return is a real move rather than a wiggle.
+ * An edge drifting from 1.6 to 1.8 points is the same opportunity, not a new one. A
+ * full point is roughly a third of a point of NFL spread -- a real move rather than a
+ * wiggle.
  */
-export const RENOTIFY_IMPROVEMENT = 0.01;
+export const RENOTIFY_IMPROVEMENT = 1.0;
 
 export interface NotifiedOffer {
   offer_key: string;
@@ -72,7 +84,7 @@ export function selectAlerts(
   rows: BoardEdge[],
   myBooks: string[],
   alreadyNotified: NotifiedOffer[],
-  minRoi = MIN_ALERT_ROI,
+  minEdgePoints = MIN_ALERT_EDGE_POINTS,
 ): AlertDecision[] {
   if (myBooks.length === 0) return [];
 
@@ -81,8 +93,12 @@ export function selectAlerts(
   const out: AlertDecision[] = [];
 
   for (const row of rows) {
-    const roi = row.expectedRoi;
-    if (roi === null || roi < minRoi) continue;
+    // Both must hold: a real edge on the probability scale, AND enough of it left
+    // after the vig to be worth staking. The first is the honest comparison; the
+    // second is whether it pays.
+    const edge = row.edgePoints;
+    if (edge === null || edge < minEdgePoints) continue;
+    if (row.expectedRoi === null || row.expectedRoi <= 0) continue;
     if (!mine.has(row.book)) continue;
     // A thin reference is exactly what a whole-board scan selects for, so it never
     // earns an interruption even though the page will still show it.
@@ -90,13 +106,14 @@ export function selectAlerts(
 
     const key = offerKey(row);
     const previous = seen.get(key);
-    if (previous !== undefined && roi < previous + RENOTIFY_IMPROVEMENT) continue;
+    if (previous !== undefined && edge < previous + RENOTIFY_IMPROVEMENT) continue;
 
     out.push({ row, key, previousRoi: previous ?? null });
   }
 
-  // Best first, so a capped batch keeps the ones worth having.
-  return out.sort((a, b) => (b.row.expectedRoi ?? 0) - (a.row.expectedRoi ?? 0));
+  // Ranked by the probability edge, for the same reason it is the threshold: ranking
+  // by EV would put every longshot above every spread.
+  return out.sort((a, b) => (b.row.edgePoints ?? 0) - (a.row.edgePoints ?? 0));
 }
 
 function sideLabel(row: BoardEdge): string {
