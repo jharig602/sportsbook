@@ -3,11 +3,10 @@ import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { allBookLines } from "@/lib/book-lines";
 import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
-import { cookies } from "next/headers";
 
 import { getData } from "@/lib/data";
 import { formatKickoff, formatLeague, formatLine, formatPrice } from "@/lib/format";
-import { MY_BOOKS_COOKIE, parseMyBooks } from "@/lib/my-books";
+import { getMyBooks } from "@/lib/settings-db";
 import type { Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -93,12 +92,14 @@ export default async function ShopPage({
   searchParams: Promise<{ book?: string }>;
 }) {
   const { book: bookFilter } = await searchParams;
-  const myBooks = parseMyBooks((await cookies()).get(MY_BOOKS_COOKIE)?.value);
   const data = getData();
-  const [games, models, lines] = await Promise.all([
+  const [games, models, lines, myBooks] = await Promise.all([
     data.games(),
     data.marginModels(),
     data.backend === "postgres" ? allBookLines() : Promise.resolve(new Map()),
+    // Read server-side, so the board you look at and the alerts you receive can never
+    // disagree about which books are yours.
+    data.backend === "postgres" ? getMyBooks() : Promise.resolve([] as string[]),
   ]);
 
   const shop = buildBoardShop(games, lines, models);

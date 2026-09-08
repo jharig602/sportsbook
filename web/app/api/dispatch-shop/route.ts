@@ -1,0 +1,140 @@
+import { NextResponse } from "next/server";
+
+import { allBookLines } from "@/lib/book-lines";
+import { buildBoardShop } from "@/lib/board-shop";
+import { getData } from "@/lib/data";
+import { listSubscriptions, recordFailure } from "@/lib/push";
+import { getMyBooks, notifiedOffers, recordNotified } from "@/lib/settings-db";
+import { selectAlerts, shopNotification } from "@/lib/shop-alerts";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Push a notification when a cross-book gap at one of your books clears the vig.
+ *
+ * Called by the collector after each poll. Guarded by the same shared secret as the
+ * line-move dispatcher, because this too makes the phone buzz and must not be
+ * triggerable by anyone who finds the URL.
+ *
+ * The bar is set in `shop-alerts.ts` and is deliberately higher than the bar for
+ * showing a row on a page: a page is read when you choose to read it, a notification
+ * interrupts. Every offer already sent is recorded, so the same one never buzzes
+ * twice and only a materially better version of it buzzes again.
+ */
+function normaliseSecret(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  let value = raw.trim();
+  if (value.startsWith("ALERT_DISPATCH_SECRET=")) {
+    value = value.slice("ALERT_DISPATCH_SECRET=".length).trim();
+  }
+  if (value.length >= 2 && value[0] === value.at(-1) && (value[0] === '"' || value[0] === "'")) {
+    value = value.slice(1, -1).trim();
+  }
+  return value || null;
+}
+
+export async function POST(request: Request) {
+  const secret = normaliseSecret(process.env.ALERT_DISPATCH_SECRET);
+  if (!secret) {
+    return new NextResponse("ALERT_DISPATCH_SECRET is not configured.", { status: 503 });
+  }
+  const header = request.headers.get("authorization") ?? "";
+  const presented = normaliseSecret(
+    header.toLowerCase().startsWith("bearer ") ? header.slice(7) : header,
+  );
+  if (presented !== secret) return new NextResponse("Unauthorized.", { status: 401 });
+
+  const publicKey = process.env.VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_SUBJECT ?? "mailto:alerts@example.com";
+  if (!publicKey || !privateKey) {
+    return new NextResponse("VAPID keys are not configured.", { status: 503 });
+  }
+
+  try {
+    const data = getData();
+    const [games, models, lines, myBooks, alreadySent, subscriptions] = await Promise.all([
+      data.games(),
+      data.marginModels(),
+      allBookLines(),
+      getMyBooks(),
+      notifiedOffers(),
+      listSubscriptions(),
+    ]);
+
+    const shop = buildBoardShop(games, lines, models);
+    const picked = selectAlerts(shop.rows, myBooks, alreadySent);
+
+    if (picked.length === 0) {
+      return NextResponse.json({ sent: 0, candidates: 0, books: myBooks.length });
+    }
+
+    // Nothing is recorded as notified when there is nobody to notify: the offer is
+    // still live, and stamping it now would mean the first device to subscribe never
+    // hears about it.
+    if (subscriptions.length === 0) {
+      return NextResponse.json({
+        sent: 0,
+        candidates: picked.length,
+        subscribers: 0,
+        note: "nothing recorded as sent; these will notify once a device subscribes",
+      });
+    }
+
+    const webpush = (await import("web-push")).default;
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+
+    // A cap, because a notification you scroll past is one you learn to ignore. The
+    // rest stay unrecorded and will be picked up on the next poll if still live.
+    const batch = picked.slice(0, 5);
+    let sent = 0;
+    const delivered: typeof batch = [];
+
+    for (const decision of batch) {
+      const payload = JSON.stringify(shopNotification(decision));
+      let anyDelivered = false;
+      await Promise.all(
+        subscriptions.map(async (subscription) => {
+          try {
+            await webpush.sendNotification(
+              {
+                endpoint: subscription.endpoint,
+                keys: { p256dh: subscription.p256dh, auth: subscription.auth },
+              },
+              payload,
+            );
+            sent += 1;
+            anyDelivered = true;
+          } catch {
+            await recordFailure(subscription.endpoint);
+          }
+        }),
+      );
+      // Only an offer that actually reached a device counts as told. Recording a
+      // failed send would suppress the retry and lose the alert silently.
+      if (anyDelivered) delivered.push(decision);
+    }
+
+    await recordNotified(
+      delivered.map((d) => ({
+        offer_key: d.key,
+        event_id: d.row.eventId,
+        book: d.row.book,
+        market: d.row.market,
+        side: d.row.side,
+        roi: d.row.expectedRoi ?? 0,
+      })),
+    );
+
+    return NextResponse.json({
+      sent,
+      candidates: picked.length,
+      notified: delivered.length,
+      subscribers: subscriptions.length,
+      books: myBooks.length,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    return new NextResponse(`Shop dispatch failed: ${message}`, { status: 500 });
+  }
+}

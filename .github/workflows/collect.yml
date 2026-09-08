@@ -119,7 +119,11 @@ jobs:
       # Skipped until APP_URL and ALERT_DISPATCH_SECRET are set, so the workflow is
       # useful before the app is deployed. Never fails the run: a missed notification
       # must not look like a failed collection.
-      - name: Send notifications for new alerts
+      # Line-move alerts are still detected and still graded on the Track Record --
+      # that is how we learn whether they predict anything. They just no longer buzz.
+      # A channel that fires on every unusual line move is one you mute inside a
+      # weekend, and a muted channel carries nothing when something real happens.
+      - name: Send notifications for cleared-vig offers
         continue-on-error: true
         env:
           APP_URL: ${{ secrets.APP_URL }}
@@ -130,7 +134,7 @@ jobs:
             exit 0
           fi
           curl --fail --silent --show-error --max-time 60 \
-            -X POST "$APP_URL/api/dispatch-alerts" \
+            -X POST "$APP_URL/api/dispatch-shop" \
             -H "Authorization: Bearer $DISPATCH_SECRET" \
             || echo "dispatch failed; these alerts stay pending for the next run"
 

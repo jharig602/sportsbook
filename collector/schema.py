@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 5
+ANALYTICS_SCHEMA_VERSION = 6
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -206,6 +206,35 @@ CREATE TABLE IF NOT EXISTS calibration_runs (
     buckets_json VARCHAR NOT NULL,
     evaluation_json VARCHAR,
     baselines_json VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    -- Preferences that must be readable without a browser.
+    --
+    -- Which books you hold an account at started as a cookie, which is right for
+    -- rendering a page and useless for a notification: the dispatcher runs from a cron
+    -- job with no request behind it, so a preference that lives only in the browser
+    -- cannot be consulted when deciding whether to make the phone buzz.
+    key VARCHAR PRIMARY KEY,
+    value VARCHAR NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS shop_notifications (
+    -- One row per offer already pushed, so the same one never buzzes twice.
+    --
+    -- Keyed on the offer rather than on its price: a book, a game, a market, a side.
+    -- Keying on the exact price instead would re-notify every time a number wiggled by
+    -- a cent, which is how a useful alert becomes one you turn off. A materially better
+    -- version of the same offer does re-notify, and `last_roi` is what that is measured
+    -- against.
+    offer_key VARCHAR PRIMARY KEY,
+    event_id VARCHAR NOT NULL,
+    book VARCHAR NOT NULL,
+    market VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    last_roi DOUBLE PRECISION NOT NULL,
+    notified_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (

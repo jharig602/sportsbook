@@ -3,15 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { MY_BOOKS_COOKIE, MY_BOOKS_MAX_AGE, serializeMyBooks } from "@/lib/my-books";
+
 
 /**
  * Which books you hold an account at.
  *
- * Stored in a cookie rather than localStorage because the filtering happens on the
- * server, where the rows are built; localStorage would mean shipping the whole board
- * to the phone and filtering it there. A year's expiry, because this is a standing
- * fact about you and not a session detail.
+ * Stored server-side, not in the browser. The page could have used a cookie, but the
+ * notification dispatcher runs from cron with no request behind it and cannot read
+ * one -- and this is the setting that decides which prices are worth interrupting you
+ * for. Keeping it in one place means the board you read and the alerts you get can
+ * never disagree about which books are yours.
  */
 export function MyBooksPicker({
   books,
@@ -24,10 +25,19 @@ export function MyBooksPicker({
   const [chosen, setChosen] = useState<string[]>(selected);
   const [open, setOpen] = useState(selected.length === 0);
 
-  function save(next: string[]) {
+  async function save(next: string[]) {
+    // Optimistic: the chips respond immediately, and the refresh below reconciles with
+    // whatever actually saved.
     setChosen(next);
-    const value = encodeURIComponent(serializeMyBooks(next));
-    document.cookie = `${MY_BOOKS_COOKIE}=${value}; path=/; max-age=${MY_BOOKS_MAX_AGE}; samesite=lax`;
+    try {
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ books: next }),
+      });
+    } catch {
+      // Leave the optimistic state; the refresh will show the truth.
+    }
     router.refresh();
   }
 
