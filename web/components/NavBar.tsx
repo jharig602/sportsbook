@@ -52,6 +52,16 @@ const TABS: Tab[] = [
     ),
   },
   {
+    href: "/survivor",
+    label: "Survivor",
+    icon: (
+      <>
+        <path d="M12 3l7 3v5c0 4.2-2.8 7.6-7 10-4.2-2.4-7-5.8-7-10V6Z" {...stroke} />
+        <path d="M9 12l2 2 4-4" {...stroke} />
+      </>
+    ),
+  },
+  {
     href: "/bets",
     label: "Bets",
     icon: (
