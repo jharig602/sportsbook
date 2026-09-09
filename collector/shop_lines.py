@@ -45,7 +45,7 @@ from odds_poller import (Context, DuckStore, HttpClient, MemoryStore, ODDS_API_H
                          american_price, http_request, mapping, new_id, number, utcnow)
 from db import Database, clean_database_url, insert_sql
 from schema import ensure_analytics_schema
-from team_match import Candidate, match_events
+from team_match import Candidate, match_events, pair_score
 
 LOG = logging.getLogger("shop_lines")
 UTC = timezone.utc
@@ -463,7 +463,28 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
         summary["feed_only"] = len(unmatched)
 
         if uncovered:
-            detail = "; ".join(f"{game.away} @ {game.home}" for game in uncovered[:10])
+            # Name the closest thing the feed had, and how close. Without it the
+            # message cannot tell apart two causes that need opposite responses: a
+            # name we failed to match wants an ALIASES entry, and a fixture the feed
+            # simply does not carry wants nothing at all. Both read as "got no second
+            # book", which is how a real matching failure would hide among the FCS
+            # games nobody prices.
+            described = []
+            for game in uncovered[:10]:
+                best, score = None, 0.0
+                for other in feed:
+                    value = pair_score(other, game)
+                    if value > score:
+                        best, score = other, value
+                if best is not None and score >= 0.5:
+                    described.append(
+                        f"{game.away} @ {game.home} (closest feed game {best.away} @ "
+                        f"{best.home} at {score:.2f} -- likely an alias)")
+                else:
+                    described.append(
+                        f"{game.away} @ {game.home} (nothing similar in the feed -- "
+                        f"not carried)")
+            detail = "; ".join(described)
             more = f" (+{len(uncovered) - 10} more)" if len(uncovered) > 10 else ""
             message = (f"{len(uncovered)} of {len(games)} board games got no second "
                        f"book: {detail}{more}")

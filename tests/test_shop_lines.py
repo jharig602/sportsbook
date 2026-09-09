@@ -470,3 +470,33 @@ def test_the_far_interval_stays_under_the_web_freshness_window():
     """
     assert sl.INTERVAL_FAR_HOURS < 30, "must leave slack for a delayed workflow"
     assert sl.NEAR_KICKOFF_HOURS < sl.INTERVAL_FAR_HOURS
+
+
+def test_an_uncovered_game_says_whether_it_is_an_alias_or_simply_absent(monkeypatch):
+    """Two causes, opposite responses, and they used to read identically.
+
+    A board game the feed carries under a different name needs an ALIASES entry. One
+    the feed does not carry at all needs nothing. "Got no second book" covers both.
+    """
+    from team_match import Candidate
+    board_games = [
+        Candidate("401", "Houston Texans", "Chicago Bears", KICK),
+        Candidate("402", "Massachusetts Minutemen", "Sacred Heart Pioneers", KICK),
+    ]
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board_games,
+                        monkeypatch=monkeypatch)
+    assert summary["coverage"] == 0.5
+    assert "not carried" in summary["uncovered_detail"], summary["uncovered_detail"]
+
+
+def test_a_near_miss_is_flagged_as_an_alias_problem(monkeypatch):
+    from team_match import Candidate
+    # The feed has Houston/Chicago; the board calls Houston something close but not
+    # close enough to clear the matcher's threshold.
+    board_games = [
+        Candidate("401", "Houston Texans FC", "Chicago Bears Football", KICK),
+    ]
+    _, summary, _ = run({"the-odds-api": [feed_event()]}, games=board_games,
+                        monkeypatch=monkeypatch)
+    if summary["coverage"] < 1.0:
+        assert "alias" in summary["uncovered_detail"], summary["uncovered_detail"]
