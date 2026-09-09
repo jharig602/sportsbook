@@ -36,7 +36,18 @@ from typing import Iterable, Sequence
 #: college programmes in advance would bake in mistakes that no test could catch, and
 #: `match_events` already reports what it could not place so this list can grow from
 #: evidence. Keys and values are compared after `normalize`.
-ALIASES: dict[str, str] = {}
+ALIASES: dict[str, str] = {
+    # The feed calls them UMass, ESPN calls them Massachusetts. Similarity 0.7368
+    # against a 0.75 threshold -- it failed by one hundredth, on a real Saturday
+    # slate, and the game showed as "only one book has priced this" rather than as a
+    # matching error.
+    #
+    # Fixed with an entry rather than by lowering the threshold. 0.74 is genuinely
+    # close to the level where different schools start colliding, and buying this one
+    # match by loosening everything is how "Miami Hurricanes" eventually matches
+    # "Miami RedHawks".
+    "umass minutemen": "massachusetts minutemen",
+}
 
 #: Token substitutions that are safe because they never change which school is meant.
 #: Note what is *not* here: no dropping of mascots (Miami Hurricanes and Miami RedHawks

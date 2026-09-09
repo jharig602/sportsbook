@@ -198,3 +198,36 @@ def test_the_summary_truncates_rather_than_flooding_the_log():
     line = tm.summarize_unmatched(rows, limit=5)
     assert "25 unmatched" in line
     assert "+20 more" in line
+
+
+# --- aliases learned from real failures --------------------------------------------
+
+def test_umass_matches_massachusetts():
+    """The first real alias, from a live Saturday slate.
+
+    The feed says "UMass Minutemen", ESPN says "Massachusetts Minutemen". Similarity
+    0.7368 against a 0.75 threshold -- it failed by one hundredth, and the game showed
+    as "only one book has priced this game" rather than as a matching error.
+    """
+    assert tm.similarity("UMass Minutemen", "Massachusetts Minutemen") == 1.0
+
+    feed = [candidate("f1", "UMass Minutemen", "Sacred Heart Pioneers")]
+    espn = [candidate("e1", "Massachusetts Minutemen", "Sacred Heart Pioneers")]
+    matches, unmatched = tm.match_events(feed, espn)
+    assert len(matches) == 1
+    assert unmatched == []
+
+
+def test_the_alias_did_not_loosen_anything_else():
+    """Fixed with an entry, not by lowering the bar.
+
+    0.74 is close to where different schools start colliding, and buying one match by
+    loosening everything is how Miami Hurricanes eventually matches Miami RedHawks.
+    """
+    assert tm.similarity("Miami Hurricanes", "Miami RedHawks") < 0.75
+    assert tm.similarity("Michigan Wolverines", "Michigan State Spartans") < 0.75
+    matches, _ = tm.match_events(
+        [candidate("f1", "Miami Hurricanes", "Florida State Seminoles")],
+        [candidate("e1", "Miami RedHawks", "Florida State Seminoles")],
+    )
+    assert matches == []
