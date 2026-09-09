@@ -1,4 +1,8 @@
+import { LogPickButton } from "@/components/LogPickButton";
 import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
+import { allBookLines, type BookLineRow } from "@/lib/book-lines";
+import { getMyBooks } from "@/lib/settings-db";
+import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { seasonGames } from "@/lib/season-db";
@@ -24,7 +28,15 @@ function line(candidate: Candidate): string {
   return `${candidate.home ? "vs" : "at"} ${candidate.opponent}, ${number}`;
 }
 
-function WeekRow({ entry, first }: { entry: Pick; first: boolean }) {
+function WeekRow({
+  entry,
+  first,
+  bettable,
+}: {
+  entry: Pick;
+  first: boolean;
+  bettable: BettablePick | null;
+}) {
   const { pick, greedy, sacrifice } = entry;
   if (!pick) return null;
 
@@ -51,6 +63,24 @@ function WeekRow({ entry, first }: { entry: Pick; first: boolean }) {
               </span>
             ) : null}
           </div>
+
+          {bettable?.eventId && bettable.price !== null && bettable.book ? (
+            <LogPickButton
+              eventId={bettable.eventId}
+              league={bettable.league ?? "nfl"}
+              homeTeam={pick.home ? pick.team : pick.opponent}
+              awayTeam={pick.home ? pick.opponent : pick.team}
+              commenceTime={pick.commenceTime}
+              side={pick.home ? "home" : "away"}
+              price={bettable.price}
+              book={bettable.book}
+              team={pick.team}
+              expectedRoi={bettable.expectedRoi}
+              week={entry.week}
+            />
+          ) : bettable?.blocked ? (
+            <p className="mt-1.5 text-[10px] text-slate-600">{bettable.blocked}</p>
+          ) : null}
         </div>
       </div>
     </Card>
@@ -64,10 +94,29 @@ export default async function SurvivorPage({
 }) {
   const { weeks: requested } = await searchParams;
   const data = getData();
-  const [models, games] = await Promise.all([
+  const postgres = data.backend === "postgres";
+  const [models, games, board, quotes, myBooks] = await Promise.all([
     data.marginModels(),
-    data.backend === "postgres" ? seasonGames("nfl") : Promise.resolve([]),
+    postgres ? seasonGames("nfl") : Promise.resolve([]),
+    data.games(),
+    postgres ? allBookLines() : Promise.resolve(new Map()),
+    postgres ? getMyBooks() : Promise.resolve([] as string[]),
   ]);
+
+  // Only the moneyline matters for a survivor pick: the question is whether the team
+  // wins, not by how much.
+  const moneylines = new Map<string, Array<{ book: string; market: string; side: string; price: number | null }>>();
+  for (const [eventId, rows] of quotes) {
+    moneylines.set(
+      eventId,
+      rows.map((row: BookLineRow) => ({
+        book: row.book,
+        market: row.market,
+        side: row.side,
+        price: row.price,
+      })),
+    );
+  }
 
   const weeks = buildWeeks(games, models.nfl ?? null);
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
@@ -169,7 +218,14 @@ export default async function SurvivorPage({
 
       <div className="space-y-1.5">
         {plan.picks.map((entry, index) => (
-          <WeekRow key={entry.week} entry={entry} first={index === 0} />
+          <WeekRow
+            key={entry.week}
+            entry={entry}
+            first={index === 0}
+            bettable={
+              entry.pick ? toBettable(entry.pick, board, moneylines, myBooks) : null
+            }
+          />
         ))}
       </div>
 
@@ -241,6 +297,16 @@ export default async function SurvivorPage({
           using numbers nobody has bet into. The line above says whether it actually
           matters here: if this week&rsquo;s pick is the same at four weeks and at{" "}
           {priced}, the horizon is not doing the work and you can stop worrying about it.
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          <span className="font-medium text-slate-300">On betting these picks.</span> A
+          survivor pick and a good moneyline bet are chosen by opposite rules. Survivor
+          wants the highest chance of winning and does not care what it pays, because
+          there is no price. A bet wants the largest gap between what a team is worth and
+          what it costs &mdash; and a heavy favourite is exactly where that gap is
+          smallest and the vig bites hardest. So the expected return is shown on every
+          button, and it is usually negative. Occasionally one is priced well, and that
+          is the case worth knowing about.
         </p>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
           {priced} of {weeks.length} weeks on the schedule are priced
