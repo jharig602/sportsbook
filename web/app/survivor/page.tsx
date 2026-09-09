@@ -1,12 +1,19 @@
-import { Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { seasonGames } from "@/lib/season-db";
-import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
+import {
+  buildPlan,
+  buildWeeks,
+  horizonStability,
+  type Candidate,
+  type Pick,
+} from "@/lib/survivor";
 
 export const dynamic = "force-dynamic";
 
-const PLANNING_HORIZON = 8;
+/** Horizons offered. "all" plans every priced week the feed has returned. */
+const HORIZONS = [4, 8, 12] as const;
 
 function percent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -50,7 +57,12 @@ function WeekRow({ entry, first }: { entry: Pick; first: boolean }) {
   );
 }
 
-export default async function SurvivorPage() {
+export default async function SurvivorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ weeks?: string }>;
+}) {
+  const { weeks: requested } = await searchParams;
   const data = getData();
   const [models, games] = await Promise.all([
     data.marginModels(),
@@ -58,8 +70,20 @@ export default async function SurvivorPage() {
   ]);
 
   const weeks = buildWeeks(games, models.nfl ?? null);
-  const plan = buildPlan(weeks, PLANNING_HORIZON);
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
+
+  // The whole season by default. Capping it was a judgement about how much a
+  // December line is worth, and making that judgement silently on your behalf is
+  // worse than showing the season and saying what the later weeks are made of.
+  const chosen = requested === undefined ? "all" : requested;
+  const horizon =
+    chosen === "all" ? priced : Math.min(priced, Math.max(1, Number(chosen) || priced));
+  const plan = buildPlan(weeks, horizon);
+
+  // Does this week's pick actually depend on how far ahead we look?
+  const stability = horizonStability(weeks, [...HORIZONS, priced]);
+  const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
+  const stable = distinct.size <= 1;
 
   if (plan.weeksPlanned === 0) {
     return (
@@ -105,6 +129,43 @@ export default async function SurvivorPage() {
           <p className="text-[10px] uppercase tracking-wide text-slate-500">vs greedy</p>
         </Card>
       </div>
+
+      <Segmented
+        options={[
+          ...HORIZONS.filter((h) => h < priced).map((h) => ({
+            key: String(h),
+            label: `${h} weeks`,
+          })),
+          { key: "all", label: `All ${priced}` },
+        ]}
+        active={chosen === "all" ? "all" : String(horizon)}
+        hrefFor={(key) => `/survivor?weeks=${key}`}
+      />
+
+      <Card className="mb-3 px-3.5 py-2.5">
+        <p className="text-[12px] leading-relaxed text-slate-400">
+          {stable ? (
+            <>
+              <span className="font-medium text-emerald-300">
+                This week&rsquo;s pick does not depend on the horizon.
+              </span>{" "}
+              {plan.picks[0]?.pick?.team} is chosen whether you plan four weeks ahead or
+              all {priced}, which is the strongest thing that can be said for it.
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-amber-300">
+                This week&rsquo;s pick changes with the horizon.
+              </span>{" "}
+              {stability
+                .map((s) => `${s.horizon}wk: ${s.team ?? "none"}`)
+                .join(" · ")}
+              . The plan is balanced on a line somewhere later in the season that has not
+              been bet into yet, so trust it less, not more.
+            </>
+          )}
+        </p>
+      </Card>
 
       <div className="space-y-1.5">
         {plan.picks.map((entry, index) => (
@@ -174,13 +235,20 @@ export default async function SurvivorPage() {
           survive; a real pool ends the moment you lose, which means the early weeks
           deserve more weight than the arithmetic alone gives them.
         </p>
-        {plan.unplannedWeeks > 0 ? (
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            {priced} weeks are priced; the plan looks {PLANNING_HORIZON} ahead and leaves{" "}
-            {plan.unplannedWeeks} for later. Planning the whole season at once makes the
-            current pick look more constrained than it really is.
-          </p>
-        ) : null}
+        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+          That is why the horizon is a control rather than a hidden constant. Planning
+          further satisfies more constraints, which is the point &mdash; but it does so
+          using numbers nobody has bet into. The line above says whether it actually
+          matters here: if this week&rsquo;s pick is the same at four weeks and at{" "}
+          {priced}, the horizon is not doing the work and you can stop worrying about it.
+        </p>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+          {priced} of {weeks.length} weeks on the schedule are priced
+          {plan.unplannedWeeks > 0
+            ? `; this plan covers ${plan.weeksPlanned} of them`
+            : ", and all of them are planned here"}
+          .
+        </p>
       </Card>
 
       <NotAdvice className="mt-6" />

@@ -9,6 +9,7 @@ import {
   buildWeeks,
   candidatesFor,
   groupIntoWeeks,
+  horizonStability,
   type SeasonGame,
 } from "./survivor.ts";
 
@@ -254,4 +255,39 @@ test("more weeks than teams does not crash the planner", () => {
   ];
   const plan = buildPlan(buildWeeks(games, NFL));
   assert.equal(plan.weeksPlanned, 3);
+});
+
+// --- horizon stability ------------------------------------------------------------
+
+test("a pick that does not depend on the horizon is reported as stable", () => {
+  const games = [
+    ...slate(0, [["A", "B", -14], ["C", "D", -3]]),
+    ...slate(7, [["E", "F", -14], ["G", "H", -3]]),
+    ...slate(14, [["I", "J", -14], ["K", "L", -3]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const stability = horizonStability(weeks, [1, 2, 3]);
+  assert.equal(new Set(stability.map((s) => s.team)).size, 1, "same pick throughout");
+  assert.equal(stability[0].team, "A");
+});
+
+test("a pick that flips with the horizon is exposed rather than hidden", () => {
+  // Titan is the best pick in week 1 seen alone. Look two weeks out and week 2 has
+  // nothing but Titan, so week 1 should spend Solid instead.
+  const games = [
+    ...slate(0, [["Titan", "Weak", -14], ["Solid", "Poor", -7]]),
+    ...slate(7, [["Titan", "Weak2", -14]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const stability = horizonStability(weeks, [1, 2]);
+  assert.equal(stability[0].team, "Titan", "one week ahead, take the biggest favourite");
+  assert.equal(stability[1].team, "Solid", "two weeks ahead, save it");
+  assert.equal(new Set(stability.map((s) => s.team)).size, 2);
+});
+
+test("duplicate and out-of-range horizons collapse to what exists", () => {
+  const weeks = buildWeeks(slate(0, [["A", "B", -7]]), NFL);
+  const stability = horizonStability(weeks, [4, 8, 12, 1]);
+  assert.equal(stability.length, 1);
+  assert.equal(stability[0].horizon, 1);
 });

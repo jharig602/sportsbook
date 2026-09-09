@@ -320,3 +320,33 @@ export function buildPlan(weeks: Week[], horizon = weeks.length): Plan {
     unplannedWeeks: weeks.length - planning.length,
   };
 }
+
+/**
+ * Does this week's pick survive changing how far ahead you plan?
+ *
+ * Planning further is not automatically better. A longer horizon satisfies more
+ * constraints, which is the point -- but it does so using probabilities from lines that
+ * have not been bet into yet and will move by multiple points. Optimising hard against
+ * week 16's current number can quietly change the pick you make *today*, on evidence
+ * that is not worth much.
+ *
+ * So rather than choosing a horizon and hiding the choice, run several and report
+ * whether the answer depends on it. A pick that is the same at four weeks and at
+ * eighteen is robust. One that changes is telling you the plan is balanced on a knife
+ * edge somewhere in December, which is a reason to trust it less, not more.
+ */
+export function horizonStability(
+  weeks: Week[],
+  horizons: number[] = [4, 8, 12, weeks.length],
+): { horizon: number; team: string | null }[] {
+  const seen = new Set<number>();
+  const out: { horizon: number; team: string | null }[] = [];
+  for (const horizon of horizons) {
+    const capped = Math.min(Math.max(1, horizon), weeks.length);
+    if (seen.has(capped)) continue;
+    seen.add(capped);
+    const plan = buildPlan(weeks, capped);
+    out.push({ horizon: capped, team: plan.picks[0]?.pick?.team ?? null });
+  }
+  return out.sort((a, b) => a.horizon - b.horizon);
+}
