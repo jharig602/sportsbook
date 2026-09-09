@@ -435,3 +435,38 @@ def test_a_malformed_fixture_is_skipped_rather_than_stored_half_built():
     worse = {"commence_time": "2026-09-13T17:00:00Z", "home_team": "A", "away_team": "B"}
     assert sl.season_rows([bad, worse, feed_event()], "nfl", NOW) == sl.season_rows(
         [feed_event()], "nfl", NOW)
+
+
+def test_friday_evening_polls_densely_for_a_saturday_slate():
+    """The window that matters and used to be missed.
+
+    With a 12-hour near-kickoff rule, college sat on the 24-hour interval all Friday
+    and only went dense on Saturday morning -- by which time Friday's quotes were
+    already at the web's staleness limit and the board showed nothing.
+    """
+    from team_match import Candidate
+    saturday = [Candidate("401", "Home", "Away", NOW + timedelta(hours=16))]
+    poll, reason = sl.should_poll(saturday, NOW - timedelta(hours=4), NOW, None)
+    assert poll is True, "16h out is inside the 18h window, so a 4h-old poll refreshes"
+    assert "interval" not in reason or "24h" not in reason
+
+
+def test_a_game_three_days_out_still_polls_only_daily():
+    """The widened window must not turn into polling everything all week."""
+    from team_match import Candidate
+    far = [Candidate("401", "Home", "Away", NOW + timedelta(hours=72))]
+    poll, reason = sl.should_poll(far, NOW - timedelta(hours=4), NOW, None)
+    assert poll is False
+    assert "interval is 24h" in reason
+
+
+def test_the_far_interval_stays_under_the_web_freshness_window():
+    """A structural invariant, not a preference.
+
+    web/lib/book-lines.ts marks a quote stale at 30 hours. If the collector's slowest
+    interval ever meets or exceeds that, quotes expire at exactly the moment they are
+    due to be refreshed and the board empties between polls -- which is precisely what
+    happened when both were 24.
+    """
+    assert sl.INTERVAL_FAR_HOURS < 30, "must leave slack for a delayed workflow"
+    assert sl.NEAR_KICKOFF_HOURS < sl.INTERVAL_FAR_HOURS

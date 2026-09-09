@@ -27,7 +27,18 @@ export const MANUAL_SOURCE = "manual";
  * when it is only elapsed time. Twenty-four hours is generous for a hand-typed entry
  * and comfortably longer than the feed's own polling interval near kickoff.
  */
-export const FRESHNESS_HOURS = 24;
+/**
+ * **This must exceed the collector's slowest polling interval, or the board empties
+ * between polls.** It did not. Both were 24 hours, so college quotes expired at
+ * precisely the moment they were due to be refreshed, and any delay -- GitHub drops
+ * and delays scheduled runs routinely -- left the board blank. Caught live at "last
+ * polled 23.2h ago", showing 16 games on a board that had 69.
+ *
+ * The collector's far interval is 24h (INTERVAL_FAR_HOURS in collector/shop_lines.py),
+ * so 30 leaves six hours of slack for a late workflow. Midweek lines barely move over
+ * that span, and every row shows its own age regardless.
+ */
+export const FRESHNESS_HOURS = 30;
 
 export interface BookLineRow {
   quote_id: string;

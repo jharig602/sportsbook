@@ -70,8 +70,16 @@ SEASON_COLUMNS = ["feed_event_id", "league", "commence_time", "home_team", "away
 
 #: How long a stored quote stays fresh enough to be worth replacing. Poll often when a
 #: game is close, hardly at all when none is.
-NEAR_KICKOFF_HOURS = 12.0
+#: NEAR_KICKOFF_HOURS was 12, which meant college only began polling every three hours
+#: on Saturday morning itself. Friday evening -- when the slate is set and the board is
+#: worth looking at -- sat on the 24-hour interval, and by Saturday morning Friday's
+#: quotes were already at the web's staleness limit. Eighteen starts the dense polling
+#: on Friday night instead, for about three extra polls a weekend.
+NEAR_KICKOFF_HOURS = 18.0
 INTERVAL_NEAR_HOURS = 3.0
+#: Must stay BELOW web/lib/book-lines.ts FRESHNESS_HOURS (30). When they were equal at
+#: 24, quotes expired at exactly the moment they were due to be refreshed and the board
+#: went blank between polls -- observed live with 16 games showing out of 69.
 INTERVAL_FAR_HOURS = 24.0
 
 #: Credit floors. Below the first, only games about to start are worth a credit; below
