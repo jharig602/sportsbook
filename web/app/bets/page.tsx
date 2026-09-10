@@ -130,6 +130,11 @@ export default async function BetsPage() {
               {totals.roi === null ? "—" : formatPercent(totals.roi, 1)}
             </p>
             <p className="text-[10px] uppercase tracking-wide text-slate-500">roi</p>
+            {totals.bonusProfit !== 0 ? (
+              <p className="mt-0.5 text-[9px] text-slate-600">
+                on your money only
+              </p>
+            ) : null}
           </Card>
         </div>
       ) : null}

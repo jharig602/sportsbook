@@ -27,6 +27,7 @@ export function BetForm({ games }: { games: Game[] }) {
   const [stake, setStake] = useState("20");
   const [book, setBook] = useState("BetMGM");
   const [note, setNote] = useState("");
+  const [bonus, setBonus] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -68,6 +69,7 @@ export function BetForm({ games }: { games: Game[] }) {
           stake,
           book,
           note: note || null,
+          bonus,
         }),
       });
       const body = await response.json();
@@ -188,6 +190,18 @@ export function BetForm({ games }: { games: Game[] }) {
           />
         </label>
       </div>
+
+      <label className="mt-2 flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={bonus}
+          onChange={(e) => setBonus(e.target.checked)}
+          className="h-4 w-4 accent-sky-500"
+        />
+        <span className="text-[12px] text-slate-300">
+          Bonus bet &mdash; stake is the book&rsquo;s, winnings only
+        </span>
+      </label>
 
       <label className="mt-2 block">
         <span className="text-[11px] uppercase tracking-wide text-slate-500">

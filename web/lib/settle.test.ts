@@ -162,3 +162,80 @@ test("pushes count as settled but move no money", () => {
   assert.equal(totals.profit, 0);
   assert.equal(totals.roi, 0);
 });
+
+const near = (a: number, b: number, msg?: string) =>
+  assert.ok(Math.abs(a - b) < 1e-6, msg ?? `${a} != ${b}`);
+
+// --- bonus bets -------------------------------------------------------------------
+
+function bonusBet(over: Partial<Bet> = {}): Bet {
+  return {
+    bet_id: "b1",
+    placed_at: "2026-09-12T18:00:00Z",
+    league: "nfl",
+    event_id: "401",
+    home_team: "Jacksonville Jaguars",
+    away_team: "Cleveland Browns",
+    commence_time: "2026-09-13T17:00:00Z",
+    market: "moneyline",
+    side: "away",
+    line: null,
+    price: 360,
+    stake: 50,
+    book: "FanDuel",
+    model_probability: null,
+    market_probability: null,
+    rule_version_id: null,
+    note: "bonus bet",
+    bonus: true,
+    ...over,
+  } as Bet;
+}
+
+test("a losing bonus bet costs nothing", () => {
+  // The whole point. The stake was the book's, so a loss is not a loss. Recording it
+  // as an ordinary wager books -$50 against a bet that cost $0 -- and bonus bets lose
+  // most of the time, because taking long odds is exactly how you should use one.
+  const lost = settle(bonusBet(), { home_score: 24, away_score: 10 });
+  assert.equal(lost.outcome, "lost");
+  assert.equal(lost.profit, 0);
+  assert.equal(lost.returned, 0);
+});
+
+test("a winning bonus bet pays the winnings but not the stake back", () => {
+  const won = settle(bonusBet(), { home_score: 10, away_score: 24 });
+  assert.equal(won.outcome, "won");
+  near(won.profit, 180, "$50 at +360 wins $180");
+  near(won.returned, 180, "the $50 was never yours to get back");
+});
+
+test("an ordinary bet is unaffected", () => {
+  const cash = bonusBet({ bonus: false });
+  assert.equal(settle(cash, { home_score: 24, away_score: 10 }).profit, -50);
+  near(settle(cash, { home_score: 10, away_score: 24 }).returned, 230);
+});
+
+test("ROI is measured against your own money only", () => {
+  // A $50 bonus bet winning $180 is not a 360% return on anything you risked, and a
+  // losing one is not a $50 hole. Neither belongs in the denominator.
+  const scores = new Map([["401", { home_score: 10, away_score: 24 }]]);
+  const { totals } = tally([bonusBet()], scores);
+  near(totals.profit, 180);
+  near(totals.bonusProfit, 180);
+  assert.equal(totals.stakedSettled, 0);
+  assert.equal(totals.roi, null, "nothing of yours was risked, so there is no return");
+});
+
+test("a bonus win does not inflate the ROI on cash bets", () => {
+  const scores = new Map([
+    ["401", { home_score: 10, away_score: 24 }],
+    ["402", { home_score: 30, away_score: 10 }],
+  ]);
+  const cashLoss = bonusBet({
+    bet_id: "b2", event_id: "402", bonus: false, stake: 100, side: "away",
+  });
+  const { totals } = tally([bonusBet(), cashLoss], scores);
+  near(totals.profit, 80, "180 from the bonus, -100 on the cash bet");
+  assert.equal(totals.stakedSettled, 100);
+  near(totals.roi!, -1, "the cash bet lost its whole stake; the bonus is separate");
+});

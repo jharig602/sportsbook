@@ -28,6 +28,16 @@ export interface Bet {
   market_probability: number | null;
   rule_version_id: string | null;
   note: string | null;
+  /**
+   * A promotional bet, where the stake is the book's and only the winnings are yours.
+   *
+   * Settles differently in one direction that matters: a losing bonus bet costs
+   * nothing, because the stake was never yours to lose. Recording one as an ordinary
+   * wager books a $50 loss against a bet that cost $0, which understates the ledger by
+   * the full face value every time one loses -- and they lose most of the time, since
+   * the whole point of a bonus bet is to take long odds.
+   */
+  bonus?: boolean;
 }
 
 export interface Score {
@@ -84,8 +94,9 @@ export function settle(bet: Bet, score: Score | undefined): Settlement {
   const won = didWin(bet, score);
   if (won === null) {
     // A push returns the stake and wins nothing. Counting it as a loss would quietly
-    // understate every strategy that lands on key numbers.
-    return { outcome: "push", profit: 0, returned: bet.stake };
+    // understate every strategy that lands on key numbers. A pushed bonus bet is
+    // typically re-credited rather than paid, so nothing is returned in cash.
+    return { outcome: "push", profit: 0, returned: bet.bonus ? 0 : bet.stake };
   }
 
   const decimal = decimalOdds(bet.price);
@@ -93,9 +104,12 @@ export function settle(bet: Bet, score: Score | undefined): Settlement {
 
   if (won) {
     const profit = bet.stake * (decimal - 1);
-    return { outcome: "won", profit, returned: bet.stake + profit };
+    // A bonus bet pays the winnings and keeps the stake, so the profit is identical
+    // and only the cash returned differs.
+    return { outcome: "won", profit, returned: bet.bonus ? profit : bet.stake + profit };
   }
-  return { outcome: "lost", profit: -bet.stake, returned: 0 };
+  // Nothing was risked, so nothing was lost.
+  return { outcome: "lost", profit: bet.bonus ? 0 : -bet.stake, returned: 0 };
 }
 
 export interface Tally {
@@ -106,10 +120,19 @@ export interface Tally {
   push: number;
   open: number;
   staked: number;
-  /** Staked on settled bets only; the denominator ROI is measured against. */
+  /**
+   * Staked on settled bets only, EXCLUDING bonus bets; the denominator ROI is
+   * measured against.
+   *
+   * A bonus bet risks nothing of yours, so putting its face value in the denominator
+   * measures a return against money that was never at stake. Its winnings are real and
+   * counted in profit; the $50 that produced them is not yours and is not counted.
+   */
   stakedSettled: number;
   profit: number;
-  /** Null until something has settled — never 0%, which reads as "broke even". */
+  /** Profit from bonus bets alone, so it can be shown apart from what you risked. */
+  bonusProfit: number;
+  /** Null until something you actually risked has settled. */
   roi: number | null;
 }
 
@@ -120,8 +143,12 @@ export function tally(
   const rows = bets.map((bet) => ({ ...bet, ...settle(bet, scores.get(bet.event_id)) }));
 
   const settled = rows.filter((r) => r.outcome !== "open");
-  const stakedSettled = settled.reduce((sum, r) => sum + r.stake, 0);
+  // Only your own money belongs in the denominator.
+  const stakedSettled = settled
+    .filter((r) => !r.bonus)
+    .reduce((sum, r) => sum + r.stake, 0);
   const profit = rows.reduce((sum, r) => sum + r.profit, 0);
+  const bonusProfit = rows.filter((r) => r.bonus).reduce((sum, r) => sum + r.profit, 0);
 
   return {
     rows,
@@ -135,7 +162,10 @@ export function tally(
       staked: rows.reduce((sum, r) => sum + r.stake, 0),
       stakedSettled,
       profit,
-      roi: stakedSettled > 0 ? profit / stakedSettled : null,
+      bonusProfit,
+      // Measured against your own money only: a bonus bet's winnings are real, but
+      // dividing them by a stake you never risked is not a return on anything.
+      roi: stakedSettled > 0 ? (profit - bonusProfit) / stakedSettled : null,
     },
   };
 }

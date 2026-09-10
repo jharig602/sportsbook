@@ -30,7 +30,7 @@ async function getPool() {
 const COLUMNS = [
   "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
   "commence_time", "market", "side", "line", "price", "stake", "book",
-  "model_probability", "market_probability", "rule_version_id", "note",
+  "model_probability", "market_probability", "rule_version_id", "note", "bonus",
 ];
 
 export async function saveBet(bet: Bet): Promise<void> {
@@ -54,6 +54,7 @@ export async function listBets(): Promise<Bet[]> {
       if (value instanceof Date) out[key] = value.toISOString();
       else if (key === "price" && typeof value === "string") out[key] = Number(value);
       else if (key === "stake" && typeof value === "string") out[key] = Number(value);
+      else if (key === "bonus") out[key] = value === true;
       else out[key] = value;
     }
     return out as unknown as Bet;

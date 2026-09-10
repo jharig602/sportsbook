@@ -77,6 +77,8 @@ export async function POST(request: Request) {
       : null,
     rule_version_id: (body.rule_version_id as string) ?? null,
     note: (body.note as string) ?? null,
+    // A promotional bet: the stake is the book's, so losing it costs nothing.
+    bonus: body.bonus === true,
   };
 
   try {

@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 7
+ANALYTICS_SCHEMA_VERSION = 8
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -286,6 +286,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 ANALYTICS_MIGRATIONS = [
     # v5: residual dispersion by spread size.
     "ALTER TABLE margin_models ADD COLUMN IF NOT EXISTS buckets_json VARCHAR",
+    # v8: promotional bets, where the stake is the book's and only winnings are yours.
+    # A losing one costs nothing, so recording it as an ordinary wager books a loss
+    # against a bet that cost zero.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS bonus BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
