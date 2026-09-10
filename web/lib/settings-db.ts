@@ -99,3 +99,65 @@ export async function recordNotified(
     );
   }
 }
+
+export const POOLS_KEY = "survivor_pools";
+
+/**
+ * Survivor entries and the teams each has already spent.
+ *
+ * Kept in app_settings as JSON rather than given a table: it is a handful of rows for
+ * one person, it changes once a week, and a table would buy nothing but a migration.
+ * Validated on read, because it is data that came back from a browser.
+ */
+export interface StoredPool {
+  name: string;
+  used: string[];
+}
+
+const DEFAULT_POOLS: StoredPool[] = [
+  { name: "Pool A", used: [] },
+  { name: "Pool B", used: [] },
+];
+
+export function parsePools(raw: string | null | undefined): StoredPool[] {
+  if (!raw) return DEFAULT_POOLS;
+  try {
+    const value = JSON.parse(raw);
+    if (!Array.isArray(value)) return DEFAULT_POOLS;
+    const pools = value
+      .filter((p) => p && typeof p.name === "string")
+      .slice(0, 8)
+      .map((p) => ({
+        name: String(p.name).slice(0, 40),
+        used: Array.isArray(p.used)
+          ? [...new Set<string>(p.used.map((t: unknown) => String(t).slice(0, 60)))].slice(0, 25)
+          : ([] as string[]),
+      }));
+    return pools.length > 0 ? pools : DEFAULT_POOLS;
+  } catch {
+    return DEFAULT_POOLS;
+  }
+}
+
+export async function getPools(): Promise<StoredPool[]> {
+  if (!databaseUrl()) return DEFAULT_POOLS;
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [POOLS_KEY]);
+    return parsePools(result.rows[0]?.value ?? null);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return DEFAULT_POOLS;
+    throw error;
+  }
+}
+
+export async function setPools(pools: StoredPool[]): Promise<StoredPool[]> {
+  const db = await getPool();
+  const cleaned = parsePools(JSON.stringify(pools));
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [POOLS_KEY, JSON.stringify(cleaned)],
+  );
+  return cleaned;
+}

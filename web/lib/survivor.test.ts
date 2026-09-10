@@ -6,6 +6,7 @@ import {
   assign,
   weekAnchor,
   buildPlan,
+  buildPlans,
   buildWeeks,
   candidatesFor,
   groupIntoWeeks,
@@ -290,4 +291,103 @@ test("duplicate and out-of-range horizons collapse to what exists", () => {
   const stability = horizonStability(weeks, [4, 8, 12, 1]);
   assert.equal(stability.length, 1);
   assert.equal(stability[0].horizon, 1);
+});
+
+// --- more than one entry ------------------------------------------------------------
+
+test("two pools do not both pick the same team this week", () => {
+  // The whole reason to run a second entry. Playing one team in both means you are out
+  // of both when it loses -- you paid twice for a single bet.
+  const games = [
+    ...slate(0, [["Best", "W1", -14], ["Second", "W2", -12], ["Third", "W3", -10]]),
+    ...slate(7, [["Best", "X1", -14], ["Second", "X2", -12], ["Third", "X3", -10]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const multi = buildPlans(weeks, [{ name: "A", used: [] }, { name: "B", used: [] }]);
+  const a = multi.pools[0].plan.picks[0].pick!.team;
+  const b = multi.pools[1].plan.picks[0].pick!.team;
+  assert.notEqual(a, b);
+});
+
+test("two entries beat one, and the gain is real not double-counted", () => {
+  const games = [
+    ...slate(0, [["Best", "W1", -14], ["Second", "W2", -12]]),
+    ...slate(7, [["Best", "X1", -14], ["Second", "X2", -12]]),
+  ];
+  const multi = buildPlans(buildWeeks(games, NFL), [
+    { name: "A", used: [] },
+    { name: "B", used: [] },
+  ]);
+  assert.ok(multi.atLeastOne > multi.single, "two entries must beat one");
+  assert.ok(multi.all < multi.single, "and both surviving is harder than one");
+  // 1 - (1-a)(1-b), not a + b.
+  const [a, b] = multi.pools.map((p) => p.plan.survival);
+  assert.ok(Math.abs(multi.atLeastOne - (1 - (1 - a) * (1 - b))) < 1e-9);
+});
+
+test("a team already spent in a pool is never offered to it again", () => {
+  const games = [
+    ...slate(0, [["Best", "W1", -14], ["Second", "W2", -7]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const multi = buildPlans(weeks, [{ name: "A", used: ["Best"] }]);
+  assert.equal(multi.pools[0].plan.picks[0].pick!.team, "Second");
+});
+
+test("each entry carries its own history", () => {
+  // Pool A has spent Best; pool B has not. They are separate entries in separate
+  // pools, and nothing stops B from playing a team A has already burned.
+  const games = [...slate(0, [["Best", "W1", -14], ["Second", "W2", -7]])];
+  const weeks = buildWeeks(games, NFL);
+  const multi = buildPlans(weeks, [
+    { name: "A", used: ["Best"] },
+    { name: "B", used: [] },
+  ]);
+  assert.equal(multi.pools[0].plan.picks[0].pick!.team, "Second");
+  assert.equal(multi.pools[1].plan.picks[0].pick!.team, "Best");
+});
+
+test("only the current week is reserved across pools", () => {
+  // Constraining every future week would cost real probability to insure against a
+  // risk that re-planning each week removes anyway: only the next game can knock you
+  // out of both at once.
+  const games = [
+    ...slate(0, [["Best", "W1", -14], ["Second", "W2", -12]]),
+    ...slate(7, [["Best", "X1", -14], ["Other", "X2", -3]]),
+  ];
+  const multi = buildPlans(buildWeeks(games, NFL), [
+    { name: "A", used: [] },
+    { name: "B", used: [] },
+  ]);
+  const laterA = multi.pools[0].plan.picks[1]?.pick?.team;
+  const laterB = multi.pools[1].plan.picks[1]?.pick?.team;
+  assert.ok(laterA && laterB, "both should have a week 2 pick");
+  // They are allowed to converge again later; nothing asserts they differ.
+  assert.notEqual(multi.pools[0].plan.picks[0].pick!.team,
+                  multi.pools[1].plan.picks[0].pick!.team);
+});
+
+test("a pool with nothing left to pick does not break the others", () => {
+  const games = [...slate(0, [["Only", "W1", -14]])];
+  const weeks = buildWeeks(games, NFL);
+  const multi = buildPlans(weeks, [
+    { name: "A", used: [] },
+    { name: "B", used: ["Only", "W1"] },
+  ]);
+  assert.equal(multi.pools[0].plan.picks[0].pick!.team, "Only");
+  assert.ok(multi.atLeastOne > 0);
+});
+
+test("one pool behaves exactly as the single-entry planner did", () => {
+  const games = [
+    ...slate(0, [["Titan", "Weak", -14], ["Solid", "Poor", -7]]),
+    ...slate(7, [["Titan", "Weak2", -14], ["Coin", "Flip", 0]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const single = buildPlan(weeks);
+  const multi = buildPlans(weeks, [{ name: "A", used: [] }]);
+  assert.deepEqual(
+    multi.pools[0].plan.picks.map((p) => p.pick?.team),
+    single.picks.map((p) => p.pick?.team),
+  );
 });

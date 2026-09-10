@@ -1,13 +1,14 @@
 import { LogPickButton } from "@/components/LogPickButton";
+import { PoolPicker } from "@/components/PoolPicker";
 import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { allBookLines, type BookLineRow } from "@/lib/book-lines";
-import { getMyBooks } from "@/lib/settings-db";
+import { getMyBooks, getPools } from "@/lib/settings-db";
 import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { seasonGames } from "@/lib/season-db";
 import {
-  buildPlan,
+  buildPlans,
   buildWeeks,
   horizonStability,
   type Candidate,
@@ -90,9 +91,9 @@ function WeekRow({
 export default async function SurvivorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ weeks?: string }>;
+  searchParams: Promise<{ weeks?: string; pool?: string }>;
 }) {
-  const { weeks: requested } = await searchParams;
+  const { weeks: requested, pool: poolParam } = await searchParams;
   const data = getData();
   const postgres = data.backend === "postgres";
   const [models, games, board, quotes, myBooks] = await Promise.all([
@@ -102,6 +103,9 @@ export default async function SurvivorPage({
     postgres ? allBookLines() : Promise.resolve(new Map()),
     postgres ? getMyBooks() : Promise.resolve([] as string[]),
   ]);
+  const pools = postgres
+    ? await getPools()
+    : [{ name: "Pool A", used: [] as string[] }];
 
   // Only the moneyline matters for a survivor pick: the question is whether the team
   // wins, not by how much.
@@ -127,10 +131,17 @@ export default async function SurvivorPage({
   const chosen = requested === undefined ? "all" : requested;
   const horizon =
     chosen === "all" ? priced : Math.min(priced, Math.max(1, Number(chosen) || priced));
-  const plan = buildPlan(weeks, horizon);
+  // Every entry planned at once, so the current week's picks can be kept apart. Two
+  // entries on the same team is one bet paid for twice.
+  const multi = buildPlans(weeks, pools, horizon);
+  const poolIndex = Math.min(
+    Math.max(0, Number(poolParam ?? 0) || 0),
+    multi.pools.length - 1,
+  );
+  const plan = multi.pools[poolIndex]?.plan ?? multi.pools[0].plan;
 
   // Does this week's pick actually depend on how far ahead we look?
-  const stability = horizonStability(weeks, [...HORIZONS, priced]);
+  const stability = horizonStability(weeks, [...HORIZONS, priced], new Set(pools[poolIndex]?.used ?? []));
   const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
   const stable = distinct.size <= 1;
 
@@ -179,6 +190,49 @@ export default async function SurvivorPage({
         </Card>
       </div>
 
+      {multi.pools.length > 1 ? (
+        <Card className="mb-3 px-3.5 py-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            This week
+          </p>
+          <div className="mt-1.5 space-y-1">
+            {multi.pools.map((entry) => (
+              <p key={entry.pool.name} className="flex items-baseline justify-between text-[12px]">
+                <span className="text-slate-400">{entry.pool.name}</span>
+                <span className="tabular text-slate-200">
+                  {entry.plan.picks[0]?.pick
+                    ? `${entry.plan.picks[0].pick.team} (${percent(entry.plan.picks[0].pick.winProbability)})`
+                    : "nothing available"}
+                </span>
+              </p>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+            Different teams on purpose. Playing one team in both entries means you are
+            out of both when it loses &mdash; one bet paid for twice. At least one
+            survives {percent(multi.atLeastOne)} of the time against{" "}
+            {percent(multi.single)} for a single entry.
+          </p>
+        </Card>
+      ) : null}
+
+      {multi.pools.length > 1 ? (
+        <Segmented
+          options={multi.pools.map((entry, i) => ({
+            key: String(i),
+            label: entry.pool.name,
+          }))}
+          active={String(poolIndex)}
+          hrefFor={(key) => `/survivor?pool=${key}&weeks=${chosen}`}
+        />
+      ) : null}
+
+      <PoolPicker
+        pools={pools}
+        index={poolIndex}
+        suggestion={plan.picks[0]?.pick?.team ?? null}
+      />
+
       <Segmented
         options={[
           ...HORIZONS.filter((h) => h < priced).map((h) => ({
@@ -188,7 +242,7 @@ export default async function SurvivorPage({
           { key: "all", label: `All ${priced}` },
         ]}
         active={chosen === "all" ? "all" : String(horizon)}
-        hrefFor={(key) => `/survivor?weeks=${key}`}
+        hrefFor={(key) => `/survivor?pool=${poolIndex}&weeks=${key}`}
       />
 
       <Card className="mb-3 px-3.5 py-2.5">

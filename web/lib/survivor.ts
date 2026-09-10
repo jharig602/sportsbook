@@ -250,7 +250,14 @@ const UNAVAILABLE = 1e6;
  * enough that the plan is mostly telling you about the schedule rather than the teams,
  * and every extra week makes the current pick look more constrained than it is.
  */
-export function buildPlan(weeks: Week[], horizon = weeks.length): Plan {
+export function buildPlan(
+  weeks: Week[],
+  horizon = weeks.length,
+  /** Teams this entry has already spent and can never pick again. */
+  excludeTeams: Set<string> = new Set(),
+  /** Teams another entry has reserved in a given week, for diversification. */
+  excludeByWeek: Map<number, Set<string>> = new Map(),
+): Plan {
   const planning = weeks.slice(0, horizon).filter((w) => w.candidates.length > 0);
   if (planning.length === 0) {
     return { picks: [], survival: 0, greedySurvival: 0, weeksPlanned: 0, unplannedWeeks: 0 };
@@ -267,10 +274,13 @@ export function buildPlan(weeks: Week[], horizon = weeks.length): Plan {
   });
 
   // Minimise the sum of negative log probabilities, which maximises their product.
-  const cost = byWeekTeam.map((map) =>
+  const cost = byWeekTeam.map((map, weekIndex) =>
     teams.map((team) => {
       const candidate = map.get(team);
       if (!candidate) return UNAVAILABLE;
+      // Spent teams and teams another entry has taken this week are not choices.
+      if (excludeTeams.has(team)) return UNAVAILABLE;
+      if (excludeByWeek.get(planning[weekIndex].week)?.has(team)) return UNAVAILABLE;
       const p = Math.min(0.999, Math.max(0.001, candidate.winProbability));
       return -Math.log(p);
     }),
@@ -338,6 +348,7 @@ export function buildPlan(weeks: Week[], horizon = weeks.length): Plan {
 export function horizonStability(
   weeks: Week[],
   horizons: number[] = [4, 8, 12, weeks.length],
+  excludeTeams: Set<string> = new Set(),
 ): { horizon: number; team: string | null }[] {
   const seen = new Set<number>();
   const out: { horizon: number; team: string | null }[] = [];
@@ -345,8 +356,89 @@ export function horizonStability(
     const capped = Math.min(Math.max(1, horizon), weeks.length);
     if (seen.has(capped)) continue;
     seen.add(capped);
-    const plan = buildPlan(weeks, capped);
+    const plan = buildPlan(weeks, capped, excludeTeams);
     out.push({ horizon: capped, team: plan.picks[0]?.pick?.team ?? null });
   }
   return out.sort((a, b) => a.horizon - b.horizon);
+}
+
+/**
+ * Planning more than one entry.
+ *
+ * The naive reading of "give me two picks" is the top two teams this week. That is
+ * exactly wrong, and for a reason worth stating: the pools are independent, so nothing
+ * stops you playing the same team in both. If that were the goal you would just play
+ * the best team twice.
+ *
+ * The only thing a second entry buys is that the two do not die together. Playing one
+ * team in both pools means P(at least one survives) equals P(that team wins) -- you
+ * have paid twice for a single bet. Playing different teams means you are out of both
+ * only if both lose, and since they are different games those are near enough
+ * independent.
+ *
+ * So a second pool is not "the next best plan". It is the best plan available *given
+ * that it must differ from the first this week*, which is a constraint on the
+ * assignment, not a ranking of leftovers.
+ *
+ * Teams already spent are excluded outright, per pool, because that is the actual rule
+ * of the game and each entry carries its own history.
+ */
+
+export interface Pool {
+  name: string;
+  /** Teams this entry has already used and can never pick again. */
+  used: string[];
+}
+
+export interface PoolPlan {
+  pool: Pool;
+  plan: Plan;
+}
+
+export interface MultiPlan {
+  pools: PoolPlan[];
+  /** Probability at least one entry survives every planned week. */
+  atLeastOne: number;
+  /** Probability all of them do. */
+  all: number;
+  /** What one entry alone would have been worth, for comparison. */
+  single: number;
+}
+
+export function buildPlans(
+  weeks: Week[],
+  pools: Pool[],
+  horizon = weeks.length,
+): MultiPlan {
+  const takenThisWeek = new Map<number, Set<string>>();
+  const out: PoolPlan[] = [];
+
+  for (const pool of pools) {
+    const plan = buildPlan(weeks, horizon, new Set(pool.used), takenThisWeek);
+    out.push({ pool, plan });
+    // Only the FIRST week is reserved across pools. Beyond that the entries are free
+    // to converge again: the point is not to hold two permanently different portfolios
+    // but to avoid being knocked out of both by one result, and only the next game can
+    // do that. Constraining every future week would cost real probability to insure
+    // against a risk that re-planning each week removes anyway.
+    const first = plan.picks[0];
+    if (first?.pick) {
+      const set = takenThisWeek.get(first.week) ?? new Set<string>();
+      set.add(first.pick.team);
+      takenThisWeek.set(first.week, set);
+    }
+  }
+
+  const survivals = out.map((p) => p.plan.survival).filter((s) => s > 0);
+  const atLeastOne = survivals.length
+    ? 1 - survivals.reduce((acc, s) => acc * (1 - s), 1)
+    : 0;
+  const all = survivals.reduce((acc, s) => acc * s, 1);
+
+  return {
+    pools: out,
+    atLeastOne,
+    all: survivals.length ? all : 0,
+    single: survivals[0] ?? 0,
+  };
 }
