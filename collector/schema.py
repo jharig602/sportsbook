@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 10
+ANALYTICS_SCHEMA_VERSION = 11
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS bets (
     market_probability DOUBLE PRECISION,
     rule_version_id VARCHAR,
     note VARCHAR,
+    -- bet_id of a row this one corrects. See ANALYTICS_MIGRATIONS v11.
+    supersedes VARCHAR,
     CHECK (stake > 0),
     CHECK (price <= -100 OR price >= 100),
     CHECK (market IN ('spread', 'total', 'moneyline')),
@@ -331,6 +333,12 @@ ANALYTICS_MIGRATIONS = [
     # A losing one costs nothing, so recording it as an ordinary wager books a loss
     # against a bet that cost zero.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS bonus BOOLEAN NOT NULL DEFAULT FALSE",
+    # v11: corrections. The bets table is append-only -- the outcome is derived from
+    # game_results at read time, so nothing here is ever updated -- which left no way to
+    # fix a row recorded wrongly. A bet carrying `supersedes` replaces the one it names;
+    # both are kept, because what was originally written is part of the history even
+    # when it was wrong, and silently editing a ledger is how a ledger stops being one.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS supersedes VARCHAR",
 ]
 
 
