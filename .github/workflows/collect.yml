@@ -152,6 +152,30 @@ jobs:
 
       # Raw response bodies are the only table that grows dangerously against Neon's
       # 0.5 GB free tier. Snapshots, alerts and grades are small and are kept forever.
+      # The FanDuel qualifying-bet promotion: each $5 stake earns a $50 bonus bet.
+      #
+      # Once a day, late morning Central, which leaves the whole day to place it.
+      # Unlike everything else here the bet is compulsory -- not placing it forfeits
+      # the bonus -- so the notification reports the CHEAPEST option rather than a
+      # good one, and says plainly when that is still a losing bet.
+      - name: Daily promo bet reminder
+        continue-on-error: true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo 'promo reminders not configured'; exit 0
+          fi
+          hour=$(TZ=America/Chicago date +%H)
+          minute=$(TZ=America/Chicago date +%M)
+          if [ "$hour" != "11" ] || [ "$minute" -ge 30 ]; then
+            echo "not the promo window (Central $hour:$minute)"; exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 -X POST \
+            "$APP_URL/api/dispatch-promo" \
+            -H "Authorization: Bearer $DISPATCH_SECRET"
+
       # Survivor reminder, Saturday evening and Sunday morning Central.
       #
       # Sent on a schedule rather than on a change, unlike every other alert here,
