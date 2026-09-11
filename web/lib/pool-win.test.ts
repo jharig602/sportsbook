@@ -6,6 +6,7 @@ import {
   buildPoolWinPlans,
   crowdingFrom,
   poolWin,
+  poolWinStability,
   rankByPoolWin,
   shareOfPot,
   type Field,
@@ -261,6 +262,26 @@ test("an unplayable season ranks nothing rather than throwing", () => {
   assert.deepEqual(rankByPoolWin([], { lossesAllowed: 1, poolSize: 13, crowding: 0.3 }), []);
   const unpriced: Week[] = [{ week: 1, startsAt: "", candidates: [] }];
   assert.deepEqual(rankByPoolWin(unpriced, { lossesAllowed: 1, poolSize: 13, crowding: 0.3 }), []);
+});
+
+test("horizon stability reports the pool-win pick, not the survival one", () => {
+  // The card sits directly under the headline pick. If it answered for a different
+  // objective it would eventually name a different team than the one recommended.
+  const weeks = twoWeeks();
+  const options = { lossesAllowed: 0, poolSize: 137, crowding: 0.9 };
+  const stability = poolWinStability(weeks, [1, 2], options);
+  assert.deepEqual(stability.map((s) => s.horizon), [1, 2]);
+  const full = rankByPoolWin(weeks, options)[0].candidate.team;
+  assert.equal(stability[stability.length - 1].team, full);
+});
+
+test("horizon stability collapses duplicate and oversized horizons", () => {
+  const stability = poolWinStability(twoWeeks(), [2, 2, 50], {
+    lossesAllowed: 0,
+    poolSize: 13,
+    crowding: 0,
+  });
+  assert.equal(stability.length, 1, "2, 2 and 50 all cap to the same two priced weeks");
 });
 
 test("two entries are never put on the same team in the same week", () => {

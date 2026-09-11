@@ -8,14 +8,8 @@ import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
-import { buildPoolWinPlans, crowdingFrom } from "@/lib/pool-win";
-import {
-  buildPlan,
-  buildWeeks,
-  horizonStability,
-  type Candidate,
-  type Pick,
-} from "@/lib/survivor";
+import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
+import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
 
 export const dynamic = "force-dynamic";
 
@@ -187,7 +181,16 @@ export default async function SurvivorPage({
   const havePopularity = measuredCrowding !== null;
 
   // Does this week's pick actually depend on how far ahead we look?
-  const stability = horizonStability(weeks, [...HORIZONS, priced], new Set(pools[poolIndex]?.used ?? []));
+  // On the same objective as the headline pick. Reporting the survival-optimal team
+  // here while the page recommends the pool-optimal one would have the card contradict
+  // the pick sitting directly above it.
+  const stability = poolWinStability(weeks, [...HORIZONS, priced], {
+    used: new Set(pools[poolIndex]?.used ?? []),
+    lossesAllowed: pools[poolIndex]?.lossesAllowed ?? 0,
+    poolSize: pools[poolIndex]?.size ?? 1,
+    crowding,
+    popularity,
+  });
   const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
   const stable = distinct.size <= 1;
 

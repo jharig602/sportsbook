@@ -367,6 +367,40 @@ export function rankByPoolWin(
   return out.sort((a, b) => b.poolWin - a.poolWin);
 }
 
+/**
+ * Does this week's pick survive changing how far ahead you look?
+ *
+ * The pool-win twin of `horizonStability`, and it has to exist rather than reuse it:
+ * that one answers the question for the survival objective, and a page whose headline
+ * pick comes from one objective while its stability card reports the other will
+ * eventually contradict itself in public. Same reasoning as the original — a pick that
+ * holds at four weeks and at eighteen is robust; one that moves is balanced on a
+ * December line nobody has bet into, which is a reason to trust it less.
+ */
+export function poolWinStability(
+  weeks: Week[],
+  horizons: number[],
+  options: {
+    used?: Set<string>;
+    lossesAllowed: number;
+    poolSize: number;
+    crowding: number;
+    popularity?: Record<string, number>;
+  },
+): Array<{ horizon: number; team: string | null }> {
+  const priced = weeks.filter((w) => w.candidates.length > 0).length;
+  const seen = new Set<number>();
+  const out: Array<{ horizon: number; team: string | null }> = [];
+  for (const horizon of horizons) {
+    const capped = Math.min(Math.max(1, horizon), Math.max(1, priced));
+    if (seen.has(capped)) continue;
+    seen.add(capped);
+    const ranked = rankByPoolWin(weeks.slice(0, capped), options);
+    out.push({ horizon: capped, team: ranked[0]?.candidate.team ?? null });
+  }
+  return out.sort((a, b) => a.horizon - b.horizon);
+}
+
 export interface PoolWinPlan {
   pool: PoolEntry;
   ranking: PoolWinRanking[];
