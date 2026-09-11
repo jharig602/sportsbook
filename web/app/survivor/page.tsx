@@ -6,6 +6,7 @@ import { getMyBooks, getPools } from "@/lib/settings-db";
 import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
+import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { seasonGames } from "@/lib/season-db";
 import {
   buildPlans,
@@ -105,7 +106,7 @@ export default async function SurvivorPage({
   ]);
   const pools = postgres
     ? await getPools()
-    : [{ name: "Pool A", used: [] as string[] }];
+    : [{ name: "Pool A", used: [] as string[], size: 1, lossesAllowed: 0 }];
 
   // Only the moneyline matters for a survivor pick: the question is whether the team
   // wins, not by how much.
@@ -139,6 +140,21 @@ export default async function SurvivorPage({
     multi.pools.length - 1,
   );
   const plan = multi.pools[poolIndex]?.plan ?? multi.pools[0].plan;
+
+  // The odds that actually matter: survival with a spare life, and what surviving is
+  // worth against a field of this size.
+  const odds = multi.pools.map((entry) => {
+    const probs = entry.plan.picks
+      .map((pick) => pick.pick?.winProbability)
+      .filter((v): v is number => v !== undefined);
+    return {
+      pool: entry.pool,
+      probs,
+      odds: poolOdds(probs, entry.pool.lossesAllowed ?? 0, entry.pool.size ?? 1),
+      lifeMultiple: (entry.pool.lossesAllowed ?? 0) > 0 ? extraLifeMultiple(probs) : 1,
+    };
+  });
+  const here = odds[poolIndex] ?? odds[0];
 
   // Does this week's pick actually depend on how far ahead we look?
   const stability = horizonStability(weeks, [...HORIZONS, priced], new Set(pools[poolIndex]?.used ?? []));
@@ -174,19 +190,19 @@ export default async function SurvivorPage({
         </Card>
         <Card className="px-2 py-2.5 text-center">
           <p className="tabular text-lg font-semibold text-slate-100">
-            {percent(plan.survival)}
+            {percent(here.odds.survival)}
           </p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">survive all</p>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">
+            {(here.pool.lossesAllowed ?? 0) > 0
+              ? `survive (${(here.pool.lossesAllowed ?? 0) + 1} lives)`
+              : "survive all"}
+          </p>
         </Card>
         <Card className="px-2 py-2.5 text-center">
-          <p
-            className={`tabular text-lg font-semibold ${
-              plan.survival > plan.greedySurvival ? "text-emerald-300" : "text-slate-500"
-            }`}
-          >
-            +{((plan.survival - plan.greedySurvival) * 100).toFixed(1)}
+          <p className="tabular text-lg font-semibold text-emerald-300">
+            {percent(here.odds.winChance)}
           </p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">vs greedy</p>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">win the pool</p>
         </Card>
       </div>
 
@@ -215,6 +231,62 @@ export default async function SurvivorPage({
           </p>
         </Card>
       ) : null}
+
+      <Card className="mb-3 px-3.5 py-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          {here.pool.name}: {here.pool.size} entrants,{" "}
+          {(here.pool.lossesAllowed ?? 0) === 0
+            ? "out on the first loss"
+            : `out on loss ${(here.pool.lossesAllowed ?? 0) + 1}`}
+        </h2>
+
+        <div className="tabular mt-2 space-y-1 text-[12px]">
+          {[4, 8, 12, 18]
+            .filter((w) => w <= here.odds.alive.length)
+            .map((w) => (
+              <p key={w} className="flex items-baseline justify-between">
+                <span className="text-slate-500">after week {w}</span>
+                <span className="text-slate-300">
+                  you {percent(here.odds.alive[w - 1])}
+                  <span className="ml-2 text-slate-500">
+                    field {here.odds.fieldAlive[w - 1].toFixed(1)} left
+                  </span>
+                </span>
+              </p>
+            ))}
+        </div>
+
+        <p className="mt-2.5 text-[12px] leading-relaxed text-slate-400">
+          {(here.pool.lossesAllowed ?? 0) > 0 ? (
+            <>
+              The spare life is worth{" "}
+              <span className="font-medium text-slate-200">
+                {here.lifeMultiple.toFixed(1)}&times;
+              </span>{" "}
+              &mdash; that is how much more often you last the season than you would if
+              one loss ended it. Planning this pool on a one-life number would understate
+              it by that factor.{" "}
+            </>
+          ) : null}
+          {here.odds.likelyEndWeek === null ? (
+            <>
+              <span className="font-medium text-amber-300">
+                This pool does not resolve inside the season.
+              </span>{" "}
+              About {here.odds.fieldAlive[here.odds.fieldAlive.length - 1].toFixed(0)}{" "}
+              rivals are still standing after week {here.odds.alive.length}, so surviving
+              will not win it. The prize goes to whoever separated from the field, which
+              means a pick most of them did not make.
+            </>
+          ) : (
+            <>
+              The field is expected to be under one rival by week{" "}
+              <span className="font-medium text-slate-200">{here.odds.likelyEndWeek}</span>,
+              so simply not losing is a real route to winning this one.
+            </>
+          )}
+        </p>
+      </Card>
 
       {multi.pools.length > 1 ? (
         <Segmented

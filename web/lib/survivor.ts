@@ -388,6 +388,10 @@ export interface Pool {
   name: string;
   /** Teams this entry has already used and can never pick again. */
   used: string[];
+  /** Entrants including you. Does not change the plan, only what it is worth. */
+  size?: number;
+  /** Losses permitted before elimination. */
+  lossesAllowed?: number;
 }
 
 export interface PoolPlan {

@@ -51,6 +51,10 @@ export function PoolPicker({
     save(next);
   }
 
+  function setField(key: "size" | "lossesAllowed", value: number) {
+    save(pools.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
+  }
+
   function unmark(team: string) {
     const next = pools.map((p, i) =>
       i === index ? { ...p, used: p.used.filter((t) => t !== team) } : p,
@@ -86,6 +90,35 @@ export function PoolPicker({
 
       {open ? (
         <>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                Entrants
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                defaultValue={String(pool.size)}
+                onBlur={(e) => setField("size", Number(e.target.value.replace(/[^0-9]/g, "")) || 1)}
+                className="tabular mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                Losses allowed
+              </span>
+              <select
+                defaultValue={String(pool.lossesAllowed)}
+                onChange={(e) => setField("lossesAllowed", Number(e.target.value))}
+                className="mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600"
+              >
+                <option value="0">0 — out on first loss</option>
+                <option value="1">1 — out on second loss</option>
+                <option value="2">2 — out on third loss</option>
+              </select>
+            </label>
+          </div>
+
           {pool.used.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {pool.used.map((team) => (

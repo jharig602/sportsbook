@@ -112,11 +112,15 @@ export const POOLS_KEY = "survivor_pools";
 export interface StoredPool {
   name: string;
   used: string[];
+  /** How many entrants, including you. Decides what surviving is worth. */
+  size: number;
+  /** Losses you may take before elimination. 0 = out on the first. */
+  lossesAllowed: number;
 }
 
 const DEFAULT_POOLS: StoredPool[] = [
-  { name: "Pool A", used: [] },
-  { name: "Pool B", used: [] },
+  { name: "Pool A", used: [], size: 13, lossesAllowed: 1 },
+  { name: "Pool B", used: [], size: 137, lossesAllowed: 1 },
 ];
 
 export function parsePools(raw: string | null | undefined): StoredPool[] {
@@ -132,6 +136,8 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
         used: Array.isArray(p.used)
           ? [...new Set<string>(p.used.map((t: unknown) => String(t).slice(0, 60)))].slice(0, 25)
           : ([] as string[]),
+        size: Math.min(100000, Math.max(1, Number(p.size) || 1)),
+        lossesAllowed: Math.min(5, Math.max(0, Number(p.lossesAllowed) || 0)),
       }));
     return pools.length > 0 ? pools : DEFAULT_POOLS;
   } catch {
