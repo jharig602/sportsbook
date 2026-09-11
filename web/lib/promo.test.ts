@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { BoardEdge } from "./board-shop.ts";
-import { bestBonusTarget, bestQualifier, progress, promoValue } from "./promo.ts";
+import { bestBonusTarget, bestQualifier, progress, promoValue, qualifyingDates } from "./promo.ts";
+import type { Bet } from "./settle.ts";
 import type { Candidate } from "./survivor.ts";
 
 function row(over: Partial<BoardEdge> = {}): BoardEdge {
@@ -128,4 +129,86 @@ test("EACH stake earns its own bonus, so both sides scale with the days", () => 
 
   const ifItWereOneBonus = 37 - Math.abs(perBet) * 6;
   assert.ok(value > ifItWereOneBonus * 5, "the difference is not a rounding error");
+});
+
+// --- counting qualifying days ------------------------------------------------------
+
+function wager(over: Partial<Bet> = {}): Bet {
+  return {
+    bet_id: Math.random().toString(36).slice(2),
+    placed_at: "2026-09-11T18:00:00Z",
+    league: "ncaaf", event_id: "e1", home_team: "H", away_team: "A",
+    commence_time: "2026-09-12T22:00:00Z",
+    market: "spread", side: "away", line: 9.5, price: -110, stake: 5,
+    book: "FanDuel", model_probability: null, market_probability: null,
+    rule_version_id: null, note: null, bonus: false, supersedes: null,
+    ...over,
+  };
+}
+
+test("only the qualifying stake counts a day, not the bonus it earned", () => {
+  // The $50 bonus is the other half of the same promotion. Counting it would advance
+  // the day twice on a day one bet was placed, and announce completion early.
+  const dates = qualifyingDates(
+    [wager(), wager({ stake: 50, bonus: true })],
+    "FanDuel",
+    5,
+  );
+  assert.deepEqual(dates, ["2026-09-11"]);
+});
+
+test("another book's bets do not count toward this promotion", () => {
+  const dates = qualifyingDates([wager(), wager({ book: "BetMGM" })], "FanDuel", 5);
+  assert.equal(dates.length, 1);
+});
+
+test("a stake that is near enough still counts the day", () => {
+  // $4.95 from a rounding, or $5.50 because that is what was left in the account, is
+  // still the day's qualifying bet. Requiring exactly 5 would stall the counter.
+  const dates = qualifyingDates(
+    [wager({ stake: 4.95 }), wager({ stake: 5.5 }), wager({ stake: 25 })],
+    "FanDuel",
+    5,
+  );
+  assert.equal(dates.length, 2);
+});
+
+test("days are counted in Central, so a late-evening bet is not tomorrow", () => {
+  // 8pm Central is already tomorrow in UTC. Counted in UTC, one evening bet and one
+  // the next morning would read as two days when they are one, or vice versa.
+  const dates = qualifyingDates(
+    [wager({ placed_at: "2026-09-12T01:00:00Z" })],  // 8pm CDT on the 11th
+    "FanDuel",
+    5,
+  );
+  assert.deepEqual(dates, ["2026-09-11"]);
+});
+
+test("two bets on one day are one qualifying day", () => {
+  const dates = qualifyingDates(
+    [wager({ placed_at: "2026-09-11T14:00:00Z" }), wager({ placed_at: "2026-09-11T20:00:00Z" })],
+    "FanDuel",
+    5,
+  );
+  assert.equal(progress(dates, 7).done, 1);
+  assert.equal(progress(dates, 7).today, 2);
+});
+
+test("seven logged days completes a seven-day promotion", () => {
+  const dates = Array.from({ length: 7 }, (_, i) =>
+    `2026-09-${String(10 + i).padStart(2, "0")}`,
+  );
+  const p = progress(dates, 7);
+  assert.equal(p.complete, true);
+  assert.equal(p.today, null);
+  // Six is not seven, and the difference is a $50 bonus.
+  assert.equal(progress(dates.slice(0, 6), 7).complete, false);
+  assert.equal(progress(dates.slice(0, 6), 7).today, 7);
+});
+
+test("the promotion is worth seven bonuses, not one", () => {
+  // costPerBet is negative; promoValue takes its magnitude.
+  const worth = promoValue(-0.23, 7, 49.3);
+  assert.ok(Math.abs(worth - 7 * (49.3 - 0.23)) < 1e-9);
+  assert.ok(worth > 340 && worth < 345, `${worth}`);
 });

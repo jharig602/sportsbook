@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
+import { listBets } from "@/lib/bets-db";
 import { allBookLines } from "@/lib/book-lines";
 import { buildBoardShop } from "@/lib/board-shop";
 import { getData } from "@/lib/data";
 import { winProbabilityFromSpread } from "@/lib/probability";
-import { bestBonusTarget, bestQualifier, promoValue } from "@/lib/promo";
+import { bestBonusTarget, bestQualifier, progress, promoValue, qualifyingDates } from "@/lib/promo";
 import { promoDue, centralDate } from "@/lib/promo-window";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { promoSentOn, recordPromoSent } from "@/lib/settings-db";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 const BOOK = "FanDuel";
 const STAKE = 5;
 const BONUS_FACE = 50;
-const DAYS = 6;
+const DAYS = 7;   // seven qualifying bets, each earning its own $50
 
 /**
  * The daily qualifying bet, and where to put the bonus it earns.
@@ -83,12 +84,20 @@ export async function POST(request: Request) {
 
   try {
     const data = getData();
-    const [games, models, lines, subscriptions] = await Promise.all([
+    const [games, models, lines, subscriptions, ledger] = await Promise.all([
       data.games(),
       data.marginModels(),
       allBookLines(),
       listSubscriptions(),
+      listBets().catch(() => []),
     ]);
+
+    // Which qualifying day this is, counted from bets actually logged rather than from
+    // the calendar. A day you forgot is a day that did not count -- the book is not
+    // going to award the bonus for a bet you did not place, and a tracker that assumed
+    // otherwise would announce completion while it was still unearned. The cost of that
+    // honesty is that the count is only as good as the logging, which the push says.
+    const done = progress(qualifyingDates(ledger, BOOK, STAKE), DAYS);
 
     const shop = buildBoardShop(games, lines, models);
     const qualifier = bestQualifier(shop.rows, BOOK, STAKE);
@@ -149,8 +158,16 @@ export async function POST(request: Request) {
     }
 
     const total = promoValue(qualifier.expectedProfit, DAYS, bonus?.value ?? 0);
+
+    // Nothing left to qualify for, so nothing to interrupt anyone about. Without this
+    // the reminder simply runs for ever.
+    if (done.complete && !forced && !dry) {
+      return NextResponse.json({ sent: 0, reason: "promotion complete", done: done.done });
+    }
+
+    const dayLabel = done.today === null ? "complete" : `day ${done.today} of ${DAYS}`;
     const payload = JSON.stringify({
-      title: `FanDuel promo — today's $${STAKE}`,
+      title: `FanDuel promo — ${dayLabel}`,
       body: `${parts.join("  ·  ")}. Each $${STAKE} earns another $${BONUS_FACE}.`,
       tag: "promo-daily",
       renotify: true,
@@ -159,7 +176,7 @@ export async function POST(request: Request) {
 
     if (dry || subscriptions.length === 0) {
       return NextResponse.json({
-        sent: 0, dry, qualifier, bonus, promotionWorth: total,
+        sent: 0, dry, qualifier, bonus, promotionWorth: total, progress: done,
         subscribers: subscriptions.length,
       });
     }
@@ -188,7 +205,7 @@ export async function POST(request: Request) {
     // would burn the day and the reminder would simply never arrive.
     if (sent > 0 && !forced && due !== null) await recordPromoSent(due);
 
-    return NextResponse.json({ sent, date: due, qualifier, bonus, promotionWorth: total });
+    return NextResponse.json({ sent, date: due, progress: done, qualifier, bonus, promotionWorth: total });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return new NextResponse(`Promo dispatch failed: ${message}`, { status: 500 });

@@ -1,5 +1,7 @@
 import type { BoardEdge } from "./board-shop";
 import { expectedRoi } from "./shop";
+import { centralDate } from "./promo-window";
+import type { Bet } from "./settle";
 import type { Candidate } from "./survivor";
 
 /**
@@ -109,6 +111,20 @@ export interface Progress {
  * you forgot is a day that did not count, and a promotion tracker that assumes
  * otherwise would announce completion while the bonus was still unearned.
  */
+export function qualifyingDates(bets: Bet[], book: string, stake: number): string[] {
+  return bets
+    .filter(
+      (bet) =>
+        bet.book === book &&
+        bet.bonus !== true &&
+        // The bonus bets are the $50 side of the same promotion and are not what earns
+        // it; only the qualifying stake counts a day. Matched loosely on size so a $4.95
+        // rounding or a $5.50 does not silently stop counting.
+        Math.abs(bet.stake - stake) <= stake * 0.25,
+    )
+    .map((bet) => centralDate(new Date(bet.placed_at)));
+}
+
 export function progress(loggedDates: string[], required: number): Progress {
   const done = new Set(loggedDates).size;
   return {
@@ -123,11 +139,11 @@ export function progress(loggedDates: string[], required: number): Progress {
  * Cash expected value of the whole promotion.
  *
  * EACH qualifying stake earns its own bonus, so both sides scale with the number of
- * days -- which makes this lopsided rather than marginal. Six $5 bets cost about $1.35
- * in expectation at the usual hold; six $50 bonus bets placed well are worth something
- * near $220. Getting this relationship wrong in the other direction (one bonus for six
- * stakes) would understate the promotion by a factor of six and could make a plainly
- * good deal look like a close call.
+ * days -- which makes this lopsided rather than marginal. Seven $5 bets cost about
+ * $1.60 in expectation at the usual hold; seven $50 bonus bets placed well are worth
+ * something near $340. Getting this relationship wrong in the other direction (one
+ * bonus for seven stakes) would understate the promotion sevenfold and could make a
+ * plainly good deal look like a close call.
  */
 export function promoValue(
   costPerBet: number,
