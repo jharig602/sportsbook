@@ -169,12 +169,36 @@ export default async function SurvivorPage({
   // costs, and without the baseline the page would just obey.
   const rawIndex = Math.max(0, Number(poolParam ?? 0) || 0);
   const viewing = Math.min(rawIndex, pools.length - 1);
-  const pins = parsePins(pinParam);
+  const requestedPins = parsePins(pinParam);
+
+  // A pin can name a team that is not playing that week, or one this entry has already
+  // spent. The planner refuses to substitute in that case and leaves the week empty,
+  // which is right for a library but wrong for a page: what you get back is a season
+  // with a hole in it and no explanation. So they are separated here -- only playable
+  // pins are planned, and the rest are reported as not available.
+  //
+  // Doing this the other way round is how the first version was wrong: an impossible
+  // pin on the opening week fell through to the planner's own pick and the page then
+  // announced the change was "at least as good", which was true only because nothing
+  // had happened.
+  const spentByViewer = new Set(pools[viewing]?.used ?? []);
+  const playableThatWeek = (week: number, team: string) =>
+    !spentByViewer.has(team) &&
+    (weeks.find((w) => w.week === week)?.candidates ?? []).some((c) => c.team === team);
+
+  const pins = new Map<number, string>();
+  const unavailablePins: Array<{ week: number; team: string }> = [];
+  for (const [week, team] of requestedPins) {
+    if (playableThatWeek(week, team)) pins.set(week, team);
+    else unavailablePins.push({ week, team });
+  }
+
   const withPins = pools.map((pool, i) => (i === viewing ? { ...pool, pinned: pins } : pool));
 
   const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, { crowding, popularity });
   const baseline =
     pins.size > 0 ? buildPoolWinPlans(horizonWeeks, pools, { crowding, popularity }) : poolPlans;
+  const hasWhatIf = pins.size > 0 || unavailablePins.length > 0;
   const survivals = poolPlans.map((p) => p.plan.survival).filter((s) => s > 0);
   const multi = {
     pools: poolPlans.map((p) => ({ pool: p.pool, plan: p.plan })),
@@ -223,7 +247,7 @@ export default async function SurvivorPage({
     here.pool.size ?? 1,
   );
   const whatIf =
-    pins.size > 0
+    hasWhatIf
       ? {
           survival: here.odds.survival,
           wasSurvival: beforeOdds.survival,
@@ -236,7 +260,7 @@ export default async function SurvivorPage({
             ([week, team]) =>
               before?.plan.picks.find((p) => p.week === week)?.pick?.team !== team,
           ).length,
-          missing: plan.picks.filter((p) => pins.has(p.week) && !p.pick).length,
+          unavailable: unavailablePins,
         }
       : null;
   const havePopularity = measuredCrowding !== null;
@@ -440,7 +464,9 @@ export default async function SurvivorPage({
         <Card className="mb-3 border-amber-700/40 px-3.5 py-3">
           <div className="flex items-baseline justify-between">
             <h2 className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
-              What if &mdash; {pins.size} week{pins.size === 1 ? "" : "s"} pinned
+              {pins.size > 0
+                ? `What if — ${pins.size} week${pins.size === 1 ? "" : "s"} pinned`
+                : "What if — pin not available"}
             </h2>
             <Link
               href={`/survivor?${new URLSearchParams({
@@ -453,6 +479,7 @@ export default async function SurvivorPage({
             </Link>
           </div>
 
+          {pins.size > 0 ? (
           <div className="tabular mt-2 grid grid-cols-2 gap-2 text-[12px]">
             <div>
               <p className="text-[10px] uppercase tracking-wide text-slate-500">survive</p>
@@ -471,13 +498,18 @@ export default async function SurvivorPage({
               </p>
             </div>
           </div>
+          ) : null}
 
           <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-            {whatIf.missing > 0 ? (
+            {whatIf.unavailable.length > 0 ? (
               <span className="text-rose-300">
-                {whatIf.missing} pinned week{whatIf.missing === 1 ? " has" : "s have"} no
-                legal pick &mdash; that team is not playing, or is already spent. Those
-                weeks are left empty rather than quietly filled with something else.
+                {whatIf.unavailable
+                  .map((u) => `${u.team} in week ${u.week}`)
+                  .join(", ")}{" "}
+                {whatIf.unavailable.length === 1 ? "is" : "are"} not available &mdash; not
+                playing that week, or already spent. That pin was left out rather than
+                quietly replaced, so the figures above do not include it.
+                {pins.size > 0 ? " The others were applied." : ""}
               </span>
             ) : whatIf.moved === 0 ? (
               <>
