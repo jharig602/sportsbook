@@ -152,6 +152,26 @@ jobs:
 
       # Raw response bodies are the only table that grows dangerously against Neon's
       # 0.5 GB free tier. Snapshots, alerts and grades are small and are kept forever.
+      # Survivor reminder, Saturday evening and Sunday morning Central.
+      #
+      # Sent on a schedule rather than on a change, unlike every other alert here,
+      # because this is a deadline you can miss rather than an opportunity that
+      # appears. "Still the Chargers" is the useful message when deciding whether
+      # to look again, and a change-triggered alert cannot say it. The endpoint
+      # decides whether the moment qualifies and sends once per window.
+      - name: Survivor pick reminder
+        continue-on-error: true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo 'survivor reminders not configured'; exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 -X POST \
+            "$APP_URL/api/dispatch-survivor" \
+            -H "Authorization: Bearer $DISPATCH_SECRET"
+
       - name: Prune raw responses older than 30 days
         run: |
           python -c "

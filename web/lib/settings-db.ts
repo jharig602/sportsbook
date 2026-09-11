@@ -167,3 +167,34 @@ export async function setPools(pools: StoredPool[]): Promise<StoredPool[]> {
   );
   return cleaned;
 }
+
+/** Whether a survivor reminder has already gone out for this week and window. */
+export async function survivorSent(week: number, window: string): Promise<boolean> {
+  if (!databaseUrl()) return false;
+  try {
+    const db = await getPool();
+    const result = await db.query(
+      "SELECT 1 FROM survivor_notifications WHERE week = $1 AND send_window = $2",
+      [week, window],
+    );
+    return result.rows.length > 0;
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return false;
+    throw error;
+  }
+}
+
+export async function recordSurvivorSent(
+  week: number,
+  window: string,
+  picks: unknown,
+): Promise<void> {
+  const db = await getPool();
+  await db.query(
+    `INSERT INTO survivor_notifications (week, send_window, picks_json, sent_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (week, send_window) DO UPDATE
+       SET picks_json = EXCLUDED.picks_json, sent_at = NOW()`,
+    [week, window, JSON.stringify(picks)],
+  );
+}

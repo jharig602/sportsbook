@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 9
+ANALYTICS_SCHEMA_VERSION = 10
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -286,6 +286,24 @@ CREATE TABLE IF NOT EXISTS pick_popularity (
     source_win_probability DOUBLE PRECISION,
     observed_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (league, week, team)
+);
+
+CREATE TABLE IF NOT EXISTS survivor_notifications (
+    -- One row per reminder already sent, so a thirty-minute cron does not send
+    -- thirty reminders.
+    --
+    -- Keyed on (week, window) rather than on the pick, because the point is a
+    -- reminder at a time you asked for, not an alert when something changes. A pick
+    -- that has NOT moved still needs saying on Sunday morning -- "still the Chargers"
+    -- is the message. The team is stored so a change between windows is visible.
+    week INTEGER NOT NULL,
+    -- 'saturday' or 'sunday': the two moments worth interrupting for.
+    -- Named send_window, not window: DuckDB reserves the latter for window functions
+    -- and the CREATE fails outright on it.
+    send_window VARCHAR NOT NULL,
+    picks_json VARCHAR NOT NULL,
+    sent_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (week, send_window)
 );
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
