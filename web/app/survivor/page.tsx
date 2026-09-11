@@ -507,9 +507,11 @@ export default async function SurvivorPage({
                   .map((u) => `${u.team} in week ${u.week}`)
                   .join(", ")}{" "}
                 {whatIf.unavailable.length === 1 ? "is" : "are"} not available &mdash; not
-                playing that week, or already spent. That pin was left out rather than
-                quietly replaced, so the figures above do not include it.
-                {pins.size > 0 ? " The others were applied." : ""}
+                playing that week, or already spent. Left out rather than quietly
+                replaced.
+                {pins.size > 0
+                  ? " The other pins were applied, and the figures above are for those alone."
+                  : " Nothing else was pinned, so the plan below is the ordinary one."}
               </span>
             ) : whatIf.moved === 0 ? (
               <>
