@@ -440,3 +440,74 @@ test("a one-life pool is returned untouched", () => {
   const base = buildPlan(weeks);
   assert.equal(refineForLives(weeks, base, 0), base, "same object, no work done");
 });
+
+// --- pinning a week --------------------------------------------------------------
+
+/** Two weeks where both teams play, so the planner has a real ordering decision. */
+function pinnable() {
+  return buildWeeks(
+    [
+      ...slate(0, [["Alpha", "Patsy", -14], ["Bravo", "Filler", -3]]),
+      ...slate(7, [["Alpha", "Filler", -14], ["Bravo", "Patsy", -3]]),
+    ],
+    NFL,
+  );
+}
+
+test("a pinned week gets the pinned team", () => {
+  const plan = buildPlan(pinnable(), 2, new Set(), new Map(), new Map([[1, "Bravo"]]));
+  assert.equal(plan.picks[0].pick?.team, "Bravo");
+});
+
+test("pinning a week re-plans the others around it rather than just swapping one", () => {
+  // The whole point. Alpha is the better team in both weeks, so unpinned the plan takes
+  // Alpha first; pinning Bravo into week 1 must push Alpha into week 2, not leave the
+  // rest of the season untouched or reuse Alpha twice.
+  const weeks = pinnable();
+  const free = buildPlan(weeks, 2);
+  assert.equal(free.picks[0].pick?.team, "Alpha");
+
+  const pinned = buildPlan(weeks, 2, new Set(), new Map(), new Map([[1, "Bravo"]]));
+  assert.deepEqual(
+    pinned.picks.map((p) => p.pick?.team),
+    ["Bravo", "Alpha"],
+  );
+  // And it costs something, or there was nothing to ask about.
+  assert.ok(pinned.survival <= free.survival);
+});
+
+test("a pin naming a team that is not playing leaves the week empty, not substituted", () => {
+  // Quietly planning someone else would answer a question that was not asked, and the
+  // survival number underneath would describe a season nobody chose.
+  const plan = buildPlan(pinnable(), 2, new Set(), new Map(), new Map([[1, "Nobody"]]));
+  assert.equal(plan.picks[0].pick, null);
+});
+
+test("a pin on a team already spent leaves the week empty too", () => {
+  const plan = buildPlan(
+    pinnable(),
+    2,
+    new Set(["Bravo"]),
+    new Map(),
+    new Map([[1, "Bravo"]]),
+  );
+  assert.equal(plan.picks[0].pick, null);
+});
+
+test("refining for a spare life does not move off a pin", () => {
+  // refineForLives improves the plan by swapping weeks. A pinned week is not a choice,
+  // so an improvement that takes it is not an improvement, it is ignoring the question.
+  const weeks = pinnable();
+  const pins = new Map([[1, "Bravo"]]);
+  const base = buildPlan(weeks, 2, new Set(), new Map(), pins);
+  const refined = refineForLives(weeks, base, 1, new Set(), pins);
+  assert.equal(refined.picks[0].pick?.team, "Bravo");
+});
+
+test("with no pins the planner behaves exactly as it did before", () => {
+  const weeks = pinnable();
+  assert.deepEqual(
+    buildPlan(weeks, 2, new Set(), new Map(), new Map()).picks.map((p) => p.pick?.team),
+    buildPlan(weeks, 2).picks.map((p) => p.pick?.team),
+  );
+});

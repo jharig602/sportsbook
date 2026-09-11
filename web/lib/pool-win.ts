@@ -341,9 +341,16 @@ export function rankByPoolWin(
     crowding: number;
     popularity?: Record<string, number>;
     consider?: number;
+    /**
+     * Weeks fixed by hand. Later weeks constrain the re-plan behind every candidate;
+     * a pin on the opening week instead guarantees that team is priced, however far
+     * down the board it sits, so the page can show what choosing it would cost.
+     */
+    pinned?: Map<number, string>;
   },
 ): PoolWinRanking[] {
   const { lossesAllowed, poolSize, crowding } = options;
+  const pinned = options.pinned ?? new Map<number, string>();
   const used = options.used ?? new Set<string>();
   const reserved = options.excludeThisWeek ?? new Set<string>();
   const popularity = options.popularity ?? {};
@@ -365,14 +372,24 @@ export function rankByPoolWin(
   const thisWeek = opener.candidates.filter((c) => !used.has(c.team) && !reserved.has(c.team));
   const rest = planning.slice(1);
 
+  // The shortlist, plus whatever the opening week is pinned to. Without that second
+  // part, pinning a team outside the top few would silently score nothing at all.
+  const openerPin = pinned.get(opener.week);
+  const considered = thisWeek.slice(0, options.consider ?? CONSIDER);
+  if (openerPin !== undefined && !considered.some((c) => c.team === openerPin)) {
+    const extra = thisWeek.find((c) => c.team === openerPin);
+    if (extra) considered.push(extra);
+  }
+
   const out: PoolWinRanking[] = [];
-  for (const candidate of thisWeek.slice(0, options.consider ?? CONSIDER)) {
+  for (const candidate of considered) {
     const excluded = new Set([...used, candidate.team]);
     const tail = refineForLives(
       rest,
-      buildPlan(rest, rest.length, excluded),
+      buildPlan(rest, rest.length, excluded, new Map(), pinned),
       lossesAllowed,
       excluded,
+      pinned,
     );
 
     const best = opener.candidates[0] ?? null;
@@ -515,6 +532,13 @@ export interface PoolEntry {
   used: string[];
   size?: number;
   lossesAllowed?: number;
+  /**
+   * Weeks fixed by hand on this entry, week number to team.
+   *
+   * Per entry rather than global because the two pools hold different teams and are
+   * asking different questions; a pin is a what-if about one of them.
+   */
+  pinned?: Map<number, string>;
 }
 
 /**
@@ -537,6 +561,7 @@ export function buildPoolWinPlans(
   for (const pool of pools) {
     const used = new Set(pool.used);
     const lossesAllowed = pool.lossesAllowed ?? 0;
+    const pinned = pool.pinned ?? new Map<number, string>();
     const ranking = rankByPoolWin(weeks, {
       used,
       excludeThisWeek: reservedThisWeek,
@@ -544,13 +569,24 @@ export function buildPoolWinPlans(
       poolSize: pool.size ?? 1,
       crowding: options.crowding,
       popularity: options.popularity,
+      pinned,
     });
 
-    const top = ranking[0] ?? null;
+    // A pin on the opening week overrides the ranking: you asked for that team, so the
+    // plan is built on it. The ranking is still returned in full, so the page can show
+    // what it cost rather than just obeying.
+    const openerWeek = weeks.find((w) => w.candidates.length > 0)?.week;
+    const openerPin = openerWeek === undefined ? undefined : pinned.get(openerWeek);
+    const top =
+      (openerPin !== undefined
+        ? ranking.find((r) => r.candidate.team === openerPin)
+        : undefined) ??
+      ranking[0] ??
+      null;
     // What surviving alone would have chosen, for the page to show the disagreement.
     const safest = [...ranking].sort((a, b) => b.survival - a.survival)[0] ?? null;
 
-    const crowd = ranking[0]?.plan.greedyPicks ?? [];
+    const crowd = top?.plan.greedyPicks ?? [];
     out.push({
       pool,
       ranking,

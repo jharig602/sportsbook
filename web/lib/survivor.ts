@@ -267,6 +267,20 @@ export function buildPlan(
   excludeTeams: Set<string> = new Set(),
   /** Teams another entry has reserved in a given week, for diversification. */
   excludeByWeek: Map<number, Set<string>> = new Map(),
+  /**
+   * Weeks you have fixed by hand, week number to team.
+   *
+   * A pin is a constraint, not a preference: the solver plans the rest of the season
+   * around it rather than trading it away, which is the whole point of asking what a
+   * particular pick would cost. Pinning a team also reserves it -- the assignment gives
+   * each team to at most one week already, so nothing else can spend it.
+   *
+   * A pin naming a team that is not playing that week, or one already used, leaves the
+   * week with no legal pick. That surfaces as a null pick rather than an error or a
+   * quiet substitution, because silently planning something else would answer a
+   * question you did not ask.
+   */
+  pinned: Map<number, string> = new Map(),
 ): Plan {
   const planning = weeks.slice(0, horizon).filter((w) => w.candidates.length > 0);
   if (planning.length === 0) {
@@ -291,6 +305,9 @@ export function buildPlan(
       // Spent teams and teams another entry has taken this week are not choices.
       if (excludeTeams.has(team)) return UNAVAILABLE;
       if (excludeByWeek.get(planning[weekIndex].week)?.has(team)) return UNAVAILABLE;
+      // A pinned week has exactly one legal column.
+      const pin = pinned.get(planning[weekIndex].week);
+      if (pin !== undefined && team !== pin) return UNAVAILABLE;
       const p = Math.min(0.999, Math.max(0.001, candidate.winProbability));
       return -Math.log(p);
     }),
@@ -489,6 +506,8 @@ export function refineForLives(
   plan: Plan,
   lossesAllowed: number,
   excludeTeams: Set<string> = new Set(),
+  /** Weeks fixed by hand, which the local search must leave alone. */
+  pinned: Map<number, string> = new Map(),
 ): Plan {
   if (lossesAllowed <= 0 || plan.picks.length === 0) return plan;
 
@@ -519,6 +538,8 @@ export function refineForLives(
     let improved = false;
     for (let i = 0; i < current.length; i += 1) {
       const week = plan.picks[i].week;
+      // A pinned week is not a choice, so there is nothing here to improve.
+      if (pinned.has(week)) continue;
       const spent = new Set(
         current.filter((c, j): c is Candidate => c !== null && j !== i).map((c) => c.team),
       );

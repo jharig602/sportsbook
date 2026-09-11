@@ -453,3 +453,88 @@ test("the bigger pool rewards separation more, not less", () => {
   };
   assert.ok(edge(137) > edge(13), `${edge(137)} should exceed ${edge(13)}`);
 });
+
+// --- pinning, through the pool-win layer -------------------------------------------
+
+test("a pinned opening week overrides the ranking rather than being outvoted", () => {
+  const weeks = twoWeeks();
+  const free = buildPoolWinPlans(weeks, [{ name: "A", used: [], size: 137, lossesAllowed: 0 }], {
+    crowding: 0,
+  });
+  assert.equal(free[0].plan.picks[0]?.pick?.team, "Chalk");
+
+  const pinned = buildPoolWinPlans(
+    weeks,
+    [{ name: "A", used: [], size: 137, lossesAllowed: 0, pinned: new Map([[1, "Solid"]]) }],
+    { crowding: 0 },
+  );
+  assert.equal(pinned[0].plan.picks[0]?.pick?.team, "Solid");
+  // The ranking still shows the alternative, so the page can say what it cost.
+  assert.ok(pinned[0].ranking.some((r) => r.candidate.team === "Chalk"));
+});
+
+test("a pinned team outside the shortlist is still priced", () => {
+  // rankByPoolWin only scores the few best teams, because re-planning a season per
+  // candidate is not free. A pin has to escape that cut or pinning a long shot would
+  // silently score nothing and fall back to the planner's own pick.
+  const weeks = twoWeeks();
+  const longShot = weeks[0].candidates[weeks[0].candidates.length - 1].team;
+  const ranked = rankByPoolWin(weeks, {
+    lossesAllowed: 0,
+    poolSize: 13,
+    crowding: 0,
+    consider: 1,
+    pinned: new Map([[1, longShot]]),
+  });
+  assert.ok(
+    ranked.some((r) => r.candidate.team === longShot),
+    `${longShot} should have been priced despite consider: 1`,
+  );
+});
+
+test("a pin on a later week constrains every candidate's re-plan", () => {
+  const weeks = twoWeeks();
+  const ranked = rankByPoolWin(weeks, {
+    lossesAllowed: 0,
+    poolSize: 13,
+    crowding: 0,
+    pinned: new Map([[2, "Solid"]]),
+  });
+  for (const row of ranked) {
+    const weekTwo = row.plan.picks.find((p) => p.week === 2);
+    // Either week 2 is on the pinned team, or it has no legal pick because this
+    // candidate already spent it in week 1. Never a third team.
+    assert.ok(
+      weekTwo?.pick === null || weekTwo?.pick?.team === "Solid",
+      `week 2 was ${weekTwo?.pick?.team}`,
+    );
+  }
+});
+
+test("pins on one entry do not leak into the other", () => {
+  const plans = buildPoolWinPlans(
+    twoWeeks(),
+    [
+      { name: "A", used: [], size: 13, lossesAllowed: 0, pinned: new Map([[1, "Solid"]]) },
+      { name: "B", used: [], size: 13, lossesAllowed: 0 },
+    ],
+    { crowding: 0 },
+  );
+  assert.equal(plans[0].plan.picks[0]?.pick?.team, "Solid");
+  assert.equal(plans[1].plan.picks[0]?.pick?.team, "Chalk");
+});
+
+test("no pins gives byte-for-byte the plan it gave before pinning existed", () => {
+  const weeks = twoWeeks();
+  const pools = [{ name: "A", used: [], size: 13, lossesAllowed: 1 }];
+  const a = buildPoolWinPlans(weeks, pools, { crowding: 0.3 });
+  const b = buildPoolWinPlans(
+    weeks,
+    [{ ...pools[0], pinned: new Map() }],
+    { crowding: 0.3 },
+  );
+  assert.deepEqual(
+    a.map((p) => [p.plan.picks.map((x) => x.pick?.team), p.poolWin]),
+    b.map((p) => [p.plan.picks.map((x) => x.pick?.team), p.poolWin]),
+  );
+});

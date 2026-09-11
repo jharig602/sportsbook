@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { LogPickButton } from "@/components/LogPickButton";
+import { PinPicker } from "@/components/PinPicker";
 import { PoolPicker } from "@/components/PoolPicker";
 import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { allBookLines, type BookLineRow } from "@/lib/book-lines";
@@ -6,6 +8,7 @@ import { getMyBooks, getPools } from "@/lib/settings-db";
 import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
+import { parsePins } from "@/lib/pins";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
@@ -29,10 +32,15 @@ function WeekRow({
   entry,
   first,
   bettable,
+  options,
+  pinned,
 }: {
   entry: Pick;
   first: boolean;
   bettable: BettablePick | null;
+  /** Teams playable this week that this entry has not already spent. */
+  options: Array<{ team: string; winProbability: number }>;
+  pinned: boolean;
 }) {
   const { pick, greedy, sacrifice } = entry;
   if (!pick) return null;
@@ -61,6 +69,13 @@ function WeekRow({
             ) : null}
           </div>
 
+          <PinPicker
+            week={entry.week}
+            options={options}
+            current={pick.team}
+            pinned={pinned}
+          />
+
           {bettable?.eventId && bettable.price !== null && bettable.book ? (
             <LogPickButton
               eventId={bettable.eventId}
@@ -87,9 +102,9 @@ function WeekRow({
 export default async function SurvivorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ weeks?: string; pool?: string }>;
+  searchParams: Promise<{ weeks?: string; pool?: string; pin?: string }>;
 }) {
-  const { weeks: requested, pool: poolParam } = await searchParams;
+  const { weeks: requested, pool: poolParam, pin: pinParam } = await searchParams;
   const data = getData();
   const postgres = data.backend === "postgres";
   const [models, games, board, quotes, myBooks] = await Promise.all([
@@ -147,17 +162,26 @@ export default async function SurvivorPage({
   // and only coincide when the field picks independently. See `pool-win.ts`: at the
   // 27.6% crowding the popularity feed actually reports, planning is worth about a
   // third again as much as the survival number alone can see.
-  const poolPlans = buildPoolWinPlans(horizonWeeks, pools, { crowding, popularity });
+  //
+  // Pins are a what-if on the entry you are looking at, so they attach to that pool
+  // only. The unpinned plan is computed alongside rather than instead: a pinned week is
+  // only worth showing next to what the planner would have done and what the difference
+  // costs, and without the baseline the page would just obey.
+  const rawIndex = Math.max(0, Number(poolParam ?? 0) || 0);
+  const viewing = Math.min(rawIndex, pools.length - 1);
+  const pins = parsePins(pinParam);
+  const withPins = pools.map((pool, i) => (i === viewing ? { ...pool, pinned: pins } : pool));
+
+  const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, { crowding, popularity });
+  const baseline =
+    pins.size > 0 ? buildPoolWinPlans(horizonWeeks, pools, { crowding, popularity }) : poolPlans;
   const survivals = poolPlans.map((p) => p.plan.survival).filter((s) => s > 0);
   const multi = {
     pools: poolPlans.map((p) => ({ pool: p.pool, plan: p.plan })),
     atLeastOne: survivals.length ? 1 - survivals.reduce((acc, s) => acc * (1 - s), 1) : 0,
     single: survivals[0] ?? 0,
   };
-  const poolIndex = Math.min(
-    Math.max(0, Number(poolParam ?? 0) || 0),
-    multi.pools.length - 1,
-  );
+  const poolIndex = Math.min(viewing, multi.pools.length - 1);
   const plan = multi.pools[poolIndex]?.plan ?? multi.pools[0].plan;
   // Named apart from the `entry` prop WeekRow takes, and from the map below.
   const poolEntry = poolPlans[poolIndex] ?? poolPlans[0];
@@ -178,6 +202,43 @@ export default async function SurvivorPage({
   const here = odds[poolIndex] ?? odds[0];
 
   const ranking = poolEntry?.ranking ?? [];
+
+  // What the season is worth with the pins, and what it was worth without them. The
+  // survival figure has to be recomputed from the pinned plan's own weekly numbers --
+  // reusing the unpinned one would show a constraint costing nothing at all.
+  const spentHere = new Set(pools[poolIndex]?.used ?? []);
+  const weekByNumber = new Map(horizonWeeks.map((w) => [w.week, w]));
+  const optionsFor = (week: number) =>
+    (weekByNumber.get(week)?.candidates ?? [])
+      .filter((c) => !spentHere.has(c.team))
+      .map((c) => ({ team: c.team, winProbability: c.winProbability }));
+
+  const before = baseline[poolIndex] ?? baseline[0];
+  const beforeProbs = (before?.plan.picks ?? [])
+    .map((p) => p.pick?.winProbability)
+    .filter((v): v is number => v !== undefined);
+  const beforeOdds = poolOdds(
+    beforeProbs,
+    here.pool.lossesAllowed ?? 0,
+    here.pool.size ?? 1,
+  );
+  const whatIf =
+    pins.size > 0
+      ? {
+          survival: here.odds.survival,
+          wasSurvival: beforeOdds.survival,
+          poolWin: poolEntry?.poolWin ?? 0,
+          wasPoolWin: before?.poolWin ?? 0,
+          // Weeks where the pin actually moved the plan. Pinning the team the planner
+          // already wanted changes nothing, and saying so is more useful than showing
+          // a row of zeroes.
+          moved: [...pins.entries()].filter(
+            ([week, team]) =>
+              before?.plan.picks.find((p) => p.week === week)?.pick?.team !== team,
+          ).length,
+          missing: plan.picks.filter((p) => pins.has(p.week) && !p.pick).length,
+        }
+      : null;
   const havePopularity = measuredCrowding !== null;
 
   // Does this week's pick actually depend on how far ahead we look?
@@ -375,6 +436,77 @@ export default async function SurvivorPage({
         </p>
       </Card>
 
+      {whatIf ? (
+        <Card className="mb-3 border-amber-700/40 px-3.5 py-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+              What if &mdash; {pins.size} week{pins.size === 1 ? "" : "s"} pinned
+            </h2>
+            <Link
+              href={`/survivor?${new URLSearchParams({
+                ...(requested !== undefined ? { weeks: chosen } : {}),
+                ...(poolIndex > 0 ? { pool: String(poolIndex) } : {}),
+              }).toString()}`}
+              className="text-[11px] text-slate-500 underline underline-offset-2"
+            >
+              clear
+            </Link>
+          </div>
+
+          <div className="tabular mt-2 grid grid-cols-2 gap-2 text-[12px]">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">survive</p>
+              <p className="text-slate-200">
+                {percent(whatIf.survival)}{" "}
+                <span className="text-slate-600">was {percent(whatIf.wasSurvival)}</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                win the pool
+              </p>
+              <p className="text-slate-200">
+                {percent(whatIf.poolWin)}{" "}
+                <span className="text-slate-600">was {percent(whatIf.wasPoolWin)}</span>
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+            {whatIf.missing > 0 ? (
+              <span className="text-rose-300">
+                {whatIf.missing} pinned week{whatIf.missing === 1 ? " has" : "s have"} no
+                legal pick &mdash; that team is not playing, or is already spent. Those
+                weeks are left empty rather than quietly filled with something else.
+              </span>
+            ) : whatIf.moved === 0 ? (
+              <>
+                These are the teams the planner already wanted, so nothing changed. That
+                is a real answer: the pick was not finely balanced against the
+                alternatives you tried.
+              </>
+            ) : (
+              <>
+                {whatIf.poolWin >= whatIf.wasPoolWin ? (
+                  <span className="font-medium text-emerald-300">
+                    This is at least as good.
+                  </span>
+                ) : (
+                  <span className="font-medium text-amber-300">
+                    This costs{" "}
+                    {((whatIf.wasPoolWin - whatIf.poolWin) * 100).toFixed(2)} points of
+                    pool win.
+                  </span>
+                )}{" "}
+                The rest of the season is re-planned around the pin, so the figures above
+                are for the whole line, not just the week you changed &mdash; a week you
+                fix early is a team December no longer has.
+              </>
+            )}
+          </p>
+        </Card>
+      ) : null}
+
       <div className="space-y-1.5">
         {plan.picks.map((entry, index) => (
           <WeekRow
@@ -384,6 +516,8 @@ export default async function SurvivorPage({
             bettable={
               entry.pick ? toBettable(entry.pick, board, moneylines, myBooks) : null
             }
+            options={optionsFor(entry.week)}
+            pinned={pins.has(entry.week)}
           />
         ))}
       </div>
