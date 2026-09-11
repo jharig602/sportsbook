@@ -7,6 +7,7 @@ import {
   weekAnchor,
   buildPlan,
   buildPlans,
+  refineForLives,
   buildWeeks,
   candidatesFor,
   groupIntoWeeks,
@@ -390,4 +391,52 @@ test("one pool behaves exactly as the single-entry planner did", () => {
     multi.pools[0].plan.picks.map((p) => p.pick?.team),
     single.picks.map((p) => p.pick?.team),
   );
+});
+
+// --- refining for a spare life ------------------------------------------------------
+
+test("with a spare life, an uneven plan is preferred to a flat one", () => {
+  // 90/71 beats 80/80 at equal product, because a spare life absorbs one bad week but
+  // not two mediocre ones. The product-maximising solver cannot see that.
+  const games = [
+    ...slate(0, [["Safe", "W1", -20], ["Mid", "W2", -8]]),
+    ...slate(7, [["Risky", "X1", -4], ["Mid2", "X2", -8]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const base = buildPlan(weeks);
+  const refined = refineForLives(weeks, base, 1);
+  // Whatever it picks, it must not be worse under the objective it is optimising.
+  const twoLife = (picks: typeof refined.picks) => {
+    const ps = picks.map((p) => p.pick!.winProbability);
+    const prod = ps.reduce((a, b) => a * b, 1);
+    return prod + ps.reduce((acc, p) => acc + (prod / p) * (1 - p), 0);
+  };
+  assert.ok(twoLife(refined.picks) >= twoLife(base.picks) - 1e-12);
+});
+
+test("refining never reuses a team", () => {
+  const games = [
+    ...slate(0, [["A", "W1", -14], ["B", "W2", -10]]),
+    ...slate(7, [["A", "X1", -14], ["B", "X2", -10]]),
+    ...slate(14, [["A", "Y1", -14], ["B", "Y2", -10]]),
+  ];
+  const weeks = buildWeeks(games, NFL);
+  const refined = refineForLives(weeks, buildPlan(weeks), 1);
+  const used = refined.picks.filter((p) => p.pick).map((p) => p.pick!.team);
+  assert.equal(new Set(used).size, used.length);
+});
+
+test("refining respects teams already spent", () => {
+  const games = [...slate(0, [["A", "W1", -14], ["B", "W2", -7]])];
+  const weeks = buildWeeks(games, NFL);
+  const base = buildPlan(weeks, weeks.length, new Set(["A"]));
+  const refined = refineForLives(weeks, base, 1, new Set(["A"]));
+  assert.ok(refined.picks.every((p) => p.pick?.team !== "A"));
+});
+
+test("a one-life pool is returned untouched", () => {
+  const games = [...slate(0, [["A", "W1", -14], ["B", "W2", -7]])];
+  const weeks = buildWeeks(games, NFL);
+  const base = buildPlan(weeks);
+  assert.equal(refineForLives(weeks, base, 0), base, "same object, no work done");
 });

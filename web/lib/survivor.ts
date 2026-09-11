@@ -418,7 +418,11 @@ export function buildPlans(
   const out: PoolPlan[] = [];
 
   for (const pool of pools) {
-    const plan = buildPlan(weeks, horizon, new Set(pool.used), takenThisWeek);
+    const excluded = new Set(pool.used);
+    const base = buildPlan(weeks, horizon, excluded, takenThisWeek);
+    // The assignment maximises the product, which is the one-life objective. When the
+    // pool allows a loss, refine toward the one it actually plays under.
+    const plan = refineForLives(weeks, base, pool.lossesAllowed ?? 0, excluded);
     out.push({ pool, plan });
     // Only the FIRST week is reserved across pools. Beyond that the entries are free
     // to converge again: the point is not to hold two permanently different portfolios
@@ -444,5 +448,96 @@ export function buildPlans(
     atLeastOne,
     all: survivals.length ? all : 0,
     single: survivals[0] ?? 0,
+  };
+}
+
+/**
+ * Refine a plan for a pool that allows more than one loss.
+ *
+ * `buildPlan` maximises the PRODUCT of the weekly probabilities, which is exactly
+ * right when one loss ends you and subtly wrong when it does not. With a spare life
+ * the objective is P(at most `lossesAllowed` losses), and that function rewards an
+ * uneven plan over a flat one of equal product: 90/71 beats 80/80 on two weeks, 97.11%
+ * against 96.00%, because a spare life absorbs one bad week but cannot absorb two
+ * mediocre ones.
+ *
+ * That objective is not linear, so the assignment solver cannot optimise it directly.
+ * Local search from the product-optimal plan instead: try replacing each week's pick
+ * with any other team available that week and unused elsewhere, keep anything better,
+ * repeat until nothing improves. The starting point is already strong and the
+ * neighbourhood is small, so this converges in a handful of passes.
+ *
+ * Honest about its own size: the gain is second-order, usually a few percent of the
+ * survival figure rather than a different plan. It is applied because it is free, not
+ * because it transforms anything.
+ */
+export function refineForLives(
+  weeks: Week[],
+  plan: Plan,
+  lossesAllowed: number,
+  excludeTeams: Set<string> = new Set(),
+): Plan {
+  if (lossesAllowed <= 0 || plan.picks.length === 0) return plan;
+
+  const score = (picks: (Candidate | null)[]): number => {
+    const ps = picks.filter((c): c is Candidate => c !== null).map((c) => c.winProbability);
+    if (ps.length === 0) return 0;
+    // P(at most `lossesAllowed` losses), by the same small DP the odds page uses.
+    let dp = new Array(lossesAllowed + 2).fill(0);
+    dp[0] = 1;
+    for (const p of ps) {
+      const next = new Array(lossesAllowed + 2).fill(0);
+      for (let j = 0; j <= lossesAllowed + 1; j += 1) {
+        if (dp[j] === 0) continue;
+        if (j > lossesAllowed) { next[j] += dp[j]; continue; }
+        next[j] += dp[j] * p;
+        next[j + 1] += dp[j] * (1 - p);
+      }
+      dp = next;
+    }
+    return dp.slice(0, lossesAllowed + 1).reduce((a, b) => a + b, 0);
+  };
+
+  const byWeek = new Map(weeks.map((w) => [w.week, w.candidates]));
+  let current = plan.picks.map((p) => p.pick);
+  let best = score(current);
+
+  for (let pass = 0; pass < 6; pass += 1) {
+    let improved = false;
+    for (let i = 0; i < current.length; i += 1) {
+      const week = plan.picks[i].week;
+      const spent = new Set(
+        current.filter((c, j): c is Candidate => c !== null && j !== i).map((c) => c.team),
+      );
+      for (const candidate of byWeek.get(week) ?? []) {
+        if (spent.has(candidate.team) || excludeTeams.has(candidate.team)) continue;
+        if (candidate.team === current[i]?.team) continue;
+        const trial = [...current];
+        trial[i] = candidate;
+        const value = score(trial);
+        if (value > best + 1e-12) {
+          current = trial;
+          best = value;
+          improved = true;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+
+  const picks: Pick[] = plan.picks.map((entry, i) => {
+    const pick = current[i];
+    const greedy = entry.greedy;
+    return {
+      ...entry,
+      pick,
+      sacrifice: pick && greedy ? greedy.winProbability - pick.winProbability : 0,
+    };
+  });
+
+  return {
+    ...plan,
+    picks,
+    survival: picks.reduce((acc, p) => acc * (p.pick ? p.pick.winProbability : 1), 1),
   };
 }
