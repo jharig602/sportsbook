@@ -2,13 +2,7 @@ import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
 import { databaseStatus, getData } from "@/lib/data";
 import { databaseUrl, databaseUrlSource, isPooled } from "@/lib/env";
-import {
-  formatKickoff,
-  formatLeague,
-  formatLine,
-  formatPrice,
-  formatRelative,
-} from "@/lib/format";
+import { formatDay, formatKickoff, formatLeague, formatLine, formatPrice, formatRelative } from "@/lib/format";
 import type { Game, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -111,11 +105,7 @@ export default async function BoardPage({
 
   const byDay = new Map<string, Game[]>();
   for (const game of games) {
-    const day = new Date(game.commenceTime).toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-    });
+    const day = formatDay(game.commenceTime);
     byDay.set(day, [...(byDay.get(day) ?? []), game]);
   }
 

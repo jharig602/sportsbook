@@ -56,14 +56,48 @@ export function formatLeague(league: string): string {
   return league === "ncaaf" ? "NCAAF" : league.toUpperCase();
 }
 
+/**
+ * The zone every displayed time is rendered in.
+ *
+ * Pinned rather than left to the runtime, because `toLocaleString(undefined, ...)` uses
+ * the SERVER's zone in a server component — and these pages are server-rendered on
+ * Vercel, where that is UTC. Every kickoff was being shown five hours late: Sunday's
+ * noon Central games read as "5:00 PM", which is not a cosmetic error when the survivor
+ * deadline is 10am Central and a game you think you have all afternoon to decide on has
+ * in fact already kicked off.
+ *
+ * Central because that is where these are read, and one fixed zone beats the viewer's
+ * own: a server-rendered page has no access to the viewer's zone anyway, so the
+ * alternative is not "their time" but "whatever machine rendered it".
+ */
+export const DISPLAY_TIME_ZONE = "America/Chicago";
+
 export function formatKickoff(iso: string | null): string {
   if (!iso) return EM_DASH;
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
     weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+  });
+}
+
+/**
+ * The calendar day a kickoff belongs to, for grouping.
+ *
+ * Same fix, and it matters more here: grouping on the server's UTC day files a Saturday
+ * 8pm Central game under Sunday, because 8pm Central is already 01:00 UTC. That is not a
+ * mislabelled heading, it is the game appearing on the wrong day of the board.
+ */
+export function formatDay(iso: string | null): string {
+  if (!iso) return EM_DASH;
+  return new Date(iso).toLocaleDateString("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    weekday: "long",
+    month: "short",
+    day: "numeric",
   });
 }
 
