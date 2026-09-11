@@ -5,7 +5,9 @@ import { buildBoardShop } from "@/lib/board-shop";
 import { getData } from "@/lib/data";
 import { winProbabilityFromSpread } from "@/lib/probability";
 import { bestBonusTarget, bestQualifier, promoValue } from "@/lib/promo";
+import { promoDue, centralDate } from "@/lib/promo-window";
 import { listSubscriptions, recordFailure } from "@/lib/push";
+import { promoSentOn, recordPromoSent } from "@/lib/settings-db";
 import type { Candidate } from "@/lib/survivor";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +62,24 @@ export async function POST(request: Request) {
   if (!publicKey || !privateKey) {
     return new NextResponse("VAPID keys are not configured.", { status: 503 });
   }
-  const dry = new URL(request.url).searchParams.get("dry") === "1";
+  const params = new URL(request.url).searchParams;
+  const dry = params.get("dry") === "1";
+  const forced = params.get("force") === "1";
+
+  // Once a day, decided here rather than by which minute a cron happened to fire.
+  //
+  // The step used to gate on the Central hour being 08 or 09, so it needed a scheduled
+  // run to land in a two-hour slot. Over five days of real runs not one did: GitHub
+  // delivers three to five a day at arbitrary minutes against the ~48 the weekend cron
+  // asks for. The reminder had never once fired on its own.
+  const now = new Date();
+  const due = forced ? centralDate(now) : promoDue(now);
+  if (!dry && due === null) {
+    return NextResponse.json({ sent: 0, reason: "outside the reminder window" });
+  }
+  if (!dry && !forced && (await promoSentOn()) === due) {
+    return NextResponse.json({ sent: 0, reason: "already sent today", date: due });
+  }
 
   try {
     const data = getData();
@@ -165,7 +184,11 @@ export async function POST(request: Request) {
       }),
     );
 
-    return NextResponse.json({ sent, qualifier, bonus, promotionWorth: total });
+    // Stamped only once a device actually took it. Recording the date on a failed send
+    // would burn the day and the reminder would simply never arrive.
+    if (sent > 0 && !forced && due !== null) await recordPromoSent(due);
+
+    return NextResponse.json({ sent, date: due, qualifier, bonus, promotionWorth: total });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return new NextResponse(`Promo dispatch failed: ${message}`, { status: 500 });

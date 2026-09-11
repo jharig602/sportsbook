@@ -167,15 +167,16 @@ jobs:
           if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
             echo 'promo reminders not configured'; exit 0
           fi
-          # 14:00 UTC, the only hour in BOTH the Mon-Thu and Fri-Sun crons. That is
-          # 9am Central in summer and 8am in winter, so the check accepts either --
-          # pinning it to a single Central hour would silently stop firing in November.
-          # An earlier version used Central 11, which is 16:00 UTC and is not in the
-          # Mon-Thu cron at all: it would never have fired on a weekday.
-          hour=$(TZ=America/Chicago date +%H)
-          if [ "$hour" != "08" ] && [ "$hour" != "09" ]; then
-            echo "not the promo window (Central $hour)"; exit 0
-          fi
+          # No hour check here any more, deliberately. This used to require a run to
+          # land in a two-hour Central window, and over five days of real scheduled
+          # runs not one did: the cron asks for five a day midweek and ~48 at a
+          # weekend, and GitHub delivers three to five, at arbitrary minutes. The
+          # reminder had never fired on its own in the whole time it existed.
+          #
+          # The endpoint decides now, and remembers the Central date it last sent on.
+          # Every run offers; the first one inside the day's window takes it. That
+          # stops the reminder depending on WHEN a run happens and lets it depend
+          # only on whether one happened at all.
           curl --fail --silent --show-error --max-time 60 -X POST \
             "$APP_URL/api/dispatch-promo" \
             -H "Authorization: Bearer $DISPATCH_SECRET"

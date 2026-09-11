@@ -38,9 +38,27 @@ export function windowFor(now: Date): SurvivorWindow | null {
   const day = parts.find((p) => p.type === "weekday")?.value;
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? -1);
 
-  // 8pm-11pm Saturday: the Friday report is in and the line has moved on it.
-  if (day === "Sat" && hour >= 20 && hour <= 23) return "saturday";
-  // 7am-9am Sunday: a confirmation, comfortably before a 10am lock.
+  // Deliberately WIDE, and the reason is the scheduler rather than the football.
+  //
+  // These fire from the collect workflow, and GitHub delivers scheduled runs on a
+  // private repo perhaps three to five times a day at arbitrary minutes -- not the ~48
+  // the cron asks for on a weekend. Measured over five days, not one run landed inside
+  // the old two-hour promo window, and these were the same shape. A narrow window does
+  // not mean "remind me at 8pm", it means "remind me only if a run happens to land in
+  // these three hours", which is a coin flip dressed up as a schedule.
+  //
+  // Sending once per window is enforced by `survivorSent`, so widening costs nothing:
+  // the first run inside the range sends, the rest find it already recorded. What the
+  // range has to preserve is the MEANING of each moment, and it does.
+  //
+  // 4pm-11pm Saturday: after the Friday injury report has been priced in. The earlier
+  // start is still comfortably past it.
+  if (day === "Sat" && hour >= 16 && hour <= 23) return "saturday";
+  // 7am-9am Sunday, unchanged. This one cannot be widened the same way: earlier is
+  // before dawn, and a push that wakes you is a push you turn off. So Saturday carries
+  // the load -- which is the right way round anyway, since the module's own reasoning
+  // is that Saturday night is the reminder that decides the pick and Sunday is a
+  // confirmation. Sunday stays best-effort.
   if (day === "Sun" && hour >= 7 && hour <= 9) return "sunday";
   return null;
 }
