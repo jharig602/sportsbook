@@ -13,7 +13,10 @@
  *    the current one, so a constant name means the old entries are immortal -- the
  *    reason the stale copy above survived deploy after deploy.
  */
-const CACHE = "lines-v2";
+// Bumped for the rename: the shell precaches /icon.svg and /manifest.webmanifest,
+// both of which changed. Without a new key the old icon and the old name are served
+// from cache indefinitely, which is exactly the failure the comment above warns about.
+const CACHE = "dissent-v3";
 
 /* Static assets only. Nothing here changes with the odds. */
 const SHELL = ["/offline.html", "/icon.svg", "/manifest.webmanifest"];

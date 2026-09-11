@@ -42,7 +42,7 @@ export async function POST() {
     webpush.setVapidDetails(subject, publicKey, privateKey);
 
     const payload = JSON.stringify({
-      title: "Line Tracker test",
+      title: "Dissent test",
       body: "Notifications are working. Real alerts look like this.",
       tag: "test-notification",
       renotify: true,

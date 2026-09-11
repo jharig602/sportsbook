@@ -1,7 +1,7 @@
 {
-  "name": "Line Tracker",
-  "short_name": "Lines",
-  "description": "NCAAF and NFL line movement, graded against what actually happened.",
+  "name": "Dissent",
+  "short_name": "Dissent",
+  "description": "Finds the one sportsbook that disagrees with the others, and says so only when the gap is real.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b0f16",

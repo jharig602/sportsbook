@@ -1,7 +1,16 @@
-# NCAAF / NFL line-movement tracker
+# Dissent
 
-Collects DraftKings full-game spreads, totals and moneylines from ESPN, detects line
-movement, grades every alert against what actually happened, and learns from the result.
+Finds the one sportsbook that disagrees with the others, and says so only when the gap
+is real.
+
+Collects DraftKings full-game spreads, totals and moneylines from ESPN, shops the same
+games across a dozen more books, prices each quote against the leave-one-out median of
+the rest, and grades every call against what actually happened. Also plans survivor
+entries against a field that does not pick independently.
+
+Named for what it looks for. A book that agrees with the consensus is telling you
+nothing you can bet on; the disagreement is the whole signal, and most days there
+isn't one.
 
 **This does not tell you which bets are +EV, and will not until it has earned the right.**
 See [What this deliberately does not claim](#what-this-deliberately-does-not-claim).

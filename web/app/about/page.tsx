@@ -2,7 +2,7 @@ import { Card, PageHeader } from "@/components/ui";
 import { PushSettings } from "@/components/PushSettings";
 import { StakeSettings } from "@/components/StakeSettings";
 
-export const metadata = { title: "About · Line Tracker" };
+export const metadata = { title: "About · Dissent" };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

@@ -15,10 +15,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Line Tracker",
-  description: "NCAAF and NFL line movement, graded against what actually happened.",
+  title: "Dissent",
+  description:
+    "Finds the one sportsbook that disagrees with the others, and says so only when the gap is real.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Lines" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Dissent" },
 };
 
 export const viewport: Viewport = {

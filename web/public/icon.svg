@@ -1,7 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Line Tracker">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Dissent">
+  <!--
+    Five books quoting the same game. Four agree; one does not, and the one that does
+    not is the entire product — the leave-one-out median is what every price here is
+    measured against, and a bet only exists where a book steps out of line.
+
+    Deliberately not a sparkline: the app stopped being about line movement when those
+    alerts were demoted to not even notify. And deliberately not a ball or a dollar
+    sign, both of which say "gambling app" and nothing else.
+
+    Drawn with flat bars rather than anything finer because this is rendered at 16px in
+    a browser tab more often than at 512. At that size only the offset survives, which
+    is the right thing to survive.
+  -->
   <rect width="512" height="512" rx="96" fill="#0b0f16"/>
-  <polyline points="80,352 176,288 272,320 368,160 432,192"
-            fill="none" stroke="#38bdf8" stroke-width="34"
-            stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="368" cy="160" r="30" fill="#fbbf24"/>
+
+  <!-- The consensus: four quotes agreeing, left-aligned on the same number. -->
+  <g fill="#475569">
+    <rect x="96" y="126" width="232" height="40" rx="20"/>
+    <rect x="96" y="194" width="232" height="40" rx="20"/>
+    <rect x="96" y="330" width="232" height="40" rx="20"/>
+    <rect x="96" y="398" width="232" height="40" rx="20"/>
+  </g>
+
+  <!-- The dissenting book. Offset, longer, and the only thing with colour. -->
+  <rect x="184" y="262" width="232" height="40" rx="20" fill="#38bdf8"/>
 </svg>
