@@ -101,17 +101,42 @@ export interface PoolWinInput {
   poolSize: number;
 }
 
-/** P(one rival survives), given which weeks the crowd's team lost. */
-function rivalSurvival(field: Field, lost: boolean[], lossesAllowed: number): number {
-  // A rival follows the crowd with probability `crowding` and otherwise plays a team
-  // of their own of similar calibre. So their weekly loss chance mixes a certainty
-  // (the crowd lost, and they were on it) with the ordinary one.
-  const perWeek = field.probabilities.map((p, i) => {
-    const lose = field.crowding * (lost[i] ? 1 : 0) + (1 - field.crowding) * (1 - p);
-    return 1 - lose;
-  });
-  const curve = aliveCurve(perWeek, lossesAllowed);
-  return curve.length ? curve[curve.length - 1] : 1;
+/**
+ * P(one rival survives), given which weeks the crowd's team lost.
+ *
+ * This runs once per enumerated branch — hundreds of times per candidate, tens of
+ * thousands per page — so it is written to allocate nothing. The obvious version
+ * (`probabilities.map(...)` into `aliveCurve`) builds a fresh array per week per
+ * branch, and that allocation churn, not the arithmetic, was most of the render time.
+ *
+ * `baseLose[i]` is the part that does not depend on the branch: the chance this rival
+ * loses in week i having NOT followed the crowd. Following adds the crowd's own result.
+ * `dp` is caller-owned scratch, updated backwards so each step reads the previous
+ * week's value before overwriting it.
+ */
+function rivalSurvival(
+  baseLose: Float64Array,
+  crowding: number,
+  lost: boolean[],
+  lossesAllowed: number,
+  dp: Float64Array,
+): number {
+  dp.fill(0);
+  dp[0] = 1;
+  for (let i = 0; i < baseLose.length; i += 1) {
+    const lose = lost[i] ? baseLose[i] + crowding : baseLose[i];
+    const win = 1 - lose;
+    for (let j = lossesAllowed; j >= 0; j -= 1) {
+      const here = dp[j];
+      if (here === 0) continue;
+      // Anything past the allowance is elimination, and simply drops out of the sum.
+      if (j + 1 <= lossesAllowed) dp[j + 1] += here * lose;
+      dp[j] = here * win;
+    }
+  }
+  let total = 0;
+  for (let j = 0; j <= lossesAllowed; j += 1) total += dp[j];
+  return total;
 }
 
 /** Distribution of your own losses across the weeks you are NOT on the crowd's team. */
@@ -196,6 +221,14 @@ export function poolWin(input: PoolWinInput): number {
   let total = 0;
   const lostFlags: boolean[] = new Array(weeks).fill(false);
 
+  // Hoisted out of the branch loop: the crowd-independent half of each week's loss
+  // chance, and one reusable scratch buffer for the survival DP.
+  const baseLose = new Float64Array(weeks);
+  for (let i = 0; i < weeks; i += 1) {
+    baseLose[i] = (1 - field.crowding) * (1 - field.probabilities[i]);
+  }
+  const dp = new Float64Array(lossesAllowed + 2);
+
   // Branches over the weeks you do not share: these move the field, never you.
   const walkSolo = (at: number, weight: number, onDone: (w: number) => void) => {
     if (at === enumerated.length) {
@@ -223,7 +256,7 @@ export function poolWin(input: PoolWinInput): number {
     for (const i of flattened) lostFlags[i] = false;
 
     walkSolo(0, 1, (soloWeight) => {
-      const q = rivalSurvival(field, lostFlags, lossesAllowed);
+      const q = rivalSurvival(baseLose, field.crowding, lostFlags, lossesAllowed, dp);
       total += branch.weight * soloWeight * youSurvive * shareOfPot(rivals, q);
     });
   }
@@ -441,12 +474,18 @@ export function crossoverCrowding(
       poolWin({ ...incumbent, field: at, lossesAllowed, poolSize })
     );
   };
+  // The sign at the low end is fixed, so take it once. Recomputing it inside the loop
+  // costs two more scorings of an eighteen-week season every iteration, which is most
+  // of the page's render time for a number displayed to the nearest percent.
+  const low = Math.sign(gap(0));
+  if (low === 0 || low === Math.sign(gap(1))) return null;
+
   let lo = 0;
   let hi = 1;
-  if (gap(lo) === 0 || Math.sign(gap(lo)) === Math.sign(gap(hi))) return null;
-  for (let i = 0; i < 40; i += 1) {
+  // 2^-16 is far finer than the whole percentage point this is rendered at.
+  for (let i = 0; i < 16; i += 1) {
     const mid = (lo + hi) / 2;
-    if (Math.sign(gap(mid)) === Math.sign(gap(lo))) lo = mid;
+    if (Math.sign(gap(mid)) === low) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
