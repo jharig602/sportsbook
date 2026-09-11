@@ -167,10 +167,14 @@ jobs:
           if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
             echo 'promo reminders not configured'; exit 0
           fi
+          # 14:00 UTC, the only hour in BOTH the Mon-Thu and Fri-Sun crons. That is
+          # 9am Central in summer and 8am in winter, so the check accepts either --
+          # pinning it to a single Central hour would silently stop firing in November.
+          # An earlier version used Central 11, which is 16:00 UTC and is not in the
+          # Mon-Thu cron at all: it would never have fired on a weekday.
           hour=$(TZ=America/Chicago date +%H)
-          minute=$(TZ=America/Chicago date +%M)
-          if [ "$hour" != "11" ] || [ "$minute" -ge 30 ]; then
-            echo "not the promo window (Central $hour:$minute)"; exit 0
+          if [ "$hour" != "08" ] && [ "$hour" != "09" ]; then
+            echo "not the promo window (Central $hour)"; exit 0
           fi
           curl --fail --silent --show-error --max-time 60 -X POST \
             "$APP_URL/api/dispatch-promo" \
