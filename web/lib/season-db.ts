@@ -55,3 +55,28 @@ export async function seasonGames(league = "nfl"): Promise<SeasonGame[]> {
     throw error;
   }
 }
+
+/**
+ * Share of survivor entrants taking each team, for one week.
+ *
+ * Empty when nothing has been collected, which the caller must treat as "no basis for
+ * preferring an unpopular team" rather than "nobody picked anything".
+ */
+export async function pickPopularity(week: number, league = "nfl"): Promise<Record<string, number>> {
+  if (!databaseUrl()) return {};
+  try {
+    const db = await getPool();
+    const result = await db.query(
+      "SELECT team, pick_share FROM pick_popularity WHERE league = $1 AND week = $2",
+      [league, week],
+    );
+    const out: Record<string, number> = {};
+    for (const row of result.rows as { team: string; pick_share: number | string }[]) {
+      out[row.team] = typeof row.pick_share === "string" ? Number(row.pick_share) : row.pick_share;
+    }
+    return out;
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return {};
+    throw error;
+  }
+}

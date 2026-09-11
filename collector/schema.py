@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 8
+ANALYTICS_SCHEMA_VERSION = 9
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -264,6 +264,29 @@ CREATE TABLE IF NOT EXISTS season_games (
 );
 
 CREATE INDEX IF NOT EXISTS season_games_when ON season_games (league, commence_time);
+
+CREATE TABLE IF NOT EXISTS pick_popularity (
+    -- What share of survivor entrants took each team, by week.
+    --
+    -- The missing input for pool strategy. Survival alone says take the biggest
+    -- favourite; a pool pays the LAST entrant standing, so what matters is surviving
+    -- weeks the field does not. That is unanswerable without knowing what the field
+    -- picked, and no amount of odds data substitutes for it.
+    --
+    -- Sourced from survivorgrid.com, which averages Yahoo and ESPN public pools. That
+    -- is a national average: a good proxy for a large pool and a rough one for a pool
+    -- of thirteen people, where a single entrant moves a share by eight points.
+    league VARCHAR NOT NULL,
+    week INTEGER NOT NULL,
+    team VARCHAR NOT NULL,
+    -- Share of entrants picking this team, 0-1.
+    pick_share DOUBLE PRECISION NOT NULL,
+    -- The source's own win probability, kept for comparison against our fitted model
+    -- rather than used. Two independent estimates disagreeing is a finding.
+    source_win_probability DOUBLE PRECISION,
+    observed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (league, week, team)
+);
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint VARCHAR PRIMARY KEY,

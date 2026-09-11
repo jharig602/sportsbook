@@ -7,7 +7,8 @@ import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
-import { seasonGames } from "@/lib/season-db";
+import { pickPopularity, seasonGames } from "@/lib/season-db";
+import { contrarianCall, poolValues } from "@/lib/pool-value";
 import {
   buildPlans,
   buildWeeks,
@@ -104,6 +105,7 @@ export default async function SurvivorPage({
     postgres ? allBookLines() : Promise.resolve(new Map()),
     postgres ? getMyBooks() : Promise.resolve([] as string[]),
   ]);
+  const popularity = postgres ? await pickPopularity(1) : {};
   const pools = postgres
     ? await getPools()
     : [{ name: "Pool A", used: [] as string[], size: 1, lossesAllowed: 0 }];
@@ -155,6 +157,11 @@ export default async function SurvivorPage({
     };
   });
   const here = odds[poolIndex] ?? odds[0];
+
+  // What a pick is worth in a pool of this size, as opposed to how safe it is.
+  const values = poolValues(weeks[0]?.candidates ?? [], popularity, here.pool.size ?? 1);
+  const call = contrarianCall(values);
+  const havePopularity = Object.keys(popularity).length > 0;
 
   // Does this week's pick actually depend on how far ahead we look?
   const stability = horizonStability(weeks, [...HORIZONS, priced], new Set(pools[poolIndex]?.used ?? []));
@@ -354,6 +361,64 @@ export default async function SurvivorPage({
           />
         ))}
       </div>
+
+      {havePopularity && call.best ? (
+        <Card className="mt-3 px-3.5 py-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Against the field ({here.pool.size} entrants)
+          </h2>
+
+          <div className="tabular mt-2 space-y-1 text-[12px]">
+            {values.slice(0, 5).map((row) => (
+              <p key={row.candidate.team} className="flex items-baseline justify-between">
+                <span className="min-w-0 truncate text-slate-300">
+                  {row.candidate.team}
+                  <span className="ml-1.5 text-slate-600">
+                    {percent(row.candidate.winProbability)} win
+                  </span>
+                </span>
+                <span className="shrink-0 pl-2 text-slate-500">
+                  {row.share !== null ? `${(row.share * 100).toFixed(1)}% picked` : ""}
+                  <span className="ml-2 text-slate-300">{percent(row.value)}</span>
+                </span>
+              </p>
+            ))}
+          </div>
+
+          <p className="mt-2.5 text-[12px] leading-relaxed text-slate-400">
+            {call.disagree ? (
+              <>
+                <span className="font-medium text-amber-300">
+                  Going against the field pays here.
+                </span>{" "}
+                {call.best.candidate.team} is worth more than{" "}
+                {call.safest!.candidate.team} despite winning{" "}
+                {percent(call.survivalGivenUp)} less often, because{" "}
+                {((call.safest!.share ?? 0) * 100).toFixed(0)}% of the pool is on{" "}
+                {call.safest!.candidate.team} and would advance alongside you.
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-emerald-300">
+                  The safest pick is also the best one here.
+                </span>{" "}
+                {call.best.candidate.team} is the most popular at{" "}
+                {((call.best.share ?? 0) * 100).toFixed(1)}%, and that is not crowded
+                enough to be worth avoiding &mdash; going contrarian would cost more
+                survival than it trims off the field. Differentiating is a late-season
+                lever, for once one team is on most of the tickets.
+              </>
+            )}
+          </p>
+
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
+            Pick shares are a national average across public Yahoo and ESPN pools.
+            {(here.pool.size ?? 1) >= 50
+              ? " For a pool this size that is a reasonable proxy."
+              : ` For ${here.pool.size} entrants it is a rough guide only: one person here is ${(100 / (here.pool.size ?? 1)).toFixed(0)} points of share, and these specific people need not resemble the country.`}
+          </p>
+        </Card>
+      ) : null}
 
       {alternatives.length > 0 ? (
         <Card className="mt-3 px-3.5 py-3">

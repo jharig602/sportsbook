@@ -42,6 +42,7 @@ SOURCE_HOSTS = {
     "espn": ESPN_HOSTS,
     "cfbd": {"api.collegefootballdata.com"},
     "oddsapi": {ODDS_API_HOST},
+    "survivorgrid": {"www.survivorgrid.com", "survivorgrid.com"},
 }
 # site.api.espn.com sits behind bot management that rejects bare HTTP clients with an
 # empty-body 403 (sports.core.api.espn.com does not). Verified 2026-09-06: the honest
@@ -429,7 +430,13 @@ class HttpClient:
         self.request_budget, self.requests = request_budget, 0
 
     def fetch(self, url: str, source: str, params: dict | None = None,
-              allow_404: bool = False) -> FetchResult | None:
+              allow_404: bool = False, parse_json: bool = True) -> FetchResult | None:
+        """Fetch a URL for `source`, returning parsed JSON by default.
+
+        `parse_json=False` returns the raw bytes instead, for sources that serve HTML.
+        Without it such a source fails as `non_json` and the caller has to go digging
+        in the raw table for a body that was fetched successfully.
+        """
         parts = urlsplit(url)
         allowed = SOURCE_HOSTS.get(source, set())
         if parts.hostname not in allowed or parts.scheme not in {"http", "https"} or parts.username:
@@ -475,6 +482,8 @@ class HttpClient:
             # Autocommit the complete bytes BEFORE attempting JSON/schema parsing.
             self.ctx.store.add_raw(raw)
             if status is not None and 200 <= status < 300:
+                if not parse_json:
+                    return FetchResult(body, raw.response_id, received, status, safe_headers)
                 try:
                     data = json.loads(body)
                 except (ValueError, UnicodeError):

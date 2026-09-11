@@ -119,6 +119,18 @@ jobs:
       # Skipped until APP_URL and ALERT_DISPATCH_SECRET are set, so the workflow is
       # useful before the app is deployed. Never fails the run: a missed notification
       # must not look like a failed collection.
+      # Survivor pick popularity. One page a week from survivorgrid.com, whose
+      # robots.txt disallows nothing. Cheap, and the only input that can tell a
+      # 13-person pool apart from a 137-person one: survival alone says take the
+      # biggest favourite, but a pool pays the last entrant standing.
+      - name: Fetch survivor pick popularity
+        continue-on-error: true
+        run: |
+          python collector/pick_popularity.py --postgres || {
+            code=$?
+            [ $code -eq 3 ] && echo 'no popularity data' || exit $code
+          }
+
       # Line-move alerts are still detected and still graded on the Track Record --
       # that is how we learn whether they predict anything. They just no longer buzz.
       # A channel that fires on every unusual line move is one you mute inside a
