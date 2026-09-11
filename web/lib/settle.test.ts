@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type Bet, decimalOdds, didWin, settle, tally } from "./settle.ts";
+import { activeBets, type Bet, decimalOdds, didWin, settle, tally } from "./settle.ts";
 
 function bet(overrides: Partial<Bet> = {}): Bet {
   return {
@@ -238,4 +238,70 @@ test("a bonus win does not inflate the ROI on cash bets", () => {
   near(totals.profit, 80, "180 from the bonus, -100 on the cash bet");
   assert.equal(totals.stakedSettled, 100);
   near(totals.roi!, -1, "the cash bet lost its whole stake; the bonus is separate");
+});
+
+// --- corrections -------------------------------------------------------------------
+
+function stub(bet_id: string, over: Partial<Bet> = {}): Bet {
+  return {
+    bet_id,
+    placed_at: "2026-09-11T12:00:00Z",
+    league: "nfl",
+    event_id: "e1",
+    home_team: "Home",
+    away_team: "Away",
+    commence_time: "2026-09-13T17:00:00Z",
+    market: "moneyline",
+    side: "away",
+    line: null,
+    price: 360,
+    stake: 50,
+    book: "FanDuel",
+    model_probability: null,
+    market_probability: null,
+    rule_version_id: null,
+    note: null,
+    bonus: false,
+    supersedes: null,
+    ...over,
+  };
+}
+
+test("a corrected bet is replaced by its correction, not counted alongside it", () => {
+  // The failure this guards is silent and doubles the stake: both rows stand, and the
+  // record counts one wager twice.
+  const bets = [stub("new", { supersedes: "old", bonus: true }), stub("old")];
+  const active = activeBets(bets);
+  assert.deepEqual(active.map((b) => b.bet_id), ["new"]);
+  assert.equal(active[0].bonus, true);
+});
+
+test("a chain of corrections leaves only the last one standing", () => {
+  const bets = [
+    stub("c", { supersedes: "b" }),
+    stub("b", { supersedes: "a" }),
+    stub("a"),
+  ];
+  assert.deepEqual(activeBets(bets).map((b) => b.bet_id), ["c"]);
+});
+
+test("a bet that names itself is kept, not vanished", () => {
+  // A correction must never be able to delete a wager outright: the money was staked
+  // whatever the ledger says, so the one outcome to refuse is an empty result.
+  assert.deepEqual(activeBets([stub("x", { supersedes: "x" })]).map((b) => b.bet_id), ["x"]);
+});
+
+test("ordinary bets are untouched and keep their order", () => {
+  const bets = [stub("one"), stub("two"), stub("three")];
+  assert.deepEqual(activeBets(bets).map((b) => b.bet_id), ["one", "two", "three"]);
+});
+
+test("a correction naming an unknown bet still stands on its own", () => {
+  // The API refuses these, but a row already in the table must not disappear from the
+  // record because the thing it points at is missing.
+  assert.deepEqual(activeBets([stub("new", { supersedes: "gone" })]).map((b) => b.bet_id), ["new"]);
+});
+
+test("an empty ledger corrects to an empty ledger", () => {
+  assert.deepEqual(activeBets([]), []);
 });

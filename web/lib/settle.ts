@@ -29,6 +29,16 @@ export interface Bet {
   rule_version_id: string | null;
   note: string | null;
   /**
+   * The bet_id this row corrects, when it is a correction.
+   *
+   * Nothing in this table is ever updated — the verdict is derived from `game_results`
+   * at read time so it cannot drift from the score — which left no way to fix a row
+   * entered wrongly. A correction is therefore a new row pointing at the old one, and
+   * both are kept: what was first written is part of the history even when it was
+   * wrong, and a ledger you can quietly edit is not a ledger.
+   */
+  supersedes: string | null;
+  /**
    * A promotional bet, where the stake is the book's and only the winnings are yours.
    *
    * Settles differently in one direction that matters: a losing bonus bet costs
@@ -168,4 +178,20 @@ export function tally(
       roi: stakedSettled > 0 ? (profit - bonusProfit) / stakedSettled : null,
     },
   };
+}
+
+/**
+ * The bets that still stand, with corrected rows dropped in favour of their corrections.
+ *
+ * Chains fall out for free: if A was corrected by B and B by C, both A and B are named
+ * by a later row and only C survives. A row naming itself is ignored rather than
+ * vanishing — a bet that deletes itself is the one outcome a correction must never
+ * produce, since the money was staked whatever the record says.
+ */
+export function activeBets(bets: Bet[]): Bet[] {
+  const corrected = new Set<string>();
+  for (const bet of bets) {
+    if (bet.supersedes && bet.supersedes !== bet.bet_id) corrected.add(bet.supersedes);
+  }
+  return bets.filter((bet) => !corrected.has(bet.bet_id));
 }

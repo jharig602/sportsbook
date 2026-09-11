@@ -1,11 +1,12 @@
 import { BetForm } from "@/components/BetForm";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { CorrectBet } from "@/components/CorrectBet";
 import { listBets } from "@/lib/bets-db";
 import { getData } from "@/lib/data";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
-import { tally, type Bet, type Score, type Settlement } from "@/lib/settle";
+import { activeBets, tally, type Bet, type Score, type Settlement } from "@/lib/settle";
 import type { League, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -88,7 +89,12 @@ export default async function BetsPage() {
   const scores = new Map<string, Score>(
     results.map((r) => [r.event_id, { home_score: r.home_score, away_score: r.away_score }]),
   );
-  const { rows, totals } = tally(bets, scores);
+  // Corrected rows are replaced by their corrections before anything is counted.
+  // Counting both would book the same wager twice, which is the failure a correction
+  // is supposed to prevent.
+  const standing = activeBets(bets);
+  const corrections = bets.length - standing.length;
+  const { rows, totals } = tally(standing, scores);
 
   // Only games that have not kicked off can be bet.
   const now = Date.now();
@@ -101,6 +107,15 @@ export default async function BetsPage() {
       <PageHeader title="Bets" subtitle="What you actually staked, and how it did" />
 
       {loadError ? <Banner tone="error">{loadError}</Banner> : null}
+
+      {corrections > 0 ? (
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-600">
+          {corrections} earlier {corrections === 1 ? "row has" : "rows have"} been
+          corrected and {corrections === 1 ? "is" : "are"} no longer counted. The
+          originals are kept rather than deleted &mdash; what was first written is part
+          of the history even when it was wrong.
+        </p>
+      ) : null}
 
       {totals.placed > 0 ? (
         <div className="mb-3 grid grid-cols-3 gap-2">
@@ -162,7 +177,10 @@ export default async function BetsPage() {
       ) : (
         <div className="space-y-1.5">
           {rows.map((bet) => (
-            <BetRow key={bet.bet_id} bet={bet} />
+            <div key={bet.bet_id}>
+              <BetRow bet={bet} />
+              <CorrectBet bet={bet} />
+            </div>
           ))}
         </div>
       )}

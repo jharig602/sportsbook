@@ -31,6 +31,7 @@ const COLUMNS = [
   "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
   "commence_time", "market", "side", "line", "price", "stake", "book",
   "model_probability", "market_probability", "rule_version_id", "note", "bonus",
+  "supersedes",
 ];
 
 export async function saveBet(bet: Bet): Promise<void> {

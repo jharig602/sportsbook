@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { saveBet } from "@/lib/bets-db";
+import { listBets, saveBet } from "@/lib/bets-db";
 import type { Bet } from "@/lib/settle";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +51,22 @@ export async function POST(request: Request) {
     problems.push("A spread or moneyline is bet on home or away.");
   }
 
+  // A correction must name a bet that exists. Accepting an unknown id would write a
+  // row that supersedes nothing, leaving BOTH versions standing and the record counting
+  // the wager twice -- the opposite of what was asked for, and silent.
+  let corrects: string | null = null;
+  if (body.supersedes !== undefined && body.supersedes !== null && body.supersedes !== "") {
+    corrects = String(body.supersedes);
+    try {
+      const known = await listBets();
+      const target = known.find((b) => b.bet_id === corrects);
+      if (!target) problems.push("The bet being corrected was not found.");
+      else if (target.supersedes === corrects) problems.push("A bet cannot correct itself.");
+    } catch {
+      problems.push("Could not check the bet being corrected.");
+    }
+  }
+
   if (problems.length > 0) {
     return NextResponse.json({ error: problems.join(" ") }, { status: 400 });
   }
@@ -79,6 +95,7 @@ export async function POST(request: Request) {
     note: (body.note as string) ?? null,
     // A promotional bet: the stake is the book's, so losing it costs nothing.
     bonus: body.bonus === true,
+    supersedes: corrects,
   };
 
   try {
