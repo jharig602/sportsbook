@@ -5,6 +5,7 @@ import { survival } from "./pool-odds.ts";
 import {
   buildPoolWinPlans,
   crowdingFrom,
+  crossoverCrowding,
   poolWin,
   poolWinStability,
   rankByPoolWin,
@@ -282,6 +283,36 @@ test("horizon stability collapses duplicate and oversized horizons", () => {
     crowding: 0,
   });
   assert.equal(stability.length, 1, "2, 2 and 50 all cap to the same two priced weeks");
+});
+
+test("the crossover says how much room a contrarian call actually has", () => {
+  // A margin, not a verdict. The crowding rate is one weekly measurement assumed to
+  // hold all season, so "ahead" without "ahead by how much room" invites a confidence
+  // the input cannot support.
+  const field: Field = { probabilities: [0.8, 0.8], crowding: 0 };
+  const chalk = { mine: [0.8, 0.8], shared: [true, true] };
+  const contrarian = { mine: [0.75, 0.8], shared: [false, true] };
+
+  const crossover = crossoverCrowding(contrarian, chalk, field, 0, 50);
+  assert.ok(crossover !== null, "these two must swap somewhere in [0, 1]");
+  assert.ok(crossover! > 0 && crossover! < 1, `outside the range: ${crossover}`);
+
+  const at = (crowding: number, line: typeof chalk) =>
+    poolWin({ ...line, field: { ...field, crowding }, lossesAllowed: 0, poolSize: 50 });
+  // Below the crossover the chalk wins; above it the contrarian does. That IS the claim.
+  assert.ok(at(crossover! - 0.05, chalk) > at(crossover! - 0.05, contrarian));
+  assert.ok(at(crossover! + 0.05, contrarian) > at(crossover! + 0.05, chalk));
+});
+
+test("a call that does not depend on the crowd reports no crossover", () => {
+  const field: Field = { probabilities: [0.8, 0.8], crowding: 0.3 };
+  const line = { mine: [0.8, 0.8], shared: [true, true] };
+  // A line against itself never swaps, at any crowding rate.
+  assert.equal(crossoverCrowding(line, line, field, 0, 137), null);
+  // Nor does one that is simply better everywhere.
+  const worse = { mine: [0.6, 0.8], shared: [false, true] };
+  const better = { mine: [0.79, 0.8], shared: [false, true] };
+  assert.equal(crossoverCrowding(worse, better, field, 0, 137), null);
 });
 
 test("two entries are never put on the same team in the same week", () => {

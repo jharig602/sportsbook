@@ -84,6 +84,12 @@ export function shareOfPot(rivals: number, q: number): number {
   return (1 - Math.pow(1 - q, rivals + 1)) / ((rivals + 1) * q);
 }
 
+/** One season as this model scores it: your weekly odds, and where you share them. */
+export interface ScoredLine {
+  mine: number[];
+  shared: boolean[];
+}
+
 export interface PoolWinInput {
   /** Your plan's weekly win probabilities. */
   mine: number[];
@@ -260,6 +266,12 @@ export interface PoolWinRanking {
   isCrowdPick: boolean;
   /** The whole season that follows from taking this team now. */
   plan: Plan;
+  /**
+   * The scored line itself, kept so it can be re-scored at a different crowding rate
+   * without re-planning the season. The plan does not depend on crowding — only what
+   * it is worth does — so the sensitivity below is nearly free.
+   */
+  line: ScoredLine;
 }
 
 /**
@@ -353,6 +365,7 @@ export function rankByPoolWin(
       survival: curve.length ? curve[curve.length - 1] : 1,
       share: popularity[candidate.team] ?? null,
       isCrowdPick: candidate.team === (crowdPicks[0]?.team ?? null),
+      line: { mine, shared },
       plan: {
         picks,
         survival: mine.reduce((a, p) => a * p, 1),
@@ -401,6 +414,44 @@ export function poolWinStability(
   return out.sort((a, b) => a.horizon - b.horizon);
 }
 
+/**
+ * The crowding rate at which one pick overtakes another.
+ *
+ * Worth showing because the measured rate is a single weekly number assumed to hold
+ * for the season, and the margin between the top two picks is often thin. "Philadelphia
+ * is ahead" invites a confidence the input does not support; "Philadelphia is ahead
+ * once the field is above 18% on one team, and it is measured at 28%" says how much
+ * room the call actually has.
+ *
+ * Neither plan depends on the crowding rate — only what it is worth does — so both
+ * lines are simply re-scored. Returns null when the order never changes anywhere in
+ * [0, 1], which means the call does not hinge on this number at all.
+ */
+export function crossoverCrowding(
+  challenger: ScoredLine,
+  incumbent: ScoredLine,
+  field: Field,
+  lossesAllowed: number,
+  poolSize: number,
+): number | null {
+  const gap = (crowding: number) => {
+    const at = { ...field, crowding };
+    return (
+      poolWin({ ...challenger, field: at, lossesAllowed, poolSize }) -
+      poolWin({ ...incumbent, field: at, lossesAllowed, poolSize })
+    );
+  };
+  let lo = 0;
+  let hi = 1;
+  if (gap(lo) === 0 || Math.sign(gap(lo)) === Math.sign(gap(hi))) return null;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (Math.sign(gap(mid)) === Math.sign(gap(lo))) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 export interface PoolWinPlan {
   pool: PoolEntry;
   ranking: PoolWinRanking[];
@@ -413,6 +464,11 @@ export interface PoolWinPlan {
    * objectives agree, which is most weeks and is worth saying out loud.
    */
   insteadOf: Candidate | null;
+  /**
+   * How crowded the field has to be for the top pick to beat the safest one. Null when
+   * the order holds across every crowding rate, so the call does not depend on it.
+   */
+  crossover: number | null;
 }
 
 export interface PoolEntry {
@@ -455,9 +511,20 @@ export function buildPoolWinPlans(
     // What surviving alone would have chosen, for the page to show the disagreement.
     const safest = [...ranking].sort((a, b) => b.survival - a.survival)[0] ?? null;
 
+    const crowd = ranking[0]?.plan.greedyPicks ?? [];
     out.push({
       pool,
       ranking,
+      crossover:
+        top && safest && safest.candidate.team !== top.candidate.team
+          ? crossoverCrowding(
+              top.line,
+              safest.line,
+              { probabilities: crowd.map((c) => c?.winProbability ?? 1), crowding: options.crowding },
+              lossesAllowed,
+              pool.size ?? 1,
+            )
+          : null,
       plan: top?.plan ?? {
         picks: [],
         survival: 0,

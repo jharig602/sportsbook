@@ -430,9 +430,19 @@ export default async function SurvivorPage({
                 {ranking[0].candidate.team} takes the pool more often than{" "}
                 {poolEntry.insteadOf.team} despite winning{" "}
                 {percent(poolEntry.insteadOf.winProbability - ranking[0].candidate.winProbability)}{" "}
-                less often. Surviving alongside {((crowding) * 100).toFixed(0)}% of the
+                less often. Surviving alongside {(crowding * 100).toFixed(0)}% of the
                 pool does not decide anything; the weeks they lose and you do not are the
-                weeks you gain the whole field.
+                weeks you gain the whole field.{" "}
+                {poolEntry.crossover !== null ? (
+                  <span className="text-slate-500">
+                    It needs the field above {(poolEntry.crossover * 100).toFixed(0)}% on
+                    one team to be the better play, and{" "}
+                    {(crowding * 100).toFixed(0)}% is measured
+                    {crowding - poolEntry.crossover < 0.05
+                      ? " — close enough that a quiet week would flip it back."
+                      : "."}
+                  </span>
+                ) : null}
               </>
             ) : (
               <>
