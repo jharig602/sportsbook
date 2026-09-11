@@ -90,6 +90,11 @@ export async function POST(request: Request) {
       pool: plan.pool.name,
       team: plan.plan.picks[0]?.pick?.team ?? null,
       probability: plan.plan.picks[0]?.pick?.winProbability ?? null,
+      // Carried into the notification so a deliberately contrarian pick does not read
+      // as a mistake. "Philadelphia 69%" next to "Jacksonville 77%" looks like the
+      // planner got worse; "69%, 3% picked" says what it bought.
+      share: plan.ranking[0]?.share ?? null,
+      contrarian: plan.insteadOf !== null,
     }));
     if (picks.every((p) => p.team === null)) {
       return NextResponse.json({ sent: 0, reason: "no pick available" });
@@ -106,11 +111,13 @@ export async function POST(request: Request) {
     }
 
     const body = picks
-      .map((p) =>
-        p.team
-          ? `${p.pool}: ${p.team}${p.probability ? ` (${(p.probability * 100).toFixed(0)}%)` : ""}`
-          : `${p.pool}: nothing available`,
-      )
+      .map((p) => {
+        if (!p.team) return `${p.pool}: nothing available`;
+        const odds = p.probability ? `${(p.probability * 100).toFixed(0)}%` : "";
+        const share =
+          p.contrarian && p.share !== null ? `, ${(p.share * 100).toFixed(0)}% picked` : "";
+        return `${p.pool}: ${p.team}${odds ? ` (${odds}${share})` : ""}`;
+      })
       .join("  ·  ");
 
     const payload = JSON.stringify({
