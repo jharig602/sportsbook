@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 
 import { getData } from "@/lib/data";
 import { listSubscriptions, recordFailure } from "@/lib/push";
-import { seasonGames } from "@/lib/season-db";
+import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
 import { getPools, recordSurvivorSent, survivorSent } from "@/lib/settings-db";
-import { buildPlans, buildWeeks } from "@/lib/survivor";
+import { buildPoolWinPlans, crowdingFrom } from "@/lib/pool-win";
+import { buildPlan, buildWeeks } from "@/lib/survivor";
 import { windowFor, windowLabel } from "@/lib/survivor-window";
 
 export const dynamic = "force-dynamic";
@@ -63,21 +64,32 @@ export async function POST(request: Request) {
 
   try {
     const data = getData();
-    const [models, games, pools, subscriptions] = await Promise.all([
+    const [models, games, pools, subscriptions, popularity] = await Promise.all([
       data.marginModels(),
       seasonGames("nfl"),
       getPools(),
       listSubscriptions(),
+      currentNflWeek().then(pickPopularity),
     ]);
 
     const weeks = buildWeeks(games, models.nfl ?? null);
     const priced = weeks.filter((w) => w.candidates.length > 0).length;
-    const multi = buildPlans(weeks, pools, priced);
 
-    const picks = multi.pools.map((entry) => ({
-      pool: entry.pool.name,
-      team: entry.plan.picks[0]?.pick?.team ?? null,
-      probability: entry.plan.picks[0]?.pick?.winProbability ?? null,
+    // Ranked on P(take the pool), not P(survive). A pool pays the last entrant
+    // standing, so a pick shared with the field cannot separate you from it — and the
+    // field does share picks. With no popularity collected, `crowdingFrom` returns null
+    // and 0 puts this back on plain survival rather than on a guess about the crowd.
+    const crowdTeam = buildPlan(weeks, priced).greedyPicks[0]?.team ?? null;
+    const crowding = crowdingFrom(popularity, crowdTeam) ?? 0;
+    const poolPlans = buildPoolWinPlans(weeks.slice(0, priced), pools, {
+      crowding,
+      popularity,
+    });
+
+    const picks = poolPlans.map((plan) => ({
+      pool: plan.pool.name,
+      team: plan.plan.picks[0]?.pick?.team ?? null,
+      probability: plan.plan.picks[0]?.pick?.winProbability ?? null,
     }));
     if (picks.every((p) => p.team === null)) {
       return NextResponse.json({ sent: 0, reason: "no pick available" });

@@ -96,6 +96,11 @@ def current_week(database: Database | None, now: datetime) -> int:
     Counted from the first fixture the feed knows about rather than parsed off the
     page, so it agrees with how the planner numbers its weeks. The two must match or
     popularity attaches to the wrong slate.
+
+    The web side reads these rows back through `currentNflWeek` in
+    `web/lib/season-db.ts`, which reimplements this formula against the same column.
+    Change one and the other must change with it: a mismatch does not error, it returns
+    last week's pick shares against this week's teams.
     """
     if database is None:
         return 1

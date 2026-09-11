@@ -82,10 +82,20 @@ export interface PoolOdds {
  *
  * The field is modelled as playing about as well as you do, which is the honest
  * default: survivor entrants overwhelmingly pick the biggest favourite, and so does
- * this planner. That makes the estimate of how many rivals remain a reasonable one and
- * the estimate of how CORRELATED you are with them deliberately absent -- correlation
- * would only make ties more likely, so treating rivals as independent is the
- * optimistic end of the range for you.
+ * this planner. That makes the estimate of how many rivals remain a reasonable one.
+ *
+ * What it does NOT model is how correlated you are with them, and an earlier version of
+ * this comment claimed that was the optimistic end of the range -- that correlation
+ * "would only make ties more likely". That is wrong, and wrong in both directions at
+ * once. Correlation cuts against you when you hold the crowd's ticket (surviving
+ * together decides nothing, and `winChance` above overstates it badly) and for you when
+ * you do not (the weeks the crowd loses, you gain the whole field). Which way it cuts
+ * depends on the picks, so it cannot be signed in advance and cannot be waved off.
+ *
+ * `pool-win.ts` models it properly and is what the survivor page ranks on. What remains
+ * here is the shape of the season -- the alive curve, when the field thins, what a
+ * spare life is worth -- which is unaffected and still what those numbers describe.
+ * `winChance` is kept for that shape, not as the number to act on.
  */
 export function poolOdds(
   probabilities: number[],

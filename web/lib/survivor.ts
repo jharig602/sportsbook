@@ -236,6 +236,16 @@ export interface Plan {
   survival: number;
   /** What picking the biggest favourite each week would have given. */
   greedySurvival: number;
+  /**
+   * The greedy season itself, week by week: the biggest favourite still unspent.
+   *
+   * Exposed because it is the best available model of what everyone else in the pool
+   * is doing, and `pool-win.ts` needs the sequence rather than the summary. Note this
+   * is the LEGAL greedy, respecting the no-reuse rule — unlike `Pick.greedy`, which
+   * answers the different question "who is the best team this week" and may name a
+   * team the greedy season has already spent.
+   */
+  greedyPicks: (Candidate | null)[];
   weeksPlanned: number;
   unplannedWeeks: number;
 }
@@ -260,7 +270,7 @@ export function buildPlan(
 ): Plan {
   const planning = weeks.slice(0, horizon).filter((w) => w.candidates.length > 0);
   if (planning.length === 0) {
-    return { picks: [], survival: 0, greedySurvival: 0, weeksPlanned: 0, unplannedWeeks: 0 };
+    return { picks: [], survival: 0, greedySurvival: 0, greedyPicks: [], weeksPlanned: 0, unplannedWeeks: 0 };
   }
 
   const teams = [...new Set(planning.flatMap((w) => w.candidates.map((c) => c.team)))].sort();
@@ -314,8 +324,10 @@ export function buildPlan(
   // skipping teams already spent. This is what most people actually do.
   const spent = new Set<string>();
   let greedySurvival = 1;
+  const greedyPicks: (Candidate | null)[] = [];
   for (const week of planning) {
     const next = week.candidates.find((c) => !spent.has(c.team));
+    greedyPicks.push(next ?? null);
     if (next) {
       spent.add(next.team);
       greedySurvival *= next.winProbability;
@@ -326,6 +338,7 @@ export function buildPlan(
     picks,
     survival,
     greedySurvival,
+    greedyPicks,
     weeksPlanned: planning.length,
     unplannedWeeks: weeks.length - planning.length,
   };

@@ -7,10 +7,10 @@ import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
-import { pickPopularity, seasonGames } from "@/lib/season-db";
-import { contrarianCall, poolValues } from "@/lib/pool-value";
+import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
+import { buildPoolWinPlans, crowdingFrom } from "@/lib/pool-win";
 import {
-  buildPlans,
+  buildPlan,
   buildWeeks,
   horizonStability,
   type Candidate,
@@ -105,7 +105,9 @@ export default async function SurvivorPage({
     postgres ? allBookLines() : Promise.resolve(new Map()),
     postgres ? getMyBooks() : Promise.resolve([] as string[]),
   ]);
-  const popularity = postgres ? await pickPopularity(1) : {};
+  // The real NFL week, not the planner's index: the collector files pick shares under
+  // the season week, and asking for 1 every week reads September's crowd in November.
+  const popularity = postgres ? await pickPopularity(await currentNflWeek()) : {};
   const pools = postgres
     ? await getPools()
     : [{ name: "Pool A", used: [] as string[], size: 1, lossesAllowed: 0 }];
@@ -134,14 +136,37 @@ export default async function SurvivorPage({
   const chosen = requested === undefined ? "all" : requested;
   const horizon =
     chosen === "all" ? priced : Math.min(priced, Math.max(1, Number(chosen) || priced));
+  // How concentrated the field is, measured rather than assumed. `crowdingFrom` returns
+  // null when the popularity feed has nothing, and null must become 0 rather than a
+  // guess: with no measurement there is no basis for believing the field converges, and
+  // at 0 the pool-win objective collapses back to plain survival. That is the right
+  // behaviour when we do not know, and it is what ran before this model existed.
+  const horizonWeeks = weeks.slice(0, horizon);
+  const crowdTeam = buildPlan(horizonWeeks, horizon).greedyPicks[0]?.team ?? null;
+  const measuredCrowding = crowdingFrom(popularity, crowdTeam);
+  const crowding = measuredCrowding ?? 0;
+
   // Every entry planned at once, so the current week's picks can be kept apart. Two
   // entries on the same team is one bet paid for twice.
-  const multi = buildPlans(weeks, pools, horizon);
+  //
+  // Ranked on P(take the pool) rather than P(survive), which are different objectives
+  // and only coincide when the field picks independently. See `pool-win.ts`: at the
+  // 27.6% crowding the popularity feed actually reports, planning is worth about a
+  // third again as much as the survival number alone can see.
+  const poolPlans = buildPoolWinPlans(horizonWeeks, pools, { crowding, popularity });
+  const survivals = poolPlans.map((p) => p.plan.survival).filter((s) => s > 0);
+  const multi = {
+    pools: poolPlans.map((p) => ({ pool: p.pool, plan: p.plan })),
+    atLeastOne: survivals.length ? 1 - survivals.reduce((acc, s) => acc * (1 - s), 1) : 0,
+    single: survivals[0] ?? 0,
+  };
   const poolIndex = Math.min(
     Math.max(0, Number(poolParam ?? 0) || 0),
     multi.pools.length - 1,
   );
   const plan = multi.pools[poolIndex]?.plan ?? multi.pools[0].plan;
+  // Named apart from the `entry` prop WeekRow takes, and from the map below.
+  const poolEntry = poolPlans[poolIndex] ?? poolPlans[0];
 
   // The odds that actually matter: survival with a spare life, and what surviving is
   // worth against a field of this size.
@@ -158,10 +183,8 @@ export default async function SurvivorPage({
   });
   const here = odds[poolIndex] ?? odds[0];
 
-  // What a pick is worth in a pool of this size, as opposed to how safe it is.
-  const values = poolValues(weeks[0]?.candidates ?? [], popularity, here.pool.size ?? 1);
-  const call = contrarianCall(values);
-  const havePopularity = Object.keys(popularity).length > 0;
+  const ranking = poolEntry?.ranking ?? [];
+  const havePopularity = measuredCrowding !== null;
 
   // Does this week's pick actually depend on how far ahead we look?
   const stability = horizonStability(weeks, [...HORIZONS, priced], new Set(pools[poolIndex]?.used ?? []));
@@ -207,7 +230,7 @@ export default async function SurvivorPage({
         </Card>
         <Card className="px-2 py-2.5 text-center">
           <p className="tabular text-lg font-semibold text-emerald-300">
-            {percent(here.odds.winChance)}
+            {percent(poolEntry?.poolWin ?? here.odds.winChance)}
           </p>
           <p className="text-[10px] uppercase tracking-wide text-slate-500">win the pool</p>
         </Card>
@@ -362,14 +385,14 @@ export default async function SurvivorPage({
         ))}
       </div>
 
-      {havePopularity && call.best ? (
+      {ranking.length > 0 ? (
         <Card className="mt-3 px-3.5 py-3">
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Against the field ({here.pool.size} entrants)
           </h2>
 
           <div className="tabular mt-2 space-y-1 text-[12px]">
-            {values.slice(0, 5).map((row) => (
+            {ranking.slice(0, 5).map((row) => (
               <p key={row.candidate.team} className="flex items-baseline justify-between">
                 <span className="min-w-0 truncate text-slate-300">
                   {row.candidate.team}
@@ -379,43 +402,59 @@ export default async function SurvivorPage({
                 </span>
                 <span className="shrink-0 pl-2 text-slate-500">
                   {row.share !== null ? `${(row.share * 100).toFixed(1)}% picked` : ""}
-                  <span className="ml-2 text-slate-300">{percent(row.value)}</span>
+                  <span className="ml-2 text-slate-300">{percent(row.poolWin)}</span>
                 </span>
               </p>
             ))}
           </div>
 
           <p className="mt-2.5 text-[12px] leading-relaxed text-slate-400">
-            {call.disagree ? (
+            {!havePopularity ? (
+              <>
+                <span className="font-medium text-slate-300">
+                  Ranked on survival, because the field is unmeasured.
+                </span>{" "}
+                Nothing has been collected from the popularity feed this week, so there
+                is no basis for assuming the pool converges on a team &mdash; and with an
+                uncorrelated field, separating from it is worth nothing. This is the
+                safest pick, and that is the honest answer without the data.
+              </>
+            ) : poolEntry?.insteadOf ? (
               <>
                 <span className="font-medium text-amber-300">
                   Going against the field pays here.
                 </span>{" "}
-                {call.best.candidate.team} is worth more than{" "}
-                {call.safest!.candidate.team} despite winning{" "}
-                {percent(call.survivalGivenUp)} less often, because{" "}
-                {((call.safest!.share ?? 0) * 100).toFixed(0)}% of the pool is on{" "}
-                {call.safest!.candidate.team} and would advance alongside you.
+                {ranking[0].candidate.team} takes the pool more often than{" "}
+                {poolEntry.insteadOf.team} despite winning{" "}
+                {percent(poolEntry.insteadOf.winProbability - ranking[0].candidate.winProbability)}{" "}
+                less often. Surviving alongside {((crowding) * 100).toFixed(0)}% of the
+                pool does not decide anything; the weeks they lose and you do not are the
+                weeks you gain the whole field.
               </>
             ) : (
               <>
                 <span className="font-medium text-emerald-300">
                   The safest pick is also the best one here.
                 </span>{" "}
-                {call.best.candidate.team} is the most popular at{" "}
-                {((call.best.share ?? 0) * 100).toFixed(1)}%, and that is not crowded
-                enough to be worth avoiding &mdash; going contrarian would cost more
-                survival than it trims off the field. Differentiating is a late-season
-                lever, for once one team is on most of the tickets.
+                At {(crowding * 100).toFixed(0)}% on one team the field is not crowded
+                enough to be worth avoiding &mdash; separating would cost more survival
+                than it trims off the pool. That flips once one team is on most of the
+                tickets, which is what this card is watching for.
               </>
             )}
           </p>
 
           <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Pick shares are a national average across public Yahoo and ESPN pools.
-            {(here.pool.size ?? 1) >= 50
-              ? " For a pool this size that is a reasonable proxy."
-              : ` For ${here.pool.size} entrants it is a rough guide only: one person here is ${(100 / (here.pool.size ?? 1)).toFixed(0)} points of share, and these specific people need not resemble the country.`}
+            Ranked on P(win the pool) over {plan.weeksPlanned} weeks, not on P(survive):
+            a pool pays the last entrant standing, so a pick shared with the field cannot
+            separate you from it.{" "}
+            {havePopularity
+              ? `Pick shares are a national average across public Yahoo and ESPN pools.${
+                  (here.pool.size ?? 1) >= 50
+                    ? " For a pool this size that is a reasonable proxy."
+                    : ` For ${here.pool.size} entrants it is a rough guide only: one person here is ${(100 / (here.pool.size ?? 1)).toFixed(0)} points of share, and these specific people need not resemble the country.`
+                } The ${(crowding * 100).toFixed(0)}% measured this week is assumed to hold for the rest of the season, which is the weakest part of this: only week one is actually observed.`
+              : ""}
           </p>
         </Card>
       ) : null}

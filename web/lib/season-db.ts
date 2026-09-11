@@ -62,6 +62,39 @@ export async function seasonGames(league = "nfl"): Promise<SeasonGame[]> {
  * Empty when nothing has been collected, which the caller must treat as "no basis for
  * preferring an unpopular team" rather than "nobody picked anything".
  */
+/**
+ * Which NFL week the upcoming slate is, counted from the season opener.
+ *
+ * This MUST agree with `current_week` in `collector/pick_popularity.py`, which files
+ * each week's pick shares under this number — the same formula, from the same column,
+ * for the same reason. If the two drift, `pickPopularity` reads a different week than
+ * the collector wrote and quietly returns last week's shares against this week's teams:
+ * plausible numbers, wrong slate, and nothing anywhere says so.
+ *
+ * Note it is deliberately NOT the planner's week index. The planner numbers from the
+ * next unplayed week, so its week 1 is week 7 of the season in November.
+ */
+export async function currentNflWeek(league = "nfl"): Promise<number> {
+  if (!databaseUrl()) return 1;
+  try {
+    const db = await getPool();
+    // No time filter: the earliest fixture of the SEASON, which does not move.
+    const result = await db.query(
+      "SELECT MIN(commence_time) AS opener FROM season_games WHERE league = $1",
+      [league],
+    );
+    const opener = result.rows[0]?.opener;
+    if (!opener) return 1;
+    const first = opener instanceof Date ? opener : new Date(String(opener));
+    if (Number.isNaN(first.getTime())) return 1;
+    const days = (Date.now() - first.getTime()) / 86400000;
+    return days > 0 ? Math.max(1, Math.floor(days / 7) + 1) : 1;
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return 1;
+    throw error;
+  }
+}
+
 export async function pickPopularity(week: number, league = "nfl"): Promise<Record<string, number>> {
   if (!databaseUrl()) return {};
   try {
