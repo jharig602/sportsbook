@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_SPREAD, parseMaxSpread } from "./blowout";
+import { parseFavourites, serializeFavourites } from "./favourites";
 import { databaseUrl } from "./env";
 import { DEFAULT_POOLS, parsePools, type StoredPool } from "./pools";
 import { parseMyBooks, serializeMyBooks } from "./my-books";
@@ -225,4 +226,37 @@ export async function setMaxSpread(points: number): Promise<number> {
     [MAX_SPREAD_KEY, String(value)],
   );
   return value;
+}
+
+export const FAVOURITES_KEY = "favourite_teams";
+
+/**
+ * Teams you back every week regardless of the board.
+ *
+ * Server-side for the same reason "my books" is: a preference only the browser knows
+ * cannot be consulted when deciding what a notification should say.
+ */
+export async function getFavourites(): Promise<string[]> {
+  if (!databaseUrl()) return [];
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [
+      FAVOURITES_KEY,
+    ]);
+    return parseFavourites(result.rows[0]?.value ?? null);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return [];
+    throw error;
+  }
+}
+
+export async function setFavourites(teams: string[]): Promise<string[]> {
+  const db = await getPool();
+  const value = serializeFavourites(teams);
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [FAVOURITES_KEY, value],
+  );
+  return parseFavourites(value);
 }

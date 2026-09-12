@@ -1,6 +1,8 @@
 import { TeamLogo } from "@/components/TeamLogo";
 import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, Explainer, NotAdvice, PageHeader, Pill, Segmented, Stats } from "@/components/ui";
+import { BackingCard } from "@/components/BackingCard";
+import { FavouriteTeams } from "@/components/FavouriteTeams";
 import { ParlayBuilder } from "@/components/ParlayBuilder";
 import { PromoCard } from "@/components/PromoCard";
 import { DEFAULT_MAX_SPREAD, NO_LIMIT, parseMaxSpread, withoutBlowouts } from "@/lib/blowout";
@@ -12,7 +14,8 @@ import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
 import { Freshness } from "@/components/Freshness";
 import { getData } from "@/lib/data";
 import { formatKickoff, formatLeague, formatLine, formatPrice } from "@/lib/format";
-import { getMyBooks } from "@/lib/settings-db";
+import { getFavourites, getMyBooks } from "@/lib/settings-db";
+import { planBacking } from "@/lib/backing";
 import type { Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -122,7 +125,7 @@ export default async function ShopPage({
 }) {
   const { book: bookFilter, spread: spreadParam } = await searchParams;
   const data = getData();
-  const [games, models, lines, myBooks, promo, freshness] = await Promise.all([
+  const [games, models, lines, myBooks, promo, freshness, favourites] = await Promise.all([
     data.games(),
     data.marginModels(),
     data.backend === "postgres" ? allBookLines() : Promise.resolve(new Map()),
@@ -134,6 +137,7 @@ export default async function ShopPage({
     // that a permanent tab would outlive.
     promoToday().catch(() => null),
     data.freshness(),
+    data.backend === "postgres" ? getFavourites() : Promise.resolve([] as string[]),
   ]);
 
   const shop = buildBoardShop(games, lines, models);
@@ -179,6 +183,15 @@ export default async function ShopPage({
       />
 
       {promo && !promo.progress.complete ? <PromoCard promo={promo} /> : null}
+
+      {favourites.map((team) => (
+        <BackingCard
+          key={team}
+          plan={planBacking(shop.rows, team, { myBooks, maxSpread })}
+        />
+      ))}
+
+      <FavouriteTeams selected={favourites} />
 
       {shop.gamesWithSecondBook === 0 ? (
         <Empty

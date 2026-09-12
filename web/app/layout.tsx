@@ -1,4 +1,7 @@
 import type { Metadata, Viewport } from "next";
+
+import { themeFor } from "@/lib/favourites";
+import { getFavourites } from "@/lib/settings-db";
 import { Inter } from "next/font/google";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -29,10 +32,31 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Read here rather than per page so the accent is consistent everywhere, and tolerant
+  // of a missing database: no favourites simply means the default blue.
+  const theme = themeFor(await getFavourites().catch(() => []));
+
   return (
     <html lang="en" className={inter.variable}>
-      <body className="min-h-dvh font-sans antialiased">
+      {/*
+        One favourite team recolours the accent, and only the accent.
+        Backgrounds and text stay put: a team palette applied to those produces an
+        interface that is on-brand and unreadable, and the numbers here are the whole
+        point of the page. Every colour in `favourites.ts` was picked to sit on the
+        existing dark ground rather than copied from a brand guide, for that reason.
+      */}
+      <body
+        className="min-h-dvh font-sans antialiased"
+        style={
+          theme
+            ? ({
+                "--color-accent": theme.accent,
+                "--color-accent-dim": theme.muted,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
         <AppHeader />
         <main className="mx-auto w-full max-w-3xl px-3 pb-28 pt-3">{children}</main>
         <NavBar />
