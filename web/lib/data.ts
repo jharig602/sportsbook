@@ -161,6 +161,14 @@ SELECT event_id, league, commence_time, home_team, away_team,
        home_team_id, away_team_id, market, side, line, price, observed_at
   FROM ranked WHERE rn = 1`;
 
+/**
+ * The cap is for rendering, not for analysis.
+ *
+ * Worth being explicit because it has already misled once: every rate on the Track
+ * Record is computed from GRADES, which is uncapped, so raising this number does not
+ * add a single game to the sample. It only lengthens the list Movers can show. The
+ * accuracy figures grow when games are PLAYED, and nothing here can hurry that.
+ */
 const ALERTS = `
 SELECT alert_id, created_at, league, event_id, market, side, kind,
        prev_line, new_line, prev_price, new_price, predicted_side,
@@ -168,7 +176,7 @@ SELECT alert_id, created_at, league, event_id, market, side, kind,
        rule_version_id, home_team, away_team, commence_time
   FROM alerts
  WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
- ORDER BY move_strength DESC, created_at DESC LIMIT 500`;
+ ORDER BY move_strength DESC, created_at DESC LIMIT 2000`;
 
 const GRADES = `
 SELECT g.grade_id, g.alert_id, g.graded_at, g.rule_version_id, g.market,
