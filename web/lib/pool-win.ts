@@ -1,3 +1,4 @@
+import { lastStandingWin, prepareField, type PreparedField } from "./last-standing";
 import { aliveCurve } from "./pool-odds";
 import {
   buildPlan,
@@ -75,6 +76,9 @@ export interface Field {
  * inventing one.
  */
 const MAX_SOLO_WEEKS = 14;
+
+/** Seasons for the sensitivity search. A crossover is a threshold, not a level. */
+const CROSSOVER_SEASONS = 3000;
 
 /** E[1/(1+K)] for K ~ Binomial(rivals, q). Closed form; no loop, no sampling. */
 export function shareOfPot(rivals: number, q: number): number {
@@ -367,6 +371,9 @@ export function rankByPoolWin(
   const crowdPicks = reference.greedyPicks;
   const crowdProbs = crowdPicks.map((c) => c?.winProbability ?? 1);
   const field: Field = { probabilities: crowdProbs, crowding };
+  // The crowd's seasons and the rivals' exit distributions inside them do not depend on
+  // which team you take, so they are built once here rather than per candidate.
+  const prepared = prepareField(field, planning.length, lossesAllowed);
 
   const opener = planning[0];
   const thisWeek = opener.candidates.filter((c) => !used.has(c.team) && !reserved.has(c.team));
@@ -411,7 +418,7 @@ export function rankByPoolWin(
     const curve = aliveCurve(mine, lossesAllowed);
     out.push({
       candidate,
-      poolWin: poolWin({ mine, shared, field, lossesAllowed, poolSize }),
+      poolWin: lastStandingWin({ mine, shared }, prepared, poolSize),
       survival: curve.length ? curve[curve.length - 1] : 1,
       share: popularity[candidate.team] ?? null,
       isCrowdPick: candidate.team === (crowdPicks[0]?.team ?? null),
@@ -484,11 +491,16 @@ export function crossoverCrowding(
   lossesAllowed: number,
   poolSize: number,
 ): number | null {
+  // Scored on the same objective as the pick itself, but over far fewer seasons: this
+  // is looking for the crowding rate where a sign flips, not for a level, and a
+  // threshold tolerates noise a headline number would not. Both lines are measured
+  // against the same seasons at each step, so the comparison stays clean.
+  const weeks = challenger.mine.length;
   const gap = (crowding: number) => {
-    const at = { ...field, crowding };
+    const prepared = prepareField({ ...field, crowding }, weeks, lossesAllowed, CROSSOVER_SEASONS);
     return (
-      poolWin({ ...challenger, field: at, lossesAllowed, poolSize }) -
-      poolWin({ ...incumbent, field: at, lossesAllowed, poolSize })
+      lastStandingWin(challenger, prepared, poolSize) -
+      lastStandingWin(incumbent, prepared, poolSize)
     );
   };
   // The sign at the low end is fixed, so take it once. Recomputing it inside the loop

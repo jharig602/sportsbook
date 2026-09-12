@@ -320,7 +320,9 @@ export default async function SurvivorPage({
           <p className="tabular text-lg font-semibold text-emerald-300">
             {percent(poolEntry?.poolWin ?? here.odds.winChance)}
           </p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">win the pool</p>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">
+            last one standing
+          </p>
         </Card>
       </div>
 
@@ -626,9 +628,12 @@ export default async function SurvivorPage({
           </p>
 
           <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Ranked on P(win the pool) over {plan.weeksPlanned} weeks, not on P(survive):
-            a pool pays the last entrant standing, so a pick shared with the field cannot
-            separate you from it.{" "}
+            Ranked on P(you are the last entrant standing) over {plan.weeksPlanned}{" "}
+            weeks &mdash; not on P(survive to the end), which is a different question and
+            a worse one. This pool empties entirely a good share of seasons, and every
+            one of those still has a winner: whoever lasted longest. Scoring survival
+            alone treats going out in week 2 and week 16 as the same result, which they
+            are not.{" "}
             {havePopularity
               ? `Pick shares are a national average across public Yahoo and ESPN pools.${
                   (here.pool.size ?? 1) >= 50
