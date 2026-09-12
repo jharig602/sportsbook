@@ -23,7 +23,7 @@ from typing import Any, Sequence
 
 from calibration import DEFAULT_MIN_SAMPLES, baseline_rates, evaluate, fit, split_walk_forward
 from db import Database, clean_database_url, insert_sql
-from grading import GameResult, grade_alert
+from grading import GameResult, grade_alert, grade_outcome
 from schema import ensure_analytics_schema
 from signals import DEFAULT_CONFIG, Alert, Observation, RuleConfig, detect_all
 
@@ -43,6 +43,15 @@ GRADE_COLUMNS = [
     "move_strength", "line_at_alert", "price_at_alert", "closing_line", "closing_price",
     "line_value_points", "price_value_decimal", "line_value_won", "result_covered",
     "result_push",
+]
+
+#: Columns of ``shop_grades``. Deliberately copies the prediction (fair_probability,
+#: expected_roi) forward from the pick rather than joining for it: a calibration curve is
+#: read BY predicted probability, and joining to a table the model can re-fit underneath
+#: would silently re-bucket history every time the margins were refitted.
+SHOP_GRADE_COLUMNS = [
+    "grade_id", "pick_id", "graded_at", "rule_version_id", "league", "market", "side",
+    "line", "price", "fair_probability", "expected_roi", "result_covered", "result_push",
 ]
 
 
@@ -204,6 +213,56 @@ def grade_stage(database: Database) -> tuple[int, int]:
     return store_grades(database, graded), skipped
 
 
+def load_ungraded_picks(database: Database) -> list[tuple]:
+    """Cross-book edges whose game has not been scored yet.
+
+    Ordered so a partial run is deterministic; nothing depends on it, but a stage that
+    produces a different subset on each attempt is miserable to debug.
+    """
+    return database.fetchall(
+        """SELECT pick_id, event_id, league, market, side, line, price,
+                  fair_probability, expected_roi, rule_version_id
+             FROM shop_picks
+            WHERE pick_id NOT IN (SELECT pick_id FROM shop_grades)
+            ORDER BY observed_at"""
+    )
+
+
+def shop_grade_stage(database: Database) -> tuple[int, int]:
+    """Score every cross-book edge whose game has finished.
+
+    The same ``grade_outcome`` the alerts use, on purpose. Two graders would eventually
+    disagree about what a push is, and the first anyone would know of it is a cover rate
+    that quietly differs between two pages describing the same games.
+    """
+    results = load_results(database)
+    pending = load_ungraded_picks(database)
+    if not results:
+        # Everything is waiting, not nothing. Reporting zero awaiting on a fresh
+        # database is exactly the wrong answer at exactly the moment someone is checking
+        # whether the loop runs at all.
+        return 0, len(pending)
+
+    rows, skipped = [], 0
+    for (pick_id, event_id, league, market, side, line, price,
+         fair_probability, expected_roi, rule_version_id) in pending:
+        result = results.get(event_id)
+        if result is None:
+            skipped += 1
+            continue
+        covered = grade_outcome(market, side, line, result)
+        rows.append([
+            uuid.uuid4().hex, pick_id, datetime.now(UTC), rule_version_id, league,
+            market, side, line, price, fair_probability, expected_roi,
+            covered, covered is None,
+        ])
+
+    if not rows:
+        return 0, skipped
+    database.executemany(insert_sql("shop_grades", SHOP_GRADE_COLUMNS), rows)
+    return len(rows), skipped
+
+
 def calibrate_stage(database: Database, outcome: str = "line_value",
                     min_samples: int = DEFAULT_MIN_SAMPLES,
                     holdout_days: int = 7) -> dict:
@@ -252,6 +311,7 @@ def run(database: Database, league: str | None = None,
     record_active_rule(database, config)
     detected, stored = detect_stage(database, league, config)
     graded, ungradable = grade_stage(database)
+    shop_graded, shop_ungradable = shop_grade_stage(database)
     calibration = calibrate_stage(database)
     database.commit()
     return {
@@ -263,6 +323,8 @@ def run(database: Database, league: str | None = None,
         "alerts_new": stored,
         "grades_written": graded,
         "alerts_awaiting_results": ungradable,
+        "shop_grades_written": shop_graded,
+        "shop_picks_awaiting_results": shop_ungradable,
         "calibration": calibration,
     }
 

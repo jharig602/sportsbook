@@ -262,3 +262,101 @@ def test_full_run_on_an_empty_database_is_harmless(database):
     assert summary["alerts_detected"] == 0
     assert summary["grades_written"] == 0
     assert summary["calibration"]["usable"] is False
+
+
+# --- cross-book edges ------------------------------------------------------------
+#
+# The half of the app that went a whole season ungraded. These prove the loop closes:
+# a pick written down becomes a grade with a verdict, exactly once, and a pick whose
+# game has not finished stays pending rather than being scored as a loss.
+
+def add_pick(database, *, pick_id="p1", event_id="E1", market="spread", side="home",
+             line=-3.5, price=-110, fair=0.56, roi=0.04, rule="r1"):
+    database.execute(
+        """INSERT INTO shop_picks (pick_id, observed_at, league, event_id, commence_time,
+               home_team, away_team, book, market, side, line, price, consensus_line,
+               consensus_probability, fair_probability, break_even, expected_roi,
+               edge_points, books_compared, thin_consensus, rule_version_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        [pick_id, KICKOFF - timedelta(hours=6), "ncaaf", event_id, KICKOFF,
+         "Ohio State Buckeyes", "Ball State Cardinals", "BetMGM", market, side, line,
+         price, -2.5, 0.52, fair, 0.5238, roi, 3.6, 5, False, rule],
+    )
+
+
+def test_shop_pick_is_graded_once_its_game_finishes(database):
+    add_pick(database, line=-3.5, side="home")
+    add_result(database, home_score=30, away_score=20)  # home by 10, covers -3.5
+
+    written, pending = pl.shop_grade_stage(database)
+    assert (written, pending) == (1, 0)
+
+    row = database.fetchall(
+        "SELECT result_covered, result_push, fair_probability FROM shop_grades"
+    )[0]
+    assert row[0] is True
+    assert row[1] is False
+    # The prediction is copied forward, not joined for: a refit must not re-bucket it.
+    assert row[2] == pytest.approx(0.56)
+
+
+def test_a_pick_is_never_graded_twice(database):
+    add_pick(database)
+    add_result(database, home_score=30, away_score=20)
+    assert pl.shop_grade_stage(database)[0] == 1
+    # Second run finds nothing left to do rather than writing a duplicate verdict.
+    assert pl.shop_grade_stage(database) == (0, 0)
+    assert database.fetchall("SELECT COUNT(*) FROM shop_grades")[0][0] == 1
+
+
+def test_an_unfinished_game_leaves_the_pick_pending(database):
+    add_pick(database, event_id="E1")
+    add_pick(database, pick_id="p2", event_id="E2")
+    add_result(database, home_score=30, away_score=20, event_id="E1")
+
+    written, pending = pl.shop_grade_stage(database)
+    assert written == 1
+    # Not scored as a loss, and not silently dropped: still waiting.
+    assert pending == 1
+
+
+def test_before_any_game_settles_everything_is_awaiting(database):
+    add_pick(database)
+    # Zero written and one awaiting -- never "nothing awaiting", which on a fresh
+    # database is the answer that makes a broken loop look finished.
+    assert pl.shop_grade_stage(database) == (0, 1)
+
+
+def test_a_push_is_a_push_and_not_a_loss(database):
+    add_pick(database, line=-10.0, side="home")
+    add_result(database, home_score=30, away_score=20)  # home by exactly 10
+
+    pl.shop_grade_stage(database)
+    covered, push = database.fetchall(
+        "SELECT result_covered, result_push FROM shop_grades"
+    )[0]
+    assert covered is None, "a push must not read as a miss"
+    assert push is True
+
+
+def test_every_market_is_graded_by_the_same_rule_as_alerts(database):
+    # One grader, deliberately. Two would eventually disagree about a push, and the
+    # first sign of it would be two pages reporting different rates for one game.
+    add_pick(database, pick_id="s", market="spread", side="away", line=3.5)
+    add_pick(database, pick_id="t", market="total", side="over", line=45.5)
+    add_pick(database, pick_id="m", market="moneyline", side="home", line=None)
+    add_result(database, home_score=30, away_score=20)  # margin +10, total 50
+
+    assert pl.shop_grade_stage(database)[0] == 3
+    verdicts = dict(database.fetchall("SELECT pick_id, result_covered FROM shop_grades"))
+    assert verdicts["s"] is False, "away +3.5 loses when home wins by 10"
+    assert verdicts["t"] is True, "50 is over 45.5"
+    assert verdicts["m"] is True, "home won"
+
+
+def test_the_run_reports_shop_picks_alongside_alerts(database):
+    add_pick(database)
+    summary = pl.run(database)
+    assert "shop_grades_written" in summary
+    assert "shop_picks_awaiting_results" in summary
+    assert summary["shop_picks_awaiting_results"] == 1

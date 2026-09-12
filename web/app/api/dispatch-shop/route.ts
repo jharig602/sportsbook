@@ -6,6 +6,7 @@ import { getData } from "@/lib/data";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { getMyBooks, notifiedOffers, recordNotified } from "@/lib/settings-db";
 import { selectAlerts, shopNotification } from "@/lib/shop-alerts";
+import { activeRuleVersion, recordShopPicks } from "@/lib/shop-picks";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,12 @@ export const dynamic = "force-dynamic";
  * showing a row on a page: a page is read when you choose to read it, a notification
  * interrupts. Every offer already sent is recorded, so the same one never buzzes
  * twice and only a materially better version of it buzzes again.
+ *
+ * It is also where every positive edge is written down as a falsifiable prediction,
+ * because this is the only place the real board is computed on a schedule rather than
+ * when somebody opens a page. Recording runs BEFORE any notification concern and does
+ * not depend on one: the measurement must not switch itself off because the push keys
+ * are missing, which is how the cross-book rule went a whole season ungraded.
  */
 function normaliseSecret(raw: string | undefined | null): string | null {
   if (!raw) return null;
@@ -47,26 +54,46 @@ export async function POST(request: Request) {
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT ?? "mailto:alerts@example.com";
-  if (!publicKey || !privateKey) {
-    return new NextResponse("VAPID keys are not configured.", { status: 503 });
-  }
 
   try {
     const data = getData();
-    const [games, models, lines, myBooks, alreadySent, subscriptions] = await Promise.all([
-      data.games(),
-      data.marginModels(),
-      allBookLines(),
-      getMyBooks(),
-      notifiedOffers(),
-      listSubscriptions(),
-    ]);
+    const [games, models, lines, myBooks, alreadySent, subscriptions, ruleVersion] =
+      await Promise.all([
+        data.games(),
+        data.marginModels(),
+        allBookLines(),
+        getMyBooks(),
+        notifiedOffers(),
+        listSubscriptions(),
+        activeRuleVersion(),
+      ]);
 
     const shop = buildBoardShop(games, lines, models);
+
+    // Every row the rule calls profitable, not just the ones loud enough to notify.
+    // The notification bar measures the notification bar; this measures the rule.
+    const recorded = ruleVersion
+      ? await recordShopPicks(shop.positive, ruleVersion).catch(() => null)
+      : null;
+
+    // Only now does anything depend on push being configured.
+    if (!publicKey || !privateKey) {
+      return NextResponse.json(
+        { sent: 0, recorded: recorded?.written ?? 0, note: "VAPID keys are not configured." },
+        { status: 200 },
+      );
+    }
+
     const picked = selectAlerts(shop.rows, myBooks, alreadySent);
 
     if (picked.length === 0) {
-      return NextResponse.json({ sent: 0, candidates: 0, books: myBooks.length });
+      return NextResponse.json({
+        sent: 0,
+        candidates: 0,
+        books: myBooks.length,
+        recorded: recorded?.written ?? 0,
+        positive: shop.positive.length,
+      });
     }
 
     // Nothing is recorded as notified when there is nobody to notify: the offer is
@@ -77,6 +104,7 @@ export async function POST(request: Request) {
         sent: 0,
         candidates: picked.length,
         subscribers: 0,
+        recorded: recorded?.written ?? 0,
         note: "nothing recorded as sent; these will notify once a device subscribes",
       });
     }
