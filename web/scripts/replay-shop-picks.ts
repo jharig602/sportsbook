@@ -41,8 +41,9 @@ if (!url) {
   process.exit(2);
 }
 
-const { Pool } = await import("pg");
-const db = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false }, max: 3 });
+// Opened inside main() rather than at module scope: this file is loaded as CommonJS
+// (the package is not ESM), so a top-level await would not compile.
+let db: any = null;
 
 async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
   const result = await db.query(sql, params);
@@ -106,6 +107,9 @@ SELECT DISTINCT ON (b.event_id, b.book, b.market, b.side)
 const MODELS = `SELECT league, games, mean, sd, lo, hi, pmf_json, buckets_json FROM margin_models`;
 
 async function main(): Promise<number> {
+  const { Pool } = await import("pg");
+  db = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false }, max: 3 });
+
   const ruleRows = await query<{ rule_version_id: string }>(
     "SELECT rule_version_id FROM active_rule WHERE id = 1",
   );
@@ -181,9 +185,12 @@ async function main(): Promise<number> {
   return written > 0 ? 0 : 3;
 }
 
-const code = await main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  return 2;
-});
-await db.end();
-process.exit(code);
+main()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 2;
+  })
+  .then(async (code) => {
+    if (db) await db.end().catch(() => {});
+    process.exit(code);
+  });
