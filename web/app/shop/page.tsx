@@ -1,6 +1,7 @@
 import { TeamLogo } from "@/components/TeamLogo";
 import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, Explainer, NotAdvice, PageHeader, Pill, Segmented, Stats } from "@/components/ui";
+import { ParlayBuilder } from "@/components/ParlayBuilder";
 import { PromoCard } from "@/components/PromoCard";
 import { allBookLines } from "@/lib/book-lines";
 import { bookLink } from "@/lib/book-links";
@@ -216,6 +217,8 @@ export default async function ShopPage({
               </p>
             </Card>
           ) : null}
+
+          <ParlayBuilder rows={visible} />
 
           <div className="space-y-1.5">
             {visible.slice(0, 40).map((row) => (
