@@ -15,7 +15,9 @@ import {
   decimalOdds,
   didWin,
   groupParlays,
+  heldInstead,
   settle,
+  settleOnScore,
   settleParlay,
   tally,
 } from "./settle.ts";
@@ -442,4 +444,119 @@ test("grouping keeps ledger order and does not merge different tickets", () => {
     grouped.map((g) => (g.kind === "parlay" ? `${g.id}:${g.legs.length}` : "single")),
     ["A:2", "B:1", "single"],
   );
+});
+
+/* --- cashing out ------------------------------------------------------------------
+ *
+ * The one stored verdict in the ledger, and therefore the one that can disagree with
+ * the score sitting next to it. These tests exist to keep that disagreement deliberate.
+ */
+
+test("a cashed ticket pays the agreed price, whatever the score did", () => {
+  const cashed = bet({ market: "moneyline", side: "away", price: 920, stake: 50, bonus: true, cashout: 193.98 });
+  // The bet went on to lose outright; the cash-out stands.
+  const lost = settle(cashed, { home_score: 30, away_score: 10 });
+  assert.equal(lost.outcome, "cashed");
+  assert.equal(lost.profit, 193.98);
+  // And it would have won; still stands.
+  const won = settle(cashed, { home_score: 10, away_score: 30 });
+  assert.equal(won.outcome, "cashed");
+  assert.equal(won.profit, 193.98);
+});
+
+test("a cashed ticket settles before its game finishes", () => {
+  // The whole point: the money is decided, the game is not. Falling through to "open"
+  // would leave settled cash outside the totals until an unrelated event ended.
+  const result = settle(bet({ bonus: true, cashout: 193.98 }), undefined);
+  assert.equal(result.outcome, "cashed");
+  assert.equal(result.profit, 193.98);
+});
+
+test("the bonus asymmetry carries over from a win", () => {
+  // Bonus: the stake was never yours, so the whole cash-out is profit.
+  assert.equal(settle(bet({ stake: 50, bonus: true, cashout: 193.98 }), undefined).profit, 193.98);
+  // Ordinary: the stake comes back inside that figure, so only the rest is profit.
+  assert.equal(settle(bet({ stake: 50, bonus: false, cashout: 193.98 }), undefined).profit, 143.98);
+});
+
+test("cashing out below the stake books a loss, not a win", () => {
+  // Cutting a loss is a legitimate cash-out and must not read as profit.
+  const result = settle(bet({ stake: 100, bonus: false, cashout: 40 }), undefined);
+  assert.equal(result.outcome, "cashed");
+  assert.equal(result.profit, -60);
+  assert.equal(result.returned, 40);
+});
+
+test("zero is a cash-out, not an absent one", () => {
+  // `cashout: 0` must not be swallowed by a falsy check and graded against the score.
+  const result = settle(bet({ stake: 20, bonus: false, cashout: 0 }), { home_score: 40, away_score: 0 });
+  assert.equal(result.outcome, "cashed");
+  assert.equal(result.profit, -20);
+});
+
+test("an uncashed bet is untouched by any of this", () => {
+  const plain = bet({ market: "moneyline", side: "home", price: -150, stake: 30 });
+  assert.deepEqual(settle(plain, { home_score: 21, away_score: 17 }), settleOnScore(plain, { home_score: 21, away_score: 17 }));
+  assert.equal(settle(plain, { home_score: 21, away_score: 17 }).outcome, "won");
+});
+
+test("the counterfactual says what holding would have paid", () => {
+  const cashed = bet({ market: "moneyline", side: "away", price: 920, stake: 50, bonus: true, cashout: 193.98 });
+  const scores = new Map([["E1", { home_score: 10, away_score: 30 }]]);
+  // Held, it wins: 50 * 9.2. Compared with a tolerance because that product lands at
+  // 459.99999999999994 in binary floating point, as every +920 winner in this ledger
+  // always has.
+  assert.ok(Math.abs(heldInstead(cashed, scores)! - 460) < 1e-9);
+  // Held, it loses: a bonus bet costs nothing.
+  assert.equal(heldInstead(cashed, new Map([["E1", { home_score: 30, away_score: 10 }]])), 0);
+});
+
+test("an ungraded counterfactual is null, never zero", () => {
+  // Zero would read as "holding would have paid nothing", which is the most flattering
+  // possible answer for the decision to cash out, and it would be made up.
+  const cashed = bet({ bonus: true, cashout: 193.98 });
+  assert.equal(heldInstead(cashed, new Map()), null);
+  // And a bet nobody cashed has no counterfactual at all -- the result IS the result.
+  assert.equal(heldInstead(bet(), new Map([["E1", { home_score: 1, away_score: 0 }]])), null);
+});
+
+test("the tally separates cashed tickets from won and lost", () => {
+  const scores = new Map([["E1", { home_score: 10, away_score: 30 }]]);
+  const { totals } = tally(
+    [bet({ market: "moneyline", side: "away", price: 920, stake: 50, bonus: true, cashout: 193.98 })],
+    scores,
+  );
+  assert.equal(totals.cashed, 1);
+  assert.equal(totals.won, 0, "a cash-out is not a win");
+  assert.equal(totals.lost, 0, "nor a loss");
+  assert.equal(totals.settled, 1, "but it is settled");
+  assert.equal(totals.cashedGraded, 1);
+  assert.equal(totals.cashedTaken, 193.98);
+  assert.ok(
+    Math.abs(totals.cashedHeld! - 460) < 1e-9,
+    "holding would have paid more, and it should say so",
+  );
+  assert.equal(totals.profit, 193.98, "the ledger books what was actually received");
+});
+
+test("an ungraded cash-out counts its money but not its verdict", () => {
+  const { totals } = tally([bet({ bonus: true, cashout: 193.98 })], new Map());
+  assert.equal(totals.cashed, 1);
+  assert.equal(totals.profit, 193.98);
+  assert.equal(totals.cashedGraded, 0);
+  assert.equal(totals.cashedHeld, null, "no score yet, so no comparison to draw");
+});
+
+test("a cashed parlay is one ticket, not one per leg", () => {
+  // The figure sits on every leg so any leg can be read for it. Counting it per leg
+  // would report a three-leg ticket as three cash-outs worth the full amount each.
+  const legs = [
+    bet({ bet_id: "p1", event_id: "E1", parlay_id: "P", parlay_price: 600, stake: 20, cashout: 75 }),
+    bet({ bet_id: "p2", event_id: "E2", parlay_id: "P", parlay_price: 600, stake: 20, cashout: 75 }),
+  ];
+  const { rows, totals } = tally(legs, new Map());
+  assert.equal(rows.length, 1);
+  assert.equal(totals.cashed, 1);
+  assert.equal(totals.profit, 55, "cash received less the one stake");
+  assert.equal(totals.staked, 20, "not 40");
 });

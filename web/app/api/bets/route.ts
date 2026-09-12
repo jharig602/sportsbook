@@ -114,7 +114,26 @@ export async function POST(request: Request) {
 
   const voiding = body.voided === true;
 
-  const problems: string[] = [];
+  /**
+   * Cash-out: the ticket was sold back before the whistle.
+   *
+   * Arrives as a correction, which is exactly what it is -- the original row records
+   * what was struck and stays; this one records that it ended early and at what price.
+   * A cash-out below the stake is legitimate (cutting a loss), so the only bar is that
+   * it is a real, non-negative number.
+   */
+  let cashout: number | null = null;
+  const cashoutProblems: string[] = [];
+  if (body.cashout !== undefined && body.cashout !== null && body.cashout !== "") {
+    const amount = Number(body.cashout);
+    if (!Number.isFinite(amount) || amount < 0) {
+      cashoutProblems.push("A cash-out must be a number of dollars, and not negative.");
+    } else {
+      cashout = amount;
+    }
+  }
+
+  const problems: string[] = [...cashoutProblems];
   const market = String(body.market ?? "");
   const side = String(body.side ?? "");
   const price = Number(body.price);
@@ -213,6 +232,7 @@ export async function POST(request: Request) {
     bonus: body.bonus === true,
     supersedes: corrects,
     voided: voiding,
+    cashout,
   };
 
   try {

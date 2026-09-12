@@ -159,6 +159,14 @@ wait for it, then push the web change.
 - A **parlay** is one row per leg sharing `parlay_id`, written in a transaction, with
   `parlay_price` stored rather than derived (books round the product down). `tally`
   counts one row per *ticket*; counting legs reads a 3-leg $5 bet as $15 risked.
+- A **cash-out** is the one stored verdict in the schema (`cashout`, v15). It has to be:
+  the ticket was sold back at a negotiated price and the final score stops deciding
+  anything. A $50 bonus moneyline at +920 cashed for $193.98 grades as +$460 or $0 if
+  left derived — both wrong, and indistinguishable from right. Same bonus asymmetry as a
+  win: bonus means the whole figure is profit, otherwise `cashout - stake`. On a parlay
+  it sits on every leg and is counted once. The score is **still graded underneath**
+  (`heldInstead`) so the page can report what holding would have paid — one cash-out
+  says nothing, twenty say whether the decision is any good.
 
 ---
 

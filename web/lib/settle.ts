@@ -6,6 +6,8 @@
  * itself, and there is no stored verdict that can drift out of step with the score it
  * came from.
  *
+ * The single exception is a cash-out, which is stored. See `Bet.cashout`.
+ *
  * Mirrors collector/grading.py so the two cannot disagree about what a push is.
  */
 import type { Market, Side } from "./types";
@@ -67,6 +69,29 @@ export interface Bet {
    * the whole point of a bonus bet is to take long odds.
    */
   bonus?: boolean;
+  /**
+   * Cash paid to end this ticket early, when it was sold back before the final whistle.
+   *
+   * The one stored verdict in the whole ledger, and it is stored because it genuinely
+   * cannot be derived: the price was negotiated with the book at a moment in the game,
+   * and the final score stops deciding anything once it is taken. A $50 bonus moneyline
+   * at +920 cashed for $193.98 grades as +$460 or $0 if left to the score -- both wrong,
+   * and wrong in the way that matters here, because $460 looks exactly as plausible in a
+   * ledger as $193.98 does.
+   *
+   * The amount is the CASH RECEIVED, on the same convention as `returned`: for an
+   * ordinary bet that includes the stake coming back, so the profit is `cashout - stake`;
+   * for a bonus bet the stake was never yours, so the whole thing is profit. Identical
+   * asymmetry to a win, and for the identical reason.
+   *
+   * On a parlay it belongs to the TICKET, so every leg carries the same figure and
+   * anything summing money counts it once.
+   *
+   * The score is still graded underneath — see `heldInstead`. One cash-out says nothing
+   * about whether cashing out was right; twenty of them, against what holding would have
+   * paid, is a measurement.
+   */
+  cashout?: number | null;
 }
 
 export interface Score {
@@ -74,7 +99,7 @@ export interface Score {
   away_score: number;
 }
 
-export type Outcome = "won" | "lost" | "push" | "open";
+export type Outcome = "won" | "lost" | "push" | "open" | "cashed";
 
 export interface Settlement {
   outcome: Outcome;
@@ -117,7 +142,35 @@ export function didWin(bet: Bet, score: Score): boolean | null {
   return null;
 }
 
+/**
+ * What the ticket paid, cash-out included.
+ *
+ * The cash-out is checked BEFORE the missing-score guard, on purpose: a bet sold back
+ * at half time is finished, and the game it was on may not be. Falling through to
+ * "open" would leave settled money sitting outside the ledger's totals until some
+ * unrelated event finished.
+ */
 export function settle(bet: Bet, score: Score | undefined): Settlement {
+  if (bet.cashout !== undefined && bet.cashout !== null) {
+    return {
+      outcome: "cashed",
+      // Same asymmetry as a win: a bonus stake was never yours, so none of it comes
+      // back and all of the cash is profit.
+      profit: bet.bonus ? bet.cashout : bet.cashout - bet.stake,
+      returned: bet.cashout,
+    };
+  }
+  return settleOnScore(bet, score);
+}
+
+/**
+ * What the ticket would have paid on its original terms, ignoring any cash-out.
+ *
+ * Used for the counterfactual. Cashing out always feels right afterwards when the bet
+ * would have lost and always feels wrong when it would have won, which is precisely why
+ * the question needs a number rather than a memory.
+ */
+export function settleOnScore(bet: Bet, score: Score | undefined): Settlement {
   if (!score) return { outcome: "open", profit: 0, returned: 0 };
 
   const won = didWin(bet, score);
@@ -141,6 +194,18 @@ export function settle(bet: Bet, score: Score | undefined): Settlement {
   return { outcome: "lost", profit: bet.bonus ? 0 : -bet.stake, returned: 0 };
 }
 
+/** A settled ticket, plus what it would have paid had it run to the whistle. */
+export type GradedRow = Bet &
+  Settlement & {
+    /**
+     * Profit the original terms would have produced. Set only on a cashed ticket, and
+     * only once its game is final — null everywhere else, because on a ticket that was
+     * never cashed the counterfactual IS the result and repeating it would invite
+     * something to double-count.
+     */
+    heldProfit: number | null;
+  };
+
 export interface Tally {
   placed: number;
   settled: number;
@@ -148,6 +213,20 @@ export interface Tally {
   lost: number;
   push: number;
   open: number;
+  /** Tickets sold back before the final whistle. Neither won nor lost. */
+  cashed: number;
+  /** Of those, how many have a final score, and so a counterfactual worth reading. */
+  cashedGraded: number;
+  /** Profit actually booked from the cashed tickets that are now gradeable. */
+  cashedTaken: number;
+  /**
+   * What those same tickets would have paid if held. Null until one is gradeable.
+   *
+   * The comparison is the only honest way to judge the decision. Cashing out feels
+   * right whenever the bet would have lost and wrong whenever it would have won, and
+   * memory keeps score of neither. A running total does.
+   */
+  cashedHeld: number | null;
   staked: number;
   /**
    * Staked on settled bets only, EXCLUDING bonus bets; the denominator ROI is
@@ -168,13 +247,15 @@ export interface Tally {
 export function tally(
   bets: Bet[],
   scores: Map<string, Score>,
-): { rows: Array<Bet & Settlement>; totals: Tally } {
+): { rows: GradedRow[]; totals: Tally } {
   // One row per TICKET, not per leg. A parlay's stake is repeated on each of its legs,
   // so counting rows would read a three-leg $5 ticket as $15 risked and three separate
   // results -- inflating the sample, the turnover and the record all at once.
-  const rows = groupParlays(bets).map((entry) => {
+  const rows: GradedRow[] = groupParlays(bets).map((entry) => {
     if (entry.kind === "single") {
-      return { ...entry.bet, ...settle(entry.bet, scores.get(entry.bet.event_id)) };
+      const bet = entry.bet;
+      const result = settle(bet, scores.get(bet.event_id));
+      return { ...bet, ...result, heldProfit: heldInstead(bet, scores) };
     }
     const graded = settleParlay(entry.legs, scores);
     return {
@@ -182,8 +263,12 @@ export function tally(
       outcome: graded.outcome,
       profit: graded.profit,
       returned: graded.returned,
+      heldProfit: heldInstead(entry.legs, scores),
     };
   });
+
+  const cashedRows = rows.filter((r) => r.outcome === "cashed");
+  const cashedGraded = cashedRows.filter((r) => r.heldProfit !== null);
 
   const settled = rows.filter((r) => r.outcome !== "open");
   // Only your own money belongs in the denominator.
@@ -202,6 +287,13 @@ export function tally(
       lost: rows.filter((r) => r.outcome === "lost").length,
       push: rows.filter((r) => r.outcome === "push").length,
       open: rows.filter((r) => r.outcome === "open").length,
+      cashed: cashedRows.length,
+      cashedGraded: cashedGraded.length,
+      cashedTaken: cashedGraded.reduce((sum, r) => sum + r.profit, 0),
+      cashedHeld:
+        cashedGraded.length === 0
+          ? null
+          : cashedGraded.reduce((sum, r) => sum + (r.heldProfit ?? 0), 0),
       staked: rows.reduce((sum, r) => sum + r.stake, 0),
       stakedSettled,
       profit,
@@ -253,13 +345,29 @@ export function settleParlay(
   legs: Bet[],
   scores: Map<string, Score>,
 ): ParlaySettlement {
-  const graded = legs.map((leg) => ({ ...leg, ...settle(leg, scores.get(leg.event_id)) }));
+  // Legs are graded on the SCORE, never on the ticket's cash-out: the cash-out belongs
+  // to the ticket, and copying it onto each leg would report a three-leg parlay as three
+  // separate cashed bets worth the whole amount each.
+  const graded = legs.map((leg) => ({ ...leg, ...settleOnScore(leg, scores.get(leg.event_id)) }));
   const first = legs[0];
   const stake = first?.stake ?? 0;
   const bonus = first?.bonus === true;
   const price = first?.parlay_price ?? null;
 
   const base = { legs: graded, needsCorrection: false };
+
+  // A parlay is cashed out as one ticket, so the figure sits on every leg and is read
+  // from the first. Checked before the legs are consulted for the same reason a single
+  // bet is: the ticket is finished even when its games are not.
+  const cashed = first?.cashout;
+  if (cashed !== undefined && cashed !== null) {
+    return {
+      ...base,
+      outcome: "cashed",
+      profit: bonus ? cashed : cashed - stake,
+      returned: cashed,
+    };
+  }
 
   if (graded.some((leg) => leg.outcome === "lost")) {
     return { ...base, outcome: "lost", profit: bonus ? 0 : -stake, returned: 0 };
@@ -305,4 +413,33 @@ export function groupParlays(bets: Bet[]): Array<
     out.push({ kind: "parlay", id, legs });
   }
   return out;
+}
+
+/**
+ * What a cashed ticket would have profited on its original terms.
+ *
+ * Null when the ticket was not cashed out, and null while its games are unfinished —
+ * an ungraded counterfactual is not a small number, it is no number, and averaging it
+ * in as zero would drag every comparison toward "cashing out was brilliant".
+ *
+ * Takes the legs of a parlay or a single bet, so one caller handles both.
+ */
+export function heldInstead(bet: Bet | Bet[], scores: Map<string, Score>): number | null {
+  const legs = Array.isArray(bet) ? bet : [bet];
+  const first = legs[0];
+  if (!first || first.cashout === undefined || first.cashout === null) return null;
+
+  if (legs.length === 1) {
+    const result = settleOnScore(first, scores.get(first.event_id));
+    return result.outcome === "open" ? null : result.profit;
+  }
+
+  // A parlay needs every leg final before the ticket has an answer, and settleParlay
+  // reports a pushed leg as open because the book re-prices it — which is genuinely
+  // unknown here, not zero.
+  const settled = settleParlay(
+    legs.map((leg) => ({ ...leg, cashout: null })),
+    scores,
+  );
+  return settled.outcome === "open" ? null : settled.profit;
 }

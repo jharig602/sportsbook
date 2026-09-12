@@ -9,7 +9,7 @@ import { LedgerTransfer } from "@/components/LedgerTransfer";
 import { currentSession } from "@/lib/session";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
-import { activeBets, tally, type Bet, type Score, type Settlement } from "@/lib/settle";
+import { activeBets, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
 import type { League, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,30 @@ const OUTCOME_TONE: Record<string, string> = {
   lost: "bg-rose-500/12 text-rose-300",
   push: "bg-slate-600/30 text-slate-300",
   open: "bg-sky-500/12 text-sky-300",
+  // Amber rather than green: a cash-out made money here, but it is not a win, and
+  // colouring it like one would let the record read as more right than it was.
+  cashed: "bg-amber-500/12 text-amber-300",
 };
+
+/**
+ * What holding would have paid, next to what was taken.
+ *
+ * Shown on every graded cash-out because the decision is otherwise unauditable:
+ * selling early feels correct whenever the bet would have lost and wrong whenever it
+ * would have won, and nobody keeps score of that honestly from memory.
+ */
+function HeldInstead({ took, held }: { took: number; held: number }) {
+  const difference = held - took;
+  if (Math.abs(difference) < 0.005) return null;
+  return (
+    <p className="mt-1 text-[11px] text-slate-500">
+      Holding would have paid {money(held)} &mdash;{" "}
+      <span className={difference > 0 ? "text-slate-400" : "text-emerald-400/80"}>
+        {difference > 0 ? `${money(difference)} left on the table` : `${money(-difference)} saved`}
+      </span>
+    </p>
+  );
+}
 
 function money(value: number): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
@@ -32,7 +55,7 @@ function money(value: number): string {
  * The tally already counts it once, so this only has to make it look like what it is:
  * a single stake on several results, any one of which can end it.
  */
-function ParlayRow({ bet, legs }: { bet: Bet & Settlement; legs: Bet[] }) {
+function ParlayRow({ bet, legs }: { bet: GradedRow; legs: Bet[] }) {
   return (
     <Card className="px-3 py-2.5">
       <div className="flex items-start gap-2.5">
@@ -74,13 +97,16 @@ function ParlayRow({ bet, legs }: { bet: Bet & Settlement; legs: Bet[] }) {
             <span>${bet.stake.toFixed(0)}</span>
             <span>{bet.book}</span>
           </div>
+          {bet.outcome === "cashed" && bet.heldProfit !== null ? (
+            <HeldInstead took={bet.profit} held={bet.heldProfit} />
+          ) : null}
         </div>
       </div>
     </Card>
   );
 }
 
-function BetRow({ bet }: { bet: Bet & Settlement }) {
+function BetRow({ bet }: { bet: GradedRow }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
   const label =
     bet.market === "total"
@@ -120,6 +146,9 @@ function BetRow({ bet }: { bet: Bet & Settlement }) {
           </div>
           {bet.note ? (
             <p className="mt-1 truncate text-[11px] italic text-slate-500">{bet.note}</p>
+          ) : null}
+          {bet.outcome === "cashed" && bet.heldProfit !== null ? (
+            <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
         </div>
       </div>
@@ -214,6 +243,33 @@ export default async function BetsPage() {
             },
           ]}
         />
+      ) : null}
+
+      {/*
+        Whether cashing out is working, across every one of them.
+
+        A single decision is unjudgeable -- it feels correct whenever the bet would have
+        lost and wrong whenever it would have won -- so the only useful version of this
+        question is the running one. The wording deliberately does not congratulate
+        either direction at small counts, because at three cash-outs the difference is
+        one lucky fourth quarter.
+      */}
+      {totals.cashedGraded > 0 && totals.cashedHeld !== null ? (
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+          {totals.cashedGraded} cashed-out ticket
+          {totals.cashedGraded === 1 ? " has" : "s have"} since finished. You took{" "}
+          <span className="tabular text-slate-300">{money(totals.cashedTaken)}</span>;
+          holding would have paid{" "}
+          <span className="tabular text-slate-300">{money(totals.cashedHeld)}</span>
+          {Math.abs(totals.cashedHeld - totals.cashedTaken) < 0.005
+            ? ", which is a wash."
+            : totals.cashedHeld > totals.cashedTaken
+              ? `, so selling early cost ${money(totals.cashedHeld - totals.cashedTaken)}.`
+              : `, so selling early saved ${money(totals.cashedTaken - totals.cashedHeld)}.`}
+          {totals.cashedGraded < 10
+            ? " Far too few to mean anything yet — one fourth quarter moves this."
+            : ""}
+        </p>
       ) : null}
 
       {totals.settled > 0 && totals.settled < 30 ? (

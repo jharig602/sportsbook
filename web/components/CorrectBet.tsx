@@ -21,6 +21,11 @@ import type { Bet } from "@/lib/settle";
  * Only the fields that are plausibly mistyped are offered. The game, market and side are
  * not editable here: getting those wrong is not a typo, it is a different bet, and it
  * should be entered as one.
+ *
+ * Cashing out rides the same path, because it is the same kind of event: something that
+ * happened to a ticket after it was written, recorded as a new row rather than by
+ * reaching back into the old one. It is not a mistake being fixed, but the mechanism is
+ * identical and a second one would only be a second thing to keep in step.
  */
 export function CorrectBet({ bet }: { bet: Bet }) {
   const router = useRouter();
@@ -29,6 +34,9 @@ export function CorrectBet({ bet }: { bet: Bet }) {
   const [stake, setStake] = useState(String(bet.stake));
   const [line, setLine] = useState(bet.line === null ? "" : String(bet.line));
   const [bonus, setBonus] = useState(bet.bonus === true);
+  const [cashout, setCashout] = useState(
+    bet.cashout === undefined || bet.cashout === null ? "" : String(bet.cashout),
+  );
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +82,8 @@ export function CorrectBet({ bet }: { bet: Bet }) {
     }
   }
 
-  const submit = () => send({});
+  const submit = () =>
+    send(cashout.trim() === "" ? {} : { cashout: Number(cashout) });
   // Removing is a tombstone, not a DELETE: the row stops counting and stops showing,
   // and the ledger still records that it was once written.
   const remove = () => send({ voided: true, note: why.trim() || "Removed" });
@@ -133,6 +142,23 @@ export function CorrectBet({ bet }: { bet: Bet }) {
           </label>
         )}
       </div>
+
+      <label className="mt-2 block">
+        <span className={caption}>Cashed out for</span>
+        <input
+          value={cashout}
+          inputMode="decimal"
+          placeholder="leave empty unless you sold it back"
+          onChange={(e) => setCashout(e.target.value)}
+          className={`tabular ${field}`}
+        />
+        <span className="mt-1 block text-[10px] leading-snug text-slate-500">
+          The cash the book actually paid. This is the only verdict in the ledger that is
+          stored rather than worked out from the final score &mdash; once a ticket is sold
+          back, the score stops deciding anything. The game is still graded underneath, so
+          the record can show what holding would have paid.
+        </span>
+      </label>
 
       <label className="mt-2 flex items-start gap-2">
         <input

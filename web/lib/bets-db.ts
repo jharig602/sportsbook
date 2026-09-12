@@ -45,7 +45,7 @@ const COLUMNS = [
   "owner_id", "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
   "commence_time", "market", "side", "line", "price", "stake", "book",
   "model_probability", "market_probability", "rule_version_id", "note", "bonus",
-  "supersedes", "voided", "parlay_id", "parlay_price",
+  "supersedes", "voided", "parlay_id", "parlay_price", "cashout",
 ];
 
 /**
@@ -94,6 +94,7 @@ export async function listBets(ownerId: string): Promise<Bet[]> {
       else if (key === "price" && typeof value === "string") out[key] = Number(value);
       else if (key === "parlay_price" && typeof value === "string") out[key] = Number(value);
       else if (key === "stake" && typeof value === "string") out[key] = Number(value);
+      else if (key === "cashout" && typeof value === "string") out[key] = Number(value);
       else if (key === "bonus" || key === "voided") out[key] = value === true;
       else out[key] = value;
     }

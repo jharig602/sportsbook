@@ -28,6 +28,9 @@ export function BetForm({ games }: { games: Game[] }) {
   const [book, setBook] = useState("BetMGM");
   const [note, setNote] = useState("");
   const [bonus, setBonus] = useState(false);
+  // For a ticket already sold back by the time it is written down. Usually empty: most
+  // bets are logged when struck, and cashing out then happens through CorrectBet.
+  const [cashout, setCashout] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -70,6 +73,7 @@ export function BetForm({ games }: { games: Game[] }) {
           book,
           note: note || null,
           bonus,
+          cashout: cashout.trim() === "" ? null : Number(cashout),
         }),
       });
       const body = await response.json();
@@ -201,6 +205,19 @@ export function BetForm({ games }: { games: Game[] }) {
         <span className="text-[12px] text-slate-300">
           Bonus bet &mdash; stake is the book&rsquo;s, winnings only
         </span>
+      </label>
+
+      <label className="mt-2 block">
+        <span className="text-[11px] uppercase tracking-wide text-slate-500">
+          Cashed out for (optional)
+        </span>
+        <input
+          value={cashout}
+          inputMode="decimal"
+          onChange={(e) => setCashout(e.target.value)}
+          placeholder="only if you already sold it back"
+          className={`tabular ${FIELD}`}
+        />
       </label>
 
       <label className="mt-2 block">
