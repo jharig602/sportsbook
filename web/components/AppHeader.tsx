@@ -1,6 +1,11 @@
 import Link from "next/link";
 
 export function AppHeader() {
+  // Read at render. When no passcode is configured the app is reachable by anyone who
+  // finds the URL, and /api/book-lines accepts a quote that joins the consensus every
+  // edge is measured against. Failing open is defensible; failing open QUIETLY is not.
+  const unprotected = !process.env.APP_PASSCODE;
+
   return (
     <header className="safe-top sticky top-0 z-20 border-b border-edge/70 bg-ink/80 backdrop-blur-xl">
       <div className="mx-auto flex h-12 w-full max-w-3xl items-center gap-2 px-3">
@@ -23,9 +28,18 @@ export function AppHeader() {
             Dissent
           </span>
         </Link>
-        <span className="ml-auto rounded-full bg-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
-          DraftKings
-        </span>
+        {unprotected ? (
+          <span
+            className="ml-auto rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-rose-300"
+            title="Set APP_PASSCODE in Vercel to require a passcode."
+          >
+            unlocked
+          </span>
+        ) : (
+          <span className="ml-auto rounded-full bg-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            DraftKings
+          </span>
+        )}
       </div>
     </header>
   );
