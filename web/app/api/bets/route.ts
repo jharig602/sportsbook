@@ -67,13 +67,32 @@ export async function POST(request: Request) {
     }
   }
 
+  // When it was actually struck, defaulting to now.
+  //
+  // Worth accepting rather than always stamping the clock, because a bet logged the
+  // next morning is still yesterday's bet -- and the promotion's day counter is built
+  // from these dates. Stamping "now" on a backfilled row would quietly merge two
+  // qualifying days into one and report the promotion as further behind than it is.
+  //
+  // Bounded in both directions: the future is not a time a bet was struck, and anything
+  // older than the season is a typo rather than a memory.
+  let placedAt = new Date().toISOString();
+  if (body.placed_at !== undefined && body.placed_at !== null && body.placed_at !== "") {
+    const when = new Date(String(body.placed_at));
+    const age = Date.now() - when.getTime();
+    if (Number.isNaN(when.getTime())) problems.push("placed_at is not a date.");
+    else if (age < -60 * 60 * 1000) problems.push("placed_at is in the future.");
+    else if (age > 180 * 24 * 60 * 60 * 1000) problems.push("placed_at is more than 180 days ago.");
+    else placedAt = when.toISOString();
+  }
+
   if (problems.length > 0) {
     return NextResponse.json({ error: problems.join(" ") }, { status: 400 });
   }
 
   const bet: Bet = {
     bet_id: randomUUID(),
-    placed_at: new Date().toISOString(),
+    placed_at: placedAt,
     league: String(body.league ?? "ncaaf"),
     event_id: String(body.event_id),
     home_team: (body.home_team as string) ?? null,
