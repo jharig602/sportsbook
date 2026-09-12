@@ -46,6 +46,7 @@ export interface Freshness {
   lastRun: string | null;
   /** Median hours between recent runs. Null until there are two to compare. */
   medianGapHours: number | null;
+  /** Collection CYCLES seen, not individual polls. */
   runsSeen: number;
 }
 
@@ -240,7 +241,7 @@ SELECT
 const FRESHNESS = `
 SELECT started_at FROM poll_runs
  WHERE status <> 'error'
- ORDER BY started_at DESC LIMIT 25`;
+ ORDER BY started_at DESC LIMIT 200`;
 
 const RESULTS = `
 SELECT event_id, league, home_team, away_team, home_score, away_score,
@@ -390,14 +391,28 @@ const postgresSource: DataSource = {
       .filter((t) => Number.isFinite(t))
       .sort((a, b) => b - a);
     if (times.length === 0) return { lastRun: null, medianGapHours: null, runsSeen: 0 };
+
+    // Collapse each collection CYCLE to one timestamp before measuring anything.
+    // poll_runs holds a row per poll, and one workflow run polls NCAAF, NFL and the
+    // shop feed within seconds of each other -- so the raw gaps are the minutes between
+    // those, not the hours between cycles. Measured straight it read "typically every
+    // 3m", which then made every genuine gap look like a stall.
+    const SAME_CYCLE_MINUTES = 30;
+    const cycles: number[] = [];
+    for (const t of times) {
+      if (cycles.length === 0 || cycles[cycles.length - 1] - t > SAME_CYCLE_MINUTES * 60000) {
+        cycles.push(t);
+      }
+    }
+
     const gaps: number[] = [];
-    for (let i = 1; i < times.length; i += 1) gaps.push((times[i - 1] - times[i]) / 3600000);
+    for (let i = 1; i < cycles.length; i += 1) gaps.push((cycles[i - 1] - cycles[i]) / 3600000);
     gaps.sort((a, b) => a - b);
     return {
-      lastRun: new Date(times[0]).toISOString(),
-      // Median, not mean: one twelve-hour overnight gap should not read as the norm.
+      lastRun: new Date(cycles[0]).toISOString(),
+      // Median, not mean: one overnight gap should not read as the norm.
       medianGapHours: gaps.length ? gaps[Math.floor(gaps.length / 2)] : null,
-      runsSeen: times.length,
+      runsSeen: cycles.length,
     };
   }, "freshness"),
   alertCounts: cachedQuery(async () => {
