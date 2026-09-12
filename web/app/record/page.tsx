@@ -4,6 +4,7 @@ import { formatKind, formatPercent } from "@/lib/format";
 import type { RecordRow } from "@/lib/types";
 import type { MarginModel } from "@/lib/probability";
 import { DEFAULT_MAX_SPREAD } from "@/lib/blowout";
+import { judge, projectDate, type Judgement } from "@/lib/verdict";
 
 export const dynamic = "force-dynamic";
 
@@ -180,6 +181,79 @@ function SpreadBands({ model, league }: { model: MarginModel; league: string }) 
   );
 }
 
+/**
+ * Whether a rate has earned a verdict, and when it will if it has not.
+ *
+ * The page could already show a percentage. What it could not say is whether that
+ * percentage means anything, which is the only question worth asking of it — 61.4% from
+ * a hundred games looks exactly as authoritative as 61.4% from ten thousand.
+ */
+function VerdictLine({
+  j,
+  what,
+  gradesPerWeek,
+}: {
+  j: Judgement;
+  what: string;
+  gradesPerWeek: number;
+}) {
+  if (j.state === "no-data") {
+    return <p className="text-[12px] text-slate-500">{what}: nothing settled yet.</p>;
+  }
+  const when = projectDate(j.moreNeeded, gradesPerWeek);
+  const tone =
+    j.state === "clears" ? "text-emerald-300" : j.state === "fails" ? "text-rose-300" : "text-amber-300";
+  const headline =
+    j.state === "clears"
+      ? "clears the vig"
+      : j.state === "fails"
+        ? "does not clear the vig"
+        : "not enough games yet";
+
+  return (
+    <p className="text-[12px] leading-relaxed text-slate-400">
+      <span className={`font-medium ${tone}`}>
+        {what} &mdash; {headline}.
+      </span>{" "}
+      <span className="tabular">
+        {(j.rate! * 100).toFixed(1)}% over {j.n}, 95% range{" "}
+        {(j.lo * 100).toFixed(1)}&ndash;{(j.hi * 100).toFixed(1)}%
+      </span>
+      {j.state === "undecided" ? (
+        <>
+          {" "}&mdash; which still contains break-even.{" "}
+          {j.moreNeeded ? (
+            <>
+              Needs about{" "}
+              <span className="tabular text-slate-300">{j.moreNeeded.toLocaleString()}</span>{" "}
+              more settled
+              {when ? (
+                <>
+                  , around{" "}
+                  <span className="text-slate-300">
+                    {when.toLocaleDateString("en-US", {
+                      timeZone: "America/Chicago",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </span>{" "}
+                  at the last week&rsquo;s rate of {gradesPerWeek.toLocaleString()}.
+                </>
+              ) : gradesPerWeek > 0 ? (
+                <> &mdash; more than a season away at the current rate.</>
+              ) : (
+                <>. Nothing has settled this week, so there is no rate to project from.</>
+              )}
+            </>
+          ) : (
+            <> It sits on break-even, so no sample size will separate them.</>
+          )}
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 export default async function RecordPage() {
   const data = getData();
   const [alerts, grades, models, counts] = await Promise.all([
@@ -189,6 +263,14 @@ export default async function RecordPage() {
     data.alertCounts(),
   ]);
   const record = buildTrackRecord(alerts, grades, counts);
+
+  // Judged separately, because they currently disagree: cover looks strong and line
+  // value does not, and showing only the flattering one would be the same failure this
+  // page exists to prevent.
+  const decidedCover = grades.filter((g) => g.result_covered !== null);
+  const decidedLine = grades.filter((g) => g.line_value_won !== null);
+  const cover = judge(decidedCover.filter((g) => g.result_covered).length, decidedCover.length);
+  const lineValue = judge(decidedLine.filter((g) => g.line_value_won).length, decidedLine.length);
 
   return (
     <>
@@ -248,7 +330,12 @@ export default async function RecordPage() {
                 </span>
               ) : null}
             </p>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            <div className="mt-3 space-y-2 border-t border-edge/60 pt-3">
+              <VerdictLine j={cover} what="Cover" gradesPerWeek={counts.gradedLast7} />
+              <VerdictLine j={lineValue} what="Line value" gradesPerWeek={counts.gradedLast7} />
+            </div>
+
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
               A coin flip is <span className="text-slate-400">not</span> the bar, and
               comparing against one flatters every rule on this page. At &minus;110 you
               risk $1.10 to win $1.00, so 50% loses 4.5 cents of every dollar staked and{" "}

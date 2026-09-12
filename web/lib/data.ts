@@ -37,6 +37,8 @@ export interface AlertCounts {
   /** When the current rule version started producing alerts. */
   firstAlert: string | null;
   lastGraded: string | null;
+  /** Grades written in the last seven days: the rate the verdict date is built on. */
+  gradedLast7: number;
 }
 
 export interface DataSource {
@@ -134,6 +136,7 @@ const fixtureSource: DataSource = {
       grades: grades.length,
       firstAlert: alerts.map((a) => a.created_at).sort()[0] ?? null,
       lastGraded: null,
+      gradedLast7: 0,
     };
   },
   history: async (eventId) => (await snapshot()).history[eventId] ?? [],
@@ -203,7 +206,12 @@ SELECT
   (SELECT MIN(created_at) FROM alerts
     WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS first_alert,
   (SELECT MAX(graded_at) FROM alert_grades
-    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS last_graded`;
+    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS last_graded,
+  -- How fast the sample is actually growing, measured rather than assumed. A projected
+  -- date from a guessed rate is worse than no date.
+  (SELECT COUNT(*) FROM alert_grades
+    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
+      AND graded_at > NOW() - INTERVAL '7 days') AS graded_last_7`;
 
 const RESULTS = `
 SELECT event_id, league, home_team, away_team, home_score, away_score,
@@ -355,6 +363,7 @@ const postgresSource: DataSource = {
       grades: num(row.grades),
       firstAlert: row.first_alert ? String(row.first_alert) : null,
       lastGraded: row.last_graded ? String(row.last_graded) : null,
+      gradedLast7: num(row.graded_last_7),
     };
   }, "alertCounts"),
   results: cachedQuery(() => query<GameResult>(RESULTS), "results"),
