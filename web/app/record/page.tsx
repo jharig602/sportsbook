@@ -7,6 +7,20 @@ import { DEFAULT_MAX_SPREAD } from "@/lib/blowout";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * What a cover rate has to clear before it is worth anything.
+ *
+ * At -110 a winner returns 100/110 and a loser costs the stake, so break-even is
+ * 110/210. Comparing against a coin flip instead — which this page used to do — sets
+ * the bar two and a half points too low and makes a losing rule look like a finding.
+ */
+const BREAK_EVEN = 110 / 210;
+
+/** Return per dollar staked at -110, given how often the pick covers. */
+function coverRoi(coverRate: number): number {
+  return coverRate * (100 / 110) - (1 - coverRate);
+}
+
 function RateCell({ value, sufficient }: { value: number | null; sufficient: boolean }) {
   if (value === null) {
     return (
@@ -220,13 +234,26 @@ export default async function RecordPage() {
               <span className="tabular">
                 {formatPercent(record.baseline?.alerts ?? null, 1)}
               </span>{" "}
-              <span className="text-slate-600">vs</span> coin flip:{" "}
-              <span className="tabular">50.0%</span>
+              <span className="text-slate-600">vs</span> break-even:{" "}
+              <span className="tabular">{formatPercent(BREAK_EVEN, 2)}</span>
+              {record.baseline?.alerts !== null && record.baseline?.alerts !== undefined ? (
+                <span
+                  className={`ml-2 tabular text-xs ${
+                    coverRoi(record.baseline.alerts) > 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {coverRoi(record.baseline.alerts) > 0 ? "+" : ""}
+                  {(coverRoi(record.baseline.alerts) * 100).toFixed(1)}% per dollar
+                </span>
+              ) : null}
             </p>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              A rule that cannot beat a coin flip has demonstrated nothing, however
-              plausible it looks. Spreads and totals are priced near 50/50 by design, so
-              anything close to even here means the alerts are not finding an edge.
+              A coin flip is <span className="text-slate-400">not</span> the bar, and
+              comparing against one flatters every rule on this page. At &minus;110 you
+              risk $1.10 to win $1.00, so 50% loses 4.5 cents of every dollar staked and{" "}
+              <span className="tabular text-slate-400">{formatPercent(BREAK_EVEN, 2)}</span>{" "}
+              is where a rule stops costing money. The gap between the two is the vig, and
+              it is charged whether the pick was right or wrong.
             </p>
           </Card>
         </div>
