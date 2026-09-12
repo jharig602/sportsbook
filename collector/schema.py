@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 12
+ANALYTICS_SCHEMA_VERSION = 13
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -105,6 +105,9 @@ CREATE TABLE IF NOT EXISTS bets (
     supersedes VARCHAR,
     -- True when this row removes the one it supersedes instead of replacing it.
     voided BOOLEAN,
+    -- Legs of one parlay share this. See ANALYTICS_MIGRATIONS v13.
+    parlay_id VARCHAR,
+    parlay_price BIGINT,
     CHECK (stake > 0),
     CHECK (price <= -100 OR price >= 100),
     CHECK (market IN ('spread', 'total', 'moneyline')),
@@ -346,6 +349,17 @@ ANALYTICS_MIGRATIONS = [
     # rather than a DELETE: the table records what was written, including the times it
     # was written wrongly.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS voided BOOLEAN NOT NULL DEFAULT FALSE",
+    # v13: parlays. A parlay is stored as one row per leg sharing a parlay_id, because
+    # every leg has its own game and its own result and each must be graded separately.
+    # Storing it as a single row on one game would settle a three-leg ticket against one
+    # of them -- right money, wrong verdict, and no way to notice.
+    #
+    # parlay_price is the COMBINED price the book actually offered, kept rather than
+    # derived: books round the product of the legs down, and recomputing it here would
+    # silently pay better than the ticket does. stake is repeated on every leg and must
+    # therefore be counted once per parlay, not once per row.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS parlay_id VARCHAR",
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS parlay_price BIGINT",
 ]
 
 
