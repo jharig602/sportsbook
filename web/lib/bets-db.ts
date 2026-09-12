@@ -34,12 +34,27 @@ const COLUMNS = [
   "supersedes", "voided", "parlay_id", "parlay_price",
 ];
 
+/**
+ * Column values for one row, with the NOT NULL flags defaulted.
+ *
+ * `bonus` and `voided` are NOT NULL in the schema, and a caller that simply does not
+ * mention them would otherwise send null and fail the insert. Coerced here rather than
+ * in each caller because "did you remember the boolean" is not a thing any write path
+ * should have to know.
+ */
+function values(bet: Bet): unknown[] {
+  const row = bet as unknown as Record<string, unknown>;
+  return COLUMNS.map((c) =>
+    c === "bonus" || c === "voided" ? row[c] === true : (row[c] ?? null),
+  );
+}
+
 export async function saveBet(bet: Bet): Promise<void> {
   const db = await getPool();
   const marks = COLUMNS.map((_, i) => `$${i + 1}`).join(", ");
   await db.query(
     `INSERT INTO bets (${COLUMNS.join(", ")}) VALUES (${marks})`,
-    COLUMNS.map((c) => (bet as unknown as Record<string, unknown>)[c] ?? null),
+    values(bet),
   );
 }
 
@@ -80,7 +95,7 @@ export async function saveParlay(legs: Bet[]): Promise<void> {
     for (const leg of legs) {
       await client.query(
         `INSERT INTO bets (${COLUMNS.join(", ")}) VALUES (${marks})`,
-        COLUMNS.map((c) => (leg as unknown as Record<string, unknown>)[c] ?? null),
+        values(leg),
       );
     }
     await client.query("COMMIT");
