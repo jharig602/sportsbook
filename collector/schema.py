@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 13
+ANALYTICS_SCHEMA_VERSION = 14
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS margin_models (
 -- since been refitted.
 CREATE TABLE IF NOT EXISTS bets (
     bet_id VARCHAR PRIMARY KEY,
+    -- Whose ledger this row belongs to. See ANALYTICS_MIGRATIONS v14.
+    owner_id VARCHAR NOT NULL DEFAULT 'owner',
     placed_at TIMESTAMPTZ NOT NULL,
     league VARCHAR NOT NULL,
     event_id VARCHAR NOT NULL,
@@ -313,6 +315,28 @@ CREATE TABLE IF NOT EXISTS survivor_notifications (
     PRIMARY KEY (week, send_window)
 );
 
+CREATE TABLE IF NOT EXISTS ledger_transfers (
+    -- A short-lived code that moves one anonymous ledger to a second device.
+    --
+    -- The owner_id is a random identifier in a cookie, which is what makes a ledger
+    -- personal without anyone having an account. That alone would strand it in one
+    -- browser -- and a betting ledger's entire value is the sample it accumulates, so
+    -- one stranded on a laptop is worth much less than the same rows reachable from
+    -- the phone the bets are actually placed on.
+    --
+    -- The code IS a bearer credential for the duration: anyone holding it becomes that
+    -- ledger. Hence short, single-use, and deleted on claim rather than kept. Eight
+    -- characters from a 31-letter alphabet is 8.5e11 combinations against a
+    -- fifteen-minute window, which is not a space worth searching for someone else's
+    -- record of $5 bets.
+    --
+    -- The owner's own ledger is deliberately NOT reachable this way; see owner.ts.
+    code VARCHAR PRIMARY KEY,
+    owner_id VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    claimed_at TIMESTAMPTZ
+);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     endpoint VARCHAR PRIMARY KEY,
     p256dh VARCHAR NOT NULL,
@@ -360,6 +384,19 @@ ANALYTICS_MIGRATIONS = [
     # therefore be counted once per parlay, not once per row.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS parlay_id VARCHAR",
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS parlay_price BIGINT",
+    # v14: whose ledger a row belongs to.
+    #
+    # The DEFAULT is what makes this safe to run against a live table: every row written
+    # before multiple people could use the app was written by the one person who could,
+    # so backfilling them all to 'owner' is not a guess -- it is the only thing they
+    # could have meant. Without the default the column would be NULL on the whole
+    # existing season and every reader filtering by owner would report an empty ledger,
+    # which is this project's cardinal failure: a lost record that looks like no record.
+    #
+    # NOT NULL, because a row that belongs to nobody is unreachable and ungradeable but
+    # still counts toward the table -- it would sit there affecting nothing and
+    # explaining nothing.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS owner_id VARCHAR NOT NULL DEFAULT 'owner'",
 ]
 
 
