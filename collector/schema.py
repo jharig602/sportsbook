@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 15
+ANALYTICS_SCHEMA_VERSION = 16
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -316,6 +316,70 @@ CREATE TABLE IF NOT EXISTS survivor_notifications (
     sent_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (week, send_window)
 );
+
+CREATE TABLE IF NOT EXISTS shop_picks (
+    -- A cross-book edge, written down as a falsifiable prediction.
+    --
+    -- This table exists because the instrumentation was exactly inverted. The alert
+    -- pipeline grades line-movement signals, which are demoted to the point of not even
+    -- notifying; the cross-book disagreement this whole app is named after was surfaced,
+    -- acted on, and never once checked against what happened. `shop_notifications` looks
+    -- like it should have covered that and cannot: it stores no line and no price, so
+    -- nothing in it can be graded either way.
+    --
+    -- So every field needed to settle the claim is here, and `fair_probability` is the
+    -- claim itself: this side, at this number, wins that often. That is a sharper thing
+    -- to be wrong about than a side, and it is the reason this record will be worth
+    -- something long before the cover rate is -- calibration converges on dozens where
+    -- a win rate needs hundreds.
+    pick_id VARCHAR PRIMARY KEY,
+    observed_at TIMESTAMPTZ NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    commence_time TIMESTAMPTZ,
+    home_team VARCHAR, away_team VARCHAR,
+    book VARCHAR NOT NULL,
+    market VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    -- The two fields shop_notifications lacks, and without which nothing can be scored.
+    line DOUBLE PRECISION,
+    price BIGINT,
+    consensus_line DOUBLE PRECISION,
+    consensus_probability DOUBLE PRECISION,
+    fair_probability DOUBLE PRECISION NOT NULL,
+    break_even DOUBLE PRECISION,
+    expected_roi DOUBLE PRECISION,
+    edge_points DOUBLE PRECISION,
+    books_compared INTEGER NOT NULL,
+    thin_consensus BOOLEAN NOT NULL,
+    rule_version_id VARCHAR NOT NULL,
+    CHECK (market IN ('spread', 'total', 'moneyline')),
+    CHECK (side IN ('home', 'away', 'over', 'under')),
+    CHECK (fair_probability > 0 AND fair_probability < 1)
+);
+
+CREATE TABLE IF NOT EXISTS shop_grades (
+    -- Did the edge actually win. Mirrors alert_grades, and deliberately copies the
+    -- prediction forward rather than joining for it: a calibration curve is read by
+    -- predicted probability, and a join to a table that can be re-fitted underneath it
+    -- would quietly re-bucket history.
+    grade_id VARCHAR PRIMARY KEY,
+    pick_id VARCHAR NOT NULL UNIQUE,
+    graded_at TIMESTAMPTZ NOT NULL,
+    rule_version_id VARCHAR NOT NULL,
+    league VARCHAR NOT NULL,
+    market VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    line DOUBLE PRECISION,
+    price BIGINT,
+    fair_probability DOUBLE PRECISION NOT NULL,
+    expected_roi DOUBLE PRECISION,
+    -- NULL means push: neither a hit nor a miss, and it must leave the denominator.
+    result_covered BOOLEAN,
+    result_push BOOLEAN NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS shop_picks_event ON shop_picks (event_id);
 
 CREATE TABLE IF NOT EXISTS ledger_transfers (
     -- A short-lived code that moves one anonymous ledger to a second device.
