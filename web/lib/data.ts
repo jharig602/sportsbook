@@ -216,11 +216,17 @@ SELECT alert_id, created_at, league, event_id, market, side, kind,
  * be quietly shortened, since the whole argument on that page is about how long it is.
  */
 const SHOP_GRADES = `
-SELECT grade_id, pick_id, graded_at, rule_version_id, league, market, side,
-       line, price, fair_probability, expected_roi, result_covered, result_push
-  FROM shop_grades
- WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
- ORDER BY graded_at DESC`;
+SELECT g.grade_id, g.pick_id, g.graded_at, g.rule_version_id, g.league, g.market,
+       g.side, g.line, g.price, g.fair_probability, g.expected_roi,
+       g.result_covered, g.result_push,
+       -- Joined rather than copied forward, unlike the prediction fields. This one is
+       -- immutable once written, so it cannot be re-bucketed underneath a chart the way
+       -- a refitted probability could -- and a join costs nothing against this table.
+       COALESCE(p.replayed, FALSE) AS replayed
+  FROM shop_grades g
+  LEFT JOIN shop_picks p USING (pick_id)
+ WHERE g.rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
+ ORDER BY g.graded_at DESC`;
 
 const GRADES = `
 SELECT g.grade_id, g.alert_id, g.graded_at, g.rule_version_id, g.market,

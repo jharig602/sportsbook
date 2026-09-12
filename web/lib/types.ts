@@ -90,6 +90,14 @@ export interface ShopGrade {
   expected_roi: number | null;
   result_covered: boolean | null;
   result_push: boolean;
+  /**
+   * Reconstructed from stored history rather than seen live.
+   *
+   * A replayed pick is the real rule at a real past moment, but priced with the margin
+   * model fitted today — which, for a game already played, may have seen its own answer.
+   * The page says how many there are rather than presenting the two as one sample.
+   */
+  replayed: boolean;
 }
 
 export interface GameResult {

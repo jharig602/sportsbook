@@ -499,6 +499,7 @@ export default async function RecordPage({
 
   // Only the shopping rule states a probability, so only it has a calibration to check.
   const calibration = calibrate(source === "shop" ? shopShown : []);
+  const replayedCount = shopGrades.filter((g) => g.replayed).length;
 
   // Judged separately, because they currently disagree: cover looks strong and line
   // value does not, and showing only the flattering one would be the same failure this
@@ -580,6 +581,25 @@ export default async function RecordPage({
       </div>
 
       <MarketGrid breakdown={breakdown} market={market} league={league} />
+
+      {/*
+        Backfilled rows are named rather than blended in. They are the real rule at real
+        past moments, but priced with the model fitted today -- which, for a game already
+        played, may have seen its own answer. Presenting 243 reconstructed grades as
+        simply "the record" would be the same unlabelled number this page has been
+        corrected for once already.
+      */}
+      {source === "shop" && replayedCount > 0 ? (
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+          <span className="text-slate-300">{replayedCount}</span> of {shopGrades.length}{" "}
+          graded {shopGrades.length === 1 ? "edge was" : "edges were"} reconstructed from
+          stored history rather than seen live. The rule and the moment are real &mdash;
+          the board was rebuilt from append-only quotes at their own timestamps &mdash;
+          but the margin model pricing them is the one fitted today, so for a game
+          already played it may have seen its own answer. If these ever read better than
+          the live ones, that is the first thing to suspect.
+        </p>
+      ) : null}
 
       {source === "shop" ? <CalibrationTable calibration={calibration} /> : null}
 
