@@ -39,6 +39,16 @@ export interface Bet {
    */
   supersedes: string | null;
   /**
+   * A correction that removes the bet it supersedes rather than replacing it.
+   *
+   * For a row that should never have been there: a mis-entry, a bet you decided not to
+   * place, a duplicate. Still an append-only tombstone rather than a DELETE, because
+   * the point of the table is that it records what was written, including the times it
+   * was written wrongly. The voided row stops counting and stops being offered; it does
+   * not stop having happened.
+   */
+  voided?: boolean;
+  /**
    * A promotional bet, where the stake is the book's and only the winnings are yours.
    *
    * Settles differently in one direction that matters: a losing bonus bet costs
@@ -193,5 +203,6 @@ export function activeBets(bets: Bet[]): Bet[] {
   for (const bet of bets) {
     if (bet.supersedes && bet.supersedes !== bet.bet_id) corrected.add(bet.supersedes);
   }
-  return bets.filter((bet) => !corrected.has(bet.bet_id));
+  // A void removes both the row it names and itself: it is a tombstone, not a wager.
+  return bets.filter((bet) => !corrected.has(bet.bet_id) && bet.voided !== true);
 }

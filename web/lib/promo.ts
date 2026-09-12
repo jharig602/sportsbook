@@ -39,9 +39,22 @@ export function bestQualifier(
   rows: BoardEdge[],
   book: string,
   stake: number,
+  /**
+   * Event ids you already hold a bet on.
+   *
+   * Skipped rather than merely flagged. The promotion needs seven bets and the board
+   * offers forty rows, so avoiding a game entirely costs nothing — while recommending
+   * one you are already on is both useless advice and a quiet concentration of risk,
+   * since the two tickets then win and lose together.
+   */
+  alreadyOn: Set<string> = new Set(),
 ): PromoPlan {
   const mine = rows.filter(
-    (row) => row.book === book && row.expectedRoi !== null && !row.stale,
+    (row) =>
+      row.book === book &&
+      row.expectedRoi !== null &&
+      !row.stale &&
+      !alreadyOn.has(row.eventId),
   );
   if (mine.length === 0) {
     return { pick: null, expectedProfit: 0, beatsVig: false };
@@ -79,9 +92,12 @@ export function bestBonusTarget(
   face: number,
   minPrice = 250,
   maxPrice = 1200,
+  /** Event ids you already hold a bet on. Same reasoning as `bestQualifier`. */
+  alreadyOn: Set<string> = new Set(),
 ): BonusTarget | null {
   let best: BonusTarget | null = null;
   for (const { candidate, price } of candidates) {
+    if (alreadyOn.has(candidate.eventId)) continue;
     // Below the floor a bonus bet converts poorly; above the ceiling the model is
     // extrapolating past where the spread data supports it.
     if (price < minPrice || price > maxPrice) continue;
@@ -151,4 +167,18 @@ export function promoValue(
   bonusValuePerBet: number,
 ): number {
   return required * (bonusValuePerBet - Math.abs(costPerBet));
+}
+
+/**
+ * Games you already have money on.
+ *
+ * Settled bets do not count: last week's result cannot be doubled down on, and keeping
+ * them would slowly starve the board as the season went by.
+ */
+export function eventsAlreadyBet(bets: Bet[], scores: Set<string>): Set<string> {
+  const out = new Set<string>();
+  for (const bet of bets) {
+    if (!scores.has(bet.event_id)) out.add(bet.event_id);
+  }
+  return out;
 }

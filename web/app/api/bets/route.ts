@@ -25,6 +25,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Body is not valid JSON." }, { status: 400 });
   }
 
+  const voiding = body.voided === true;
+
   const problems: string[] = [];
   const market = String(body.market ?? "");
   const side = String(body.side ?? "");
@@ -32,6 +34,10 @@ export async function POST(request: Request) {
   const stake = Number(body.stake);
   const line = body.line === null || body.line === "" ? null : Number(body.line);
 
+  // A void names the row it removes and copies the rest for the record. It is not a
+  // bet, so it is not held to a bet's rules -- but it must still name something real,
+  // which the supersedes check below enforces.
+  if (voiding && !body.supersedes) problems.push("A void must name the bet it removes.");
   if (!body.event_id) problems.push("Pick a game.");
   if (!MARKETS.has(market)) problems.push("Market must be spread, total or moneyline.");
   if (!SIDES.has(side)) problems.push("Pick a side.");
@@ -115,6 +121,7 @@ export async function POST(request: Request) {
     // A promotional bet: the stake is the book's, so losing it costs nothing.
     bonus: body.bonus === true,
     supersedes: corrects,
+    voided: voiding,
   };
 
   try {

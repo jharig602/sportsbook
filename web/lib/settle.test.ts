@@ -305,3 +305,30 @@ test("a correction naming an unknown bet still stands on its own", () => {
 test("an empty ledger corrects to an empty ledger", () => {
   assert.deepEqual(activeBets([]), []);
 });
+
+test("a voided bet drops out, and so does the void itself", () => {
+  // A void is a tombstone, not a wager. Leaving it in the list would show a phantom
+  // duplicate; leaving the original in would keep counting a bet that was never placed.
+  const bets = [stub("void", { supersedes: "old", voided: true }), stub("old"), stub("keep")];
+  assert.deepEqual(activeBets(bets).map((b) => b.bet_id), ["keep"]);
+});
+
+test("voiding one bet leaves the rest of the ledger alone", () => {
+  const bets = [
+    stub("a"),
+    stub("void", { supersedes: "b", voided: true }),
+    stub("b"),
+    stub("c"),
+  ];
+  assert.deepEqual(activeBets(bets).map((b) => b.bet_id), ["a", "c"]);
+});
+
+test("a correction and a void can both sit in one chain", () => {
+  // Corrected once, then removed. Nothing from the chain should survive.
+  const bets = [
+    stub("void", { supersedes: "fixed", voided: true }),
+    stub("fixed", { supersedes: "original" }),
+    stub("original"),
+  ];
+  assert.deepEqual(activeBets(bets), []);
+});

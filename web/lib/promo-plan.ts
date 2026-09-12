@@ -6,6 +6,7 @@ import { winProbabilityFromSpread } from "./probability";
 import {
   bestBonusTarget,
   bestQualifier,
+  eventsAlreadyBet,
   progress,
   promoValue,
   qualifyingDates,
@@ -14,6 +15,7 @@ import {
   type Progress,
 } from "./promo";
 import type { Candidate } from "./survivor";
+import type { Bet } from "./settle";
 
 /**
  * Today's qualifying bet and where to put the bonus it earns.
@@ -45,16 +47,22 @@ export interface PromoToday {
 
 export async function promoToday(): Promise<PromoToday> {
   const data = getData();
-  const [games, models, lines, ledger] = await Promise.all([
+  const [games, models, lines, ledger, results] = await Promise.all([
     data.games(),
     data.marginModels(),
     allBookLines(),
     listBets().catch(() => []),
+    data.results().catch(() => []),
   ]);
+
+  // Games you already have money on. Recommending one of those is useless advice and
+  // quietly concentrates risk: the two tickets then win and lose together.
+  const settled = new Set(results.map((r) => r.event_id));
+  const alreadyOn = eventsAlreadyBet(ledger, settled);
 
   const done = progress(qualifyingDates(ledger, PROMO_BOOK, PROMO_STAKE), PROMO_DAYS);
   const shop = buildBoardShop(games, lines, models);
-  const qualifier = bestQualifier(shop.rows, PROMO_BOOK, PROMO_STAKE);
+  const qualifier = bestQualifier(shop.rows, PROMO_BOOK, PROMO_STAKE, alreadyOn);
 
   // Bonus candidates: every moneyline this book offers, priced with OUR model's
   // probability rather than the one implied by the price. The implied number carries
@@ -91,7 +99,7 @@ export async function promoToday(): Promise<PromoToday> {
     }
   }
 
-  const bonus = bestBonusTarget(targets, PROMO_BONUS_FACE);
+  const bonus = bestBonusTarget(targets, PROMO_BONUS_FACE, undefined, undefined, alreadyOn);
   return {
     qualifier,
     bonus,

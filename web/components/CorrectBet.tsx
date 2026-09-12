@@ -33,7 +33,7 @@ export function CorrectBet({ bet }: { bet: Bet }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit() {
+  async function send(extra: Record<string, unknown>) {
     setBusy(true);
     setError(null);
     try {
@@ -57,6 +57,7 @@ export function CorrectBet({ bet }: { bet: Bet }) {
           bonus,
           supersedes: bet.bet_id,
           note: why.trim() || bet.note,
+          ...extra,
         }),
       });
       const body = await response.json();
@@ -73,6 +74,11 @@ export function CorrectBet({ bet }: { bet: Bet }) {
     }
   }
 
+  const submit = () => send({});
+  // Removing is a tombstone, not a DELETE: the row stops counting and stops showing,
+  // and the ledger still records that it was once written.
+  const remove = () => send({ voided: true, note: why.trim() || "Removed" });
+
   if (!open) {
     return (
       <button
@@ -80,7 +86,7 @@ export function CorrectBet({ bet }: { bet: Bet }) {
         onClick={() => setOpen(true)}
         className="mt-1 text-[10px] uppercase tracking-wide text-slate-600 underline underline-offset-2"
       >
-        correct this
+        edit or remove
       </button>
     );
   }
@@ -91,7 +97,7 @@ export function CorrectBet({ bet }: { bet: Bet }) {
   return (
     <div className="mt-2 rounded-lg border border-amber-700/40 bg-raised/40 p-2.5">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
-        Correct this bet
+        Edit this bet
       </p>
 
       <div className="mt-1.5 grid grid-cols-3 gap-2">
@@ -165,17 +171,25 @@ export function CorrectBet({ bet }: { bet: Bet }) {
         </button>
         <button
           type="button"
+          onClick={remove}
+          disabled={busy}
+          className="rounded-lg bg-rose-500/10 px-3 py-1.5 text-[12px] font-medium text-rose-300 ring-1 ring-inset ring-rose-500/25 disabled:opacity-40"
+        >
+          Remove
+        </button>
+        <button
+          type="button"
           onClick={() => setOpen(false)}
           disabled={busy}
-          className="rounded-lg px-3 py-1.5 text-[12px] text-slate-500"
+          className="ml-auto rounded-lg px-3 py-1.5 text-[12px] text-slate-500"
         >
           Cancel
         </button>
       </div>
 
       <p className="mt-2 text-[10px] leading-relaxed text-slate-600">
-        The original row is kept and marked corrected rather than deleted. It is part of
-        the history even though it was wrong.
+        Both keep the original row rather than deleting it &mdash; corrected, or marked
+        removed. It stops counting either way; it does not stop having been written.
       </p>
     </div>
   );
