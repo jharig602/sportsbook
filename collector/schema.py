@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 11
+ANALYTICS_SCHEMA_VERSION = 12
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS bets (
     note VARCHAR,
     -- bet_id of a row this one corrects. See ANALYTICS_MIGRATIONS v11.
     supersedes VARCHAR,
+    -- True when this row removes the one it supersedes instead of replacing it.
+    voided BOOLEAN,
     CHECK (stake > 0),
     CHECK (price <= -100 OR price >= 100),
     CHECK (market IN ('spread', 'total', 'moneyline')),
@@ -339,6 +341,11 @@ ANALYTICS_MIGRATIONS = [
     # both are kept, because what was originally written is part of the history even
     # when it was wrong, and silently editing a ledger is how a ledger stops being one.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS supersedes VARCHAR",
+    # v12: a correction that removes rather than replaces. For a row that should never
+    # have existed -- a mis-entry, a bet decided against, a duplicate. Still a tombstone
+    # rather than a DELETE: the table records what was written, including the times it
+    # was written wrongly.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS voided BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
