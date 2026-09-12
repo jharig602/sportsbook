@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 16
+ANALYTICS_SCHEMA_VERSION = 17
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -353,6 +353,8 @@ CREATE TABLE IF NOT EXISTS shop_picks (
     books_compared INTEGER NOT NULL,
     thin_consensus BOOLEAN NOT NULL,
     rule_version_id VARCHAR NOT NULL,
+    -- Reconstructed from stored history rather than seen live. See MIGRATIONS v17.
+    replayed BOOLEAN NOT NULL DEFAULT FALSE,
     CHECK (market IN ('spread', 'total', 'moneyline')),
     CHECK (side IN ('home', 'away', 'over', 'under')),
     CHECK (fair_probability > 0 AND fair_probability < 1)
@@ -481,6 +483,20 @@ ANALYTICS_MIGRATIONS = [
     # took" says whether these decisions are any good, which is not something intuition
     # can answer.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS cashout DOUBLE PRECISION",
+    # v17: whether a shop pick was seen live or reconstructed from stored history.
+    #
+    # The replay runs the real rule over real book_lines at their real timestamps, so
+    # the rows are honest observations -- but they carry one contamination a live pick
+    # cannot. The margin model supplying the points-to-probability density is the one
+    # fitted today, and if `historical_lines` holds any of the games being replayed then
+    # that density partly saw its own answers. A live pick is made before the game and
+    # cannot have that problem.
+    #
+    # The effect is second-order -- the edge comes from the cross-book line difference,
+    # and the model only prices what a point of it is worth -- but "second-order" is a
+    # judgement, not a measurement, and a flag costs nothing. If replayed picks ever
+    # read better than live ones, this column is the first thing to look at.
+    "ALTER TABLE shop_picks ADD COLUMN IF NOT EXISTS replayed BOOLEAN NOT NULL DEFAULT FALSE",
 ]
 
 
