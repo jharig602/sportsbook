@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 14
+ANALYTICS_SCHEMA_VERSION = 15
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS bets (
     -- Legs of one parlay share this. See ANALYTICS_MIGRATIONS v13.
     parlay_id VARCHAR,
     parlay_price BIGINT,
+    -- Cash paid to end the ticket early. See ANALYTICS_MIGRATIONS v15.
+    cashout DOUBLE PRECISION,
     CHECK (stake > 0),
     CHECK (price <= -100 OR price >= 100),
     CHECK (market IN ('spread', 'total', 'moneyline')),
@@ -397,6 +399,24 @@ ANALYTICS_MIGRATIONS = [
     # still counts toward the table -- it would sit there affecting nothing and
     # explaining nothing.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS owner_id VARCHAR NOT NULL DEFAULT 'owner'",
+    # v15: cash-out. The one outcome that cannot be derived.
+    #
+    # Every other verdict in this table is recomputed from game_results on each read,
+    # which is why nothing here is ever updated and a corrected score corrects the P&L
+    # by itself. A cash-out breaks that: the ticket was sold back at a price the book
+    # and I agreed on, and the final score no longer decides anything. Leaving it
+    # derived would book a $50 bonus moneyline at +920 as either +$460 or $0 when the
+    # actual result was $193.98 -- a number that is wrong in the ledger and looks
+    # exactly like a number that is right.
+    #
+    # So the amount is stored, and it is the ONLY stored verdict in the schema. The
+    # bet row still records what was struck; this records that it ended early.
+    #
+    # The score is still kept and still graded, because the counterfactual is worth
+    # measuring: over enough cash-outs, "what holding would have paid" versus "what I
+    # took" says whether these decisions are any good, which is not something intuition
+    # can answer.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS cashout DOUBLE PRECISION",
 ]
 
 
