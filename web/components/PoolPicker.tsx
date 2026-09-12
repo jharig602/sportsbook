@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import type { StoredPool } from "@/lib/settings-db";
+import { poolLabel, type StoredPool } from "@/lib/pools";
 
 /**
  * Record what an entry actually picked, and show what it has already spent.
@@ -55,6 +55,19 @@ export function PoolPicker({
     save(pools.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
   }
 
+  function addPool() {
+    // A new entry starts unnamed, so its label follows whatever size you give it.
+    save([...pools, { used: [], size: 20, lossesAllowed: pool?.lossesAllowed ?? 0 }]);
+  }
+
+  function removePool() {
+    // The last one cannot go: a survivor page with nothing to plan is not a state worth
+    // being able to reach by accident.
+    if (pools.length <= 1) return;
+    save(pools.filter((_, i) => i !== index));
+    router.push("/survivor");
+  }
+
   function unmark(team: string) {
     const next = pools.map((p, i) =>
       i === index ? { ...p, used: p.used.filter((t) => t !== team) } : p,
@@ -70,7 +83,7 @@ export function PoolPicker({
         className="flex w-full items-baseline justify-between text-left"
       >
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          {pool.name} &middot; {pool.used.length} used
+          {poolLabel(pool, index, pools)} &middot; {pool.used.length} used
         </span>
         <span className="text-[11px] text-slate-600">{open ? "hide" : "edit"}</span>
       </button>
@@ -138,10 +151,30 @@ export function PoolPicker({
               Nothing spent yet. Mark a team once you have actually submitted it.
             </p>
           )}
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Tap a team to un-spend it. The plan below excludes everything listed here,
-            because a team you have used is not a choice this entry still has.
+          <p className="mt-2 text-[11px] text-slate-600">
+            Tap a team to un-spend it &mdash; the plan excludes everything listed here.
+            Entrants drives the picks, not just the label: a 25-person pool and a
+            137-person one want different seasons.
           </p>
+
+          <div className="mt-2.5 flex gap-2">
+            <button
+              type="button"
+              onClick={addPool}
+              disabled={busy || pools.length >= 8}
+              className="flex-1 rounded-lg bg-raised py-1.5 text-[12px] font-medium text-slate-300 disabled:opacity-40"
+            >
+              Add a pool
+            </button>
+            <button
+              type="button"
+              onClick={removePool}
+              disabled={busy || pools.length <= 1}
+              className="flex-1 rounded-lg bg-rose-500/10 py-1.5 text-[12px] font-medium text-rose-300 ring-1 ring-inset ring-rose-500/25 disabled:opacity-40"
+            >
+              Remove this pool
+            </button>
+          </div>
         </>
       ) : null}
     </div>

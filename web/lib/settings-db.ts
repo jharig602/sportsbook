@@ -1,4 +1,5 @@
 import { databaseUrl } from "./env";
+import { DEFAULT_POOLS, parsePools, type StoredPool } from "./pools";
 import { parseMyBooks, serializeMyBooks } from "./my-books";
 import type { NotifiedOffer } from "./shop-alerts";
 
@@ -100,50 +101,9 @@ export async function recordNotified(
   }
 }
 
+export { poolLabel, parsePools, type StoredPool } from "./pools";
+
 export const POOLS_KEY = "survivor_pools";
-
-/**
- * Survivor entries and the teams each has already spent.
- *
- * Kept in app_settings as JSON rather than given a table: it is a handful of rows for
- * one person, it changes once a week, and a table would buy nothing but a migration.
- * Validated on read, because it is data that came back from a browser.
- */
-export interface StoredPool {
-  name: string;
-  used: string[];
-  /** How many entrants, including you. Decides what surviving is worth. */
-  size: number;
-  /** Losses you may take before elimination. 0 = out on the first. */
-  lossesAllowed: number;
-}
-
-const DEFAULT_POOLS: StoredPool[] = [
-  { name: "Pool A", used: [], size: 13, lossesAllowed: 1 },
-  { name: "Pool B", used: [], size: 137, lossesAllowed: 1 },
-];
-
-export function parsePools(raw: string | null | undefined): StoredPool[] {
-  if (!raw) return DEFAULT_POOLS;
-  try {
-    const value = JSON.parse(raw);
-    if (!Array.isArray(value)) return DEFAULT_POOLS;
-    const pools = value
-      .filter((p) => p && typeof p.name === "string")
-      .slice(0, 8)
-      .map((p) => ({
-        name: String(p.name).slice(0, 40),
-        used: Array.isArray(p.used)
-          ? [...new Set<string>(p.used.map((t: unknown) => String(t).slice(0, 60)))].slice(0, 25)
-          : ([] as string[]),
-        size: Math.min(100000, Math.max(1, Number(p.size) || 1)),
-        lossesAllowed: Math.min(5, Math.max(0, Number(p.lossesAllowed) || 0)),
-      }));
-    return pools.length > 0 ? pools : DEFAULT_POOLS;
-  } catch {
-    return DEFAULT_POOLS;
-  }
-}
 
 export async function getPools(): Promise<StoredPool[]> {
   if (!databaseUrl()) return DEFAULT_POOLS;

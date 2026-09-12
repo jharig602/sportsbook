@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getData } from "@/lib/data";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
-import { getPools, recordSurvivorSent, survivorSent } from "@/lib/settings-db";
+import { getPools, poolLabel, recordSurvivorSent, survivorSent } from "@/lib/settings-db";
 import { buildPoolWinPlans, crowdingFrom } from "@/lib/pool-win";
 import { buildPlan, buildWeeks } from "@/lib/survivor";
 import { windowFor, windowLabel } from "@/lib/survivor-window";
@@ -86,8 +86,8 @@ export async function POST(request: Request) {
       popularity,
     });
 
-    const picks = poolPlans.map((plan) => ({
-      pool: plan.pool.name,
+    const picks = poolPlans.map((plan, i) => ({
+      pool: poolLabel(pools[i], i, pools),
       team: plan.plan.picks[0]?.pick?.team ?? null,
       probability: plan.plan.picks[0]?.pick?.winProbability ?? null,
       // Carried into the notification so a deliberately contrarian pick does not read

@@ -13,7 +13,7 @@ import {
   Stats,
 } from "@/components/ui";
 import { allBookLines, type BookLineRow } from "@/lib/book-lines";
-import { getMyBooks, getPools } from "@/lib/settings-db";
+import { getMyBooks, getPools, poolLabel } from "@/lib/settings-db";
 import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
@@ -128,7 +128,7 @@ export default async function SurvivorPage({
   const popularity = postgres ? await pickPopularity(await currentNflWeek()) : {};
   const pools = postgres
     ? await getPools()
-    : [{ name: "Pool A", used: [] as string[], size: 1, lossesAllowed: 0 }];
+    : [{ used: [] as string[], size: 1, lossesAllowed: 0 }];
 
   // Only the moneyline matters for a survivor pick: the question is whether the team
   // wins, not by how much.
@@ -334,9 +334,9 @@ export default async function SurvivorPage({
             This week
           </p>
           <div className="mt-1.5 space-y-1">
-            {multi.pools.map((entry) => (
-              <p key={entry.pool.name} className="flex items-baseline justify-between text-[12px]">
-                <span className="text-slate-400">{entry.pool.name}</span>
+            {multi.pools.map((entry, i) => (
+              <p key={i} className="flex items-baseline justify-between text-[12px]">
+                <span className="text-slate-400">{poolLabel(pools[i], i, pools)}</span>
                 <span className="tabular text-slate-200">
                   {entry.plan.picks[0]?.pick
                     ? `${entry.plan.picks[0].pick.team} (${percent(entry.plan.picks[0].pick.winProbability)})`
@@ -354,7 +354,7 @@ export default async function SurvivorPage({
 
       <Card className="mb-3 px-3.5 py-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          {here.pool.name}: {here.pool.size} entrants,{" "}
+          {poolLabel(pools[poolIndex], poolIndex, pools)}: {here.pool.size} entrants,{" "}
           {(here.pool.lossesAllowed ?? 0) === 0
             ? "out on the first loss"
             : `out on loss ${(here.pool.lossesAllowed ?? 0) + 1}`}
@@ -408,7 +408,7 @@ export default async function SurvivorPage({
         <Segmented
           options={multi.pools.map((entry, i) => ({
             key: String(i),
-            label: entry.pool.name,
+            label: poolLabel(pools[i], i, pools),
           }))}
           active={String(poolIndex)}
           hrefFor={(key) => `/survivor?pool=${key}&weeks=${chosen}`}

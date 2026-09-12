@@ -626,7 +626,8 @@ export interface PoolWinPlan {
 }
 
 export interface PoolEntry {
-  name: string;
+  /** Display only. Absent means the caller derives it from the size. */
+  name?: string;
   used: string[];
   size?: number;
   lossesAllowed?: number;
