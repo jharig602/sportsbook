@@ -291,6 +291,21 @@ export function crowdingFrom(
   return Math.max(...shares);
 }
 
+/**
+ * How much survival to trade for separation, in log-probability per shared week.
+ *
+ * Zero is the old plan: maximise survival and take whatever correlation comes with it.
+ * Large values refuse the crowd's team at almost any cost. Neither end is right, and
+ * the middle cannot be reasoned to — it depends on the pool size, the crowding rate and
+ * how much worse the second-best team is that week. So the frontier is swept and each
+ * point scored on the real objective.
+ *
+ * The range is chosen from what the numbers mean rather than by taste: 0.05 buys a
+ * separation only when it costs under 5% of a week's log-probability, and 1.0 will give
+ * up a team twice as likely to win. Beyond that the plan is no longer a plan.
+ */
+const SEPARATION_PENALTIES = [0, 0.02, 0.05, 0.1, 0.2, 0.35, 0.6, 1.0];
+
 export interface PoolWinRanking {
   candidate: Candidate;
   /** P(take the pool) taking this team now, then planning optimally from next week. */
@@ -333,6 +348,58 @@ const CONSIDER = 6;
  * with an uncorrelated field there is nothing to separate from. That is the intended
  * degenerate case, and it is what runs when the popularity feed has nothing.
  */
+/**
+ * Walk the survival/separation frontier and keep the point that actually wins most.
+ *
+ * Each penalty gives a different exact assignment — the solver is still solving a
+ * linear problem, just a differently-priced one — and each of those is a real, legal
+ * season. Only then is the non-linear objective applied, to pick between them. That
+ * keeps the exactness where the combinatorics live and the sampling where it belongs.
+ */
+function bestSeparationPenalty(
+  planning: Week[],
+  crowdPicks: (Candidate | null)[],
+  prepared: PreparedField,
+  options: {
+    used: Set<string>;
+    lossesAllowed: number;
+    poolSize: number;
+    pinned: Map<number, string>;
+  },
+): number {
+  const { used, lossesAllowed, poolSize, pinned } = options;
+  const crowdByWeek = new Map<number, string>();
+  planning.forEach((w, i) => {
+    const team = crowdPicks[i]?.team;
+    if (team) crowdByWeek.set(w.week, team);
+  });
+
+  let best = SEPARATION_PENALTIES[0];
+  let bestScore = -1;
+  for (const lambda of SEPARATION_PENALTIES) {
+    const avoid = (week: number, team: string) =>
+      team === (crowdByWeek.get(week) ?? null) ? lambda : 0;
+    const plan = refineForLives(
+      planning,
+      buildPlan(planning, planning.length, used, new Map(), pinned, avoid),
+      lossesAllowed,
+      used,
+      pinned,
+    );
+    const mine = plan.picks.map((p) => p.pick?.winProbability ?? 1);
+    const shared = plan.picks.map(
+      (p, i) => p.pick !== null && p.pick?.team === (crowdPicks[i]?.team ?? null),
+    );
+    if (mine.length !== prepared.weeks) continue;
+    const score = lastStandingWin({ mine, shared }, prepared, poolSize);
+    if (score > bestScore) {
+      bestScore = score;
+      best = lambda;
+    }
+  }
+  return best;
+}
+
 export function rankByPoolWin(
   weeks: Week[],
   options: {
@@ -375,6 +442,12 @@ export function rankByPoolWin(
   // which team you take, so they are built once here rather than per candidate.
   const prepared = prepareField(field, planning.length, lossesAllowed);
 
+  const crowdByWeek = new Map<number, string>();
+  planning.forEach((w, i) => {
+    const team = crowdPicks[i]?.team;
+    if (team) crowdByWeek.set(w.week, team);
+  });
+
   const opener = planning[0];
   const thisWeek = opener.candidates.filter((c) => !used.has(c.team) && !reserved.has(c.team));
   const rest = planning.slice(1);
@@ -388,12 +461,25 @@ export function rankByPoolWin(
     if (extra) considered.push(extra);
   }
 
+  // Which point on the survival/separation frontier this pool wants. Found once on the
+  // unconstrained plan rather than per candidate: the best trade-off is a property of
+  // the pool and the crowd, not of which team you happen to open with, and sweeping it
+  // for every candidate multiplies the cost of the page by the length of the sweep.
+  const lambda = bestSeparationPenalty(
+    planning,
+    crowdPicks,
+    prepared,
+    { used, lossesAllowed, poolSize, pinned },
+  );
+  const avoid = (week: number, team: string) =>
+    team === (crowdByWeek.get(week) ?? null) ? lambda : 0;
+
   const out: PoolWinRanking[] = [];
   for (const candidate of considered) {
     const excluded = new Set([...used, candidate.team]);
     const tail = refineForLives(
       rest,
-      buildPlan(rest, rest.length, excluded, new Map(), pinned),
+      buildPlan(rest, rest.length, excluded, new Map(), pinned, avoid),
       lossesAllowed,
       excluded,
       pinned,

@@ -559,3 +559,42 @@ test("no pins gives byte-for-byte the plan it gave before pinning existed", () =
     b.map((p) => [p.plan.picks.map((x) => x.pick?.team), p.poolWin]),
   );
 });
+
+// --- planning the whole season, not just the opening week ---------------------------
+
+test("the season solver never does worse than maximising survival alone", () => {
+  // The sweep picks a point on the survival/separation frontier by scoring each one on
+  // the real objective, and plain survival (no penalty) is always one of the points it
+  // considers. So the answer can tie that baseline but must never fall below it.
+  const weeks = crowdLeads();
+  for (const [poolSize, crowding] of [[13, 0], [13, 0.5], [137, 0.3], [137, 0.9]]) {
+    const ranked = rankByPoolWin(weeks, { lossesAllowed: 1, poolSize, crowding });
+    assert.ok(ranked.length > 0);
+    const survivalFirst = [...ranked].sort((a, b) => b.survival - a.survival)[0];
+    assert.ok(
+      ranked[0].poolWin >= survivalFirst.poolWin - 1e-9,
+      `size ${poolSize} crowding ${crowding}: chose ${ranked[0].poolWin}, ` +
+        `survival-first was worth ${survivalFirst.poolWin}`,
+    );
+  }
+});
+
+test("with an uncorrelated field the solver has no reason to separate", () => {
+  // At crowding 0 there is nothing to separate FROM, so paying anything for it is a
+  // pure loss. The chosen line should therefore keep the crowd's teams.
+  const weeks = crowdLeads();
+  const ranked = rankByPoolWin(weeks, { lossesAllowed: 1, poolSize: 137, crowding: 0 });
+  const shares = ranked[0].line.shared.filter(Boolean).length;
+  assert.ok(shares > 0, "an uncorrelated field gives no reason to avoid the best teams");
+});
+
+test("a crowded field pushes the season off the crowd's teams", () => {
+  const weeks = crowdLeads();
+  const quiet = rankByPoolWin(weeks, { lossesAllowed: 1, poolSize: 137, crowding: 0 });
+  const crowded = rankByPoolWin(weeks, { lossesAllowed: 1, poolSize: 137, crowding: 0.9 });
+  const share = (r: typeof quiet) => r[0].line.shared.filter(Boolean).length;
+  assert.ok(
+    share(crowded) <= share(quiet),
+    `crowded shared ${share(crowded)} weeks, quiet shared ${share(quiet)}`,
+  );
+});

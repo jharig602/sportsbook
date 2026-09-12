@@ -281,6 +281,22 @@ export function buildPlan(
    * question you did not ask.
    */
   pinned: Map<number, string> = new Map(),
+  /**
+   * Extra cost, in log-probability, for taking a particular team in a particular week.
+   *
+   * This is how a non-linear objective is reached with a linear solver. Winning a pool
+   * is not a product of independent weeks — it depends on WHICH weeks you hold the same
+   * ticket as the crowd, because sharing their result decides nothing when it wins and
+   * kills you alongside them when it loses. That cannot be written as a sum of per-cell
+   * costs, so it cannot be assigned directly.
+   *
+   * What CAN be written that way is a penalty. Charge the crowd's team a constant in
+   * every week and the assignment still solves exactly, but it is now maximising
+   * survival MINUS that constant times the number of weeks you share. Sweeping the
+   * constant traces the efficient frontier between the two, and the caller scores each
+   * point on that frontier with the real objective and keeps the best.
+   */
+  penalty: ((week: number, team: string) => number) | null = null,
 ): Plan {
   const planning = weeks.slice(0, horizon).filter((w) => w.candidates.length > 0);
   if (planning.length === 0) {
@@ -309,7 +325,8 @@ export function buildPlan(
       const pin = pinned.get(planning[weekIndex].week);
       if (pin !== undefined && team !== pin) return UNAVAILABLE;
       const p = Math.min(0.999, Math.max(0.001, candidate.winProbability));
-      return -Math.log(p);
+      const extra = penalty ? penalty(planning[weekIndex].week, team) : 0;
+      return -Math.log(p) + extra;
     }),
   );
 
