@@ -23,6 +23,60 @@ function money(value: number): string {
   return `${sign}$${Math.abs(value).toFixed(2)}`;
 }
 
+/**
+ * A parlay, shown as one ticket with its legs beneath.
+ *
+ * The tally already counts it once, so this only has to make it look like what it is:
+ * a single stake on several results, any one of which can end it.
+ */
+function ParlayRow({ bet, legs }: { bet: Bet & Settlement; legs: Bet[] }) {
+  return (
+    <Card className="px-3 py-2.5">
+      <div className="flex items-start gap-2.5">
+        <div
+          className={`flex h-11 w-16 shrink-0 flex-col items-center justify-center rounded-lg text-[11px] font-semibold uppercase tracking-wide ${
+            OUTCOME_TONE[bet.outcome]
+          }`}
+        >
+          {bet.outcome}
+          {bet.outcome !== "open" ? (
+            <span className="tabular text-[11px] font-normal">{money(bet.profit)}</span>
+          ) : null}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="flex items-baseline gap-1.5 text-[14px] font-medium text-slate-100">
+            <span>{legs.length}-leg parlay</span>
+            <span className="tabular text-slate-400">
+              {formatPrice(bet.parlay_price ?? null)}
+            </span>
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {legs.map((leg) => (
+              <li key={leg.bet_id} className="truncate text-[11px] text-slate-500">
+                <span className="text-slate-400">
+                  {leg.side === "home" ? leg.home_team : leg.away_team}
+                </span>{" "}
+                {leg.market === "total"
+                  ? formatLine("total", leg.side, leg.line)
+                  : leg.market === "spread"
+                    ? formatLine("spread", leg.side, leg.line)
+                    : "ML"}{" "}
+                <span className="tabular text-slate-600">{formatPrice(leg.price)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="tabular mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-slate-600">
+            <Pill>{formatLeague(bet.league)}</Pill>
+            <span>${bet.stake.toFixed(0)}</span>
+            <span>{bet.book}</span>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function BetRow({ bet }: { bet: Bet & Settlement }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
   const label =
@@ -93,6 +147,12 @@ export default async function BetsPage() {
   // Counting both would book the same wager twice, which is the failure a correction
   // is supposed to prevent.
   const standing = activeBets(bets);
+  // Legs by ticket, so a parlay row can list what it is made of.
+  const parlayLegs = new Map<string, Bet[]>();
+  for (const bet of standing) {
+    if (!bet.parlay_id) continue;
+    parlayLegs.set(bet.parlay_id, [...(parlayLegs.get(bet.parlay_id) ?? []), bet]);
+  }
   const corrections = bets.length - standing.length;
   const { rows, totals } = tally(standing, scores);
 
@@ -159,12 +219,15 @@ export default async function BetsPage() {
         />
       ) : (
         <div className="space-y-1.5">
-          {rows.map((bet) => (
-            <div key={bet.bet_id}>
-              <BetRow bet={bet} />
-              <CorrectBet bet={bet} />
-            </div>
-          ))}
+          {rows.map((bet) => {
+            const legs = bet.parlay_id ? (parlayLegs.get(bet.parlay_id) ?? []) : null;
+            return (
+              <div key={bet.bet_id}>
+                {legs ? <ParlayRow bet={bet} legs={legs} /> : <BetRow bet={bet} />}
+                {legs ? null : <CorrectBet bet={bet} />}
+              </div>
+            );
+          })}
         </div>
       )}
 

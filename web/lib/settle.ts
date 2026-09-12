@@ -49,6 +49,15 @@ export interface Bet {
    */
   voided?: boolean;
   /**
+   * Legs of one parlay share this. Null on a single bet.
+   *
+   * The stake is repeated on every leg, so anything summing money must count it once
+   * per parlay rather than once per row.
+   */
+  parlay_id?: string | null;
+  /** The COMBINED price the book offered, not the product of the legs. */
+  parlay_price?: number | null;
+  /**
    * A promotional bet, where the stake is the book's and only the winnings are yours.
    *
    * Settles differently in one direction that matters: a losing bonus bet costs
@@ -160,7 +169,21 @@ export function tally(
   bets: Bet[],
   scores: Map<string, Score>,
 ): { rows: Array<Bet & Settlement>; totals: Tally } {
-  const rows = bets.map((bet) => ({ ...bet, ...settle(bet, scores.get(bet.event_id)) }));
+  // One row per TICKET, not per leg. A parlay's stake is repeated on each of its legs,
+  // so counting rows would read a three-leg $5 ticket as $15 risked and three separate
+  // results -- inflating the sample, the turnover and the record all at once.
+  const rows = groupParlays(bets).map((entry) => {
+    if (entry.kind === "single") {
+      return { ...entry.bet, ...settle(entry.bet, scores.get(entry.bet.event_id)) };
+    }
+    const graded = settleParlay(entry.legs, scores);
+    return {
+      ...entry.legs[0],
+      outcome: graded.outcome,
+      profit: graded.profit,
+      returned: graded.returned,
+    };
+  });
 
   const settled = rows.filter((r) => r.outcome !== "open");
   // Only your own money belongs in the denominator.
@@ -205,4 +228,81 @@ export function activeBets(bets: Bet[]): Bet[] {
   }
   // A void removes both the row it names and itself: it is a tombstone, not a wager.
   return bets.filter((bet) => !corrected.has(bet.bet_id) && bet.voided !== true);
+}
+
+/**
+ * Grade a parlay from its legs.
+ *
+ * All legs must win. One loser kills the ticket however well the others did, which is
+ * the entire nature of the bet and the reason the payout is large.
+ *
+ * A pushed leg is the case with no honest arithmetic here. Books drop it and re-price
+ * the ticket at the remaining legs, and the reduced price is theirs to compute, not
+ * ours -- the odds they credit are not necessarily the product of what is left. So a
+ * parlay containing a push is reported as needing correction rather than being settled
+ * at a number that would be wrong in the book's favour or ours. The edit path exists
+ * for exactly this.
+ */
+export interface ParlaySettlement extends Settlement {
+  legs: Array<Bet & Settlement>;
+  /** True when a leg pushed and the book will have re-priced the ticket. */
+  needsCorrection: boolean;
+}
+
+export function settleParlay(
+  legs: Bet[],
+  scores: Map<string, Score>,
+): ParlaySettlement {
+  const graded = legs.map((leg) => ({ ...leg, ...settle(leg, scores.get(leg.event_id)) }));
+  const first = legs[0];
+  const stake = first?.stake ?? 0;
+  const bonus = first?.bonus === true;
+  const price = first?.parlay_price ?? null;
+
+  const base = { legs: graded, needsCorrection: false };
+
+  if (graded.some((leg) => leg.outcome === "lost")) {
+    return { ...base, outcome: "lost", profit: bonus ? 0 : -stake, returned: 0 };
+  }
+  if (graded.some((leg) => leg.outcome === "open")) {
+    return { ...base, outcome: "open", profit: 0, returned: 0 };
+  }
+  if (graded.some((leg) => leg.outcome === "push")) {
+    // Every remaining leg won, but the book has re-priced. Not ours to guess.
+    return { ...base, outcome: "open", profit: 0, returned: 0, needsCorrection: true };
+  }
+
+  const decimal = price === null ? null : decimalOdds(price);
+  if (decimal === null) return { ...base, outcome: "open", profit: 0, returned: 0 };
+  const profit = stake * (decimal - 1);
+  return {
+    ...base,
+    outcome: "won",
+    profit,
+    returned: bonus ? profit : stake + profit,
+  };
+}
+
+/** Split a ledger into single bets and parlay groups, preserving order. */
+export function groupParlays(bets: Bet[]): Array<
+  { kind: "single"; bet: Bet } | { kind: "parlay"; id: string; legs: Bet[] }
+> {
+  const out: Array<{ kind: "single"; bet: Bet } | { kind: "parlay"; id: string; legs: Bet[] }> = [];
+  const seen = new Map<string, Bet[]>();
+  for (const bet of bets) {
+    const id = bet.parlay_id;
+    if (!id) {
+      out.push({ kind: "single", bet });
+      continue;
+    }
+    const existing = seen.get(id);
+    if (existing) {
+      existing.push(bet);
+      continue;
+    }
+    const legs = [bet];
+    seen.set(id, legs);
+    out.push({ kind: "parlay", id, legs });
+  }
+  return out;
 }

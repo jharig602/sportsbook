@@ -9,7 +9,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { activeBets, type Bet, decimalOdds, didWin, settle, tally } from "./settle.ts";
+import {
+  activeBets,
+  type Bet,
+  decimalOdds,
+  didWin,
+  groupParlays,
+  settle,
+  settleParlay,
+  tally,
+} from "./settle.ts";
 
 function bet(overrides: Partial<Bet> = {}): Bet {
   return {
@@ -331,4 +340,106 @@ test("a correction and a void can both sit in one chain", () => {
     stub("original"),
   ];
   assert.deepEqual(activeBets(bets), []);
+});
+
+// --- parlays ------------------------------------------------------------------------
+
+const won = (id: string) => ({ event_id: id, home_score: 30, away_score: 0 });
+const lost = (id: string) => ({ event_id: id, home_score: 0, away_score: 30 });
+
+function parlayLegs(ids: string[], price = 576): Bet[] {
+  return ids.map((id) =>
+    stub(`leg-${id}`, {
+      parlay_id: "p1",
+      parlay_price: price,
+      event_id: id,
+      market: "spread",
+      side: "home",
+      line: -3,
+      price: -110,
+      stake: 5,
+    }),
+  );
+}
+
+function scoreMap(entries: Array<{ event_id: string; home_score: number; away_score: number }>) {
+  return new Map(entries.map((e) => [e.event_id, { home_score: e.home_score, away_score: e.away_score }]));
+}
+
+test("every leg must win for the parlay to win", () => {
+  const legs = parlayLegs(["a", "b", "c"]);
+  const all = settleParlay(legs, scoreMap([won("a"), won("b"), won("c")]));
+  assert.equal(all.outcome, "won");
+  // +576 on $5 pays $28.80.
+  assert.ok(Math.abs(all.profit - 5 * 5.76) < 1e-9, `${all.profit}`);
+});
+
+test("one losing leg kills the ticket however well the others did", () => {
+  const legs = parlayLegs(["a", "b", "c"]);
+  const graded = settleParlay(legs, scoreMap([won("a"), won("b"), lost("c")]));
+  assert.equal(graded.outcome, "lost");
+  assert.equal(graded.profit, -5, "the stake is lost once, not once per leg");
+});
+
+test("a parlay with an ungraded leg is still open", () => {
+  const legs = parlayLegs(["a", "b", "c"]);
+  const graded = settleParlay(legs, scoreMap([won("a"), won("b")]));
+  assert.equal(graded.outcome, "open");
+  assert.equal(graded.profit, 0);
+});
+
+test("a losing leg settles the ticket even with another leg unplayed", () => {
+  // No need to wait: the ticket is already dead.
+  const legs = parlayLegs(["a", "b", "c"]);
+  const graded = settleParlay(legs, scoreMap([lost("a")]));
+  assert.equal(graded.outcome, "lost");
+});
+
+test("a pushed leg is reported as needing correction, not guessed at", () => {
+  // The book drops the leg and re-prices the ticket, and the odds it credits are not
+  // necessarily the product of what is left. Settling at any number here would be
+  // wrong in somebody's favour.
+  const legs = parlayLegs(["a", "b"]);
+  const push = scoreMap([{ event_id: "a", home_score: 23, away_score: 20 }, won("b")]);
+  const graded = settleParlay(legs, push);
+  assert.equal(graded.needsCorrection, true);
+  assert.equal(graded.outcome, "open");
+  assert.equal(graded.profit, 0);
+});
+
+test("the combined price is the book's, not the product of the legs", () => {
+  // Books round parlay odds down. Recomputing from the legs would pay better than the
+  // ticket actually does, and the error would grow with every leg.
+  const legs = parlayLegs(["a", "b", "c"], 500); // book paid +500, product is higher
+  const graded = settleParlay(legs, scoreMap([won("a"), won("b"), won("c")]));
+  assert.ok(Math.abs(graded.profit - 5 * 5) < 1e-9, `${graded.profit}`);
+});
+
+test("a parlay counts as one ticket in the tally, not one per leg", () => {
+  // Three legs of a $5 ticket is $5 risked and one result -- not $15 and three.
+  const legs = parlayLegs(["a", "b", "c"]);
+  const { rows, totals } = tally(legs, scoreMap([won("a"), won("b"), won("c")]));
+  assert.equal(rows.length, 1);
+  assert.equal(totals.placed, 1);
+  assert.equal(totals.won, 1);
+  assert.equal(totals.staked, 5);
+});
+
+test("parlays and singles live in the same ledger without interfering", () => {
+  const bets = [...parlayLegs(["a", "b"]), stub("solo", { event_id: "z", stake: 10 })];
+  const { rows, totals } = tally(bets, scoreMap([won("a"), won("b"), won("z")]));
+  assert.equal(rows.length, 2, "one parlay plus one single");
+  assert.equal(totals.staked, 15);
+});
+
+test("grouping keeps ledger order and does not merge different tickets", () => {
+  const a = stub("a1", { parlay_id: "A" });
+  const b = stub("b1", { parlay_id: "B" });
+  const a2 = stub("a2", { parlay_id: "A" });
+  const single = stub("s");
+  const grouped = groupParlays([a, b, a2, single]);
+  assert.deepEqual(
+    grouped.map((g) => (g.kind === "parlay" ? `${g.id}:${g.legs.length}` : "single")),
+    ["A:2", "B:1", "single"],
+  );
 });

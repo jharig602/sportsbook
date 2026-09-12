@@ -31,7 +31,7 @@ const COLUMNS = [
   "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
   "commence_time", "market", "side", "line", "price", "stake", "book",
   "model_probability", "market_probability", "rule_version_id", "note", "bonus",
-  "supersedes", "voided",
+  "supersedes", "voided", "parlay_id", "parlay_price",
 ];
 
 export async function saveBet(bet: Bet): Promise<void> {
@@ -54,10 +54,40 @@ export async function listBets(): Promise<Bet[]> {
       // Match the shapes the rest of the app uses: ISO strings, numbers not strings.
       if (value instanceof Date) out[key] = value.toISOString();
       else if (key === "price" && typeof value === "string") out[key] = Number(value);
+      else if (key === "parlay_price" && typeof value === "string") out[key] = Number(value);
       else if (key === "stake" && typeof value === "string") out[key] = Number(value);
       else if (key === "bonus" || key === "voided") out[key] = value === true;
       else out[key] = value;
     }
     return out as unknown as Bet;
   });
+}
+
+/**
+ * Write every leg of a parlay, or none of them.
+ *
+ * A half-written parlay is worse than no parlay: the legs that landed would be graded
+ * as singles, each carrying the full stake, and the ticket would report a result it
+ * never had. One transaction, so the ledger never holds a partial ticket.
+ */
+export async function saveParlay(legs: Bet[]): Promise<void> {
+  if (legs.length === 0) return;
+  const db = await getPool();
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const marks = COLUMNS.map((_, i) => `$${i + 1}`).join(", ");
+    for (const leg of legs) {
+      await client.query(
+        `INSERT INTO bets (${COLUMNS.join(", ")}) VALUES (${marks})`,
+        COLUMNS.map((c) => (leg as unknown as Record<string, unknown>)[c] ?? null),
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }

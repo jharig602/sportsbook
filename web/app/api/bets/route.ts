@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { listBets, saveBet } from "@/lib/bets-db";
+import { listBets, saveBet, saveParlay } from "@/lib/bets-db";
 import type { Bet } from "@/lib/settle";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,79 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Body is not valid JSON." }, { status: 400 });
+  }
+
+  // A parlay arrives as its legs plus one combined price, and is written atomically.
+  // Validated leg by leg with the same rules a single bet gets, because each leg is
+  // graded on its own and a leg with a bad line settles wrongly just as loudly.
+  if (Array.isArray(body.legs)) {
+    const legs = body.legs as Array<Record<string, unknown>>;
+    const stake = Number(body.stake);
+    const parlayPrice = Number(body.parlay_price);
+    const problems: string[] = [];
+    if (legs.length < 2) problems.push("A parlay needs at least two legs.");
+    if (!Number.isFinite(stake) || stake <= 0) problems.push("Stake must be more than zero.");
+    if (!Number.isFinite(parlayPrice) || Math.abs(parlayPrice) < 100) {
+      problems.push("The combined price must be American odds of at least +100 or -100.");
+    }
+    const events = new Set(legs.map((l) => String(l.event_id ?? "")));
+    if (events.size !== legs.length) {
+      // Two legs on one game are correlated, and the book prices that ticket with its
+      // own adjustment. Grading it by multiplying would be wrong in a way nothing here
+      // could detect afterwards.
+      problems.push("Two legs are on the same game; that is a same-game parlay and is priced differently.");
+    }
+    for (const [i, leg] of legs.entries()) {
+      const market = String(leg.market ?? "");
+      const side = String(leg.side ?? "");
+      const price = Number(leg.price);
+      const line = leg.line === null || leg.line === "" ? null : Number(leg.line);
+      if (!leg.event_id) problems.push(`Leg ${i + 1}: pick a game.`);
+      if (!MARKETS.has(market)) problems.push(`Leg ${i + 1}: bad market.`);
+      if (!SIDES.has(side)) problems.push(`Leg ${i + 1}: bad side.`);
+      if (!Number.isFinite(price) || Math.abs(price) < 100) problems.push(`Leg ${i + 1}: bad price.`);
+      if (market !== "moneyline" && (line === null || !Number.isFinite(line))) {
+        problems.push(`Leg ${i + 1}: a spread or total needs a line.`);
+      }
+    }
+    if (problems.length > 0) {
+      return NextResponse.json({ error: problems.join(" ") }, { status: 400 });
+    }
+
+    const parlayId = randomUUID();
+    const placedAt = new Date().toISOString();
+    const rows: Bet[] = legs.map((leg) => ({
+      bet_id: randomUUID(),
+      placed_at: placedAt,
+      league: String(leg.league ?? "ncaaf"),
+      event_id: String(leg.event_id),
+      home_team: (leg.home_team as string) ?? null,
+      away_team: (leg.away_team as string) ?? null,
+      commence_time: (leg.commence_time as string) ?? null,
+      market: String(leg.market) as Bet["market"],
+      side: String(leg.side) as Bet["side"],
+      line: leg.market === "moneyline" ? null : Number(leg.line),
+      price: Number(leg.price),
+      // Repeated on every leg; the tally counts it once per ticket.
+      stake,
+      book: String(body.book ?? "BetMGM"),
+      model_probability: null,
+      market_probability: null,
+      rule_version_id: null,
+      note: (body.note as string) ?? null,
+      bonus: body.bonus === true,
+      supersedes: null,
+      parlay_id: parlayId,
+      parlay_price: parlayPrice,
+    }));
+
+    try {
+      await saveParlay(rows);
+      return NextResponse.json({ ok: true, parlay_id: parlayId, legs: rows.length });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      return NextResponse.json({ error: `Could not save: ${message}` }, { status: 500 });
+    }
   }
 
   const voiding = body.voided === true;
