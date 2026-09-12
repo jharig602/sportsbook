@@ -129,14 +129,11 @@ export function PromoCard({ promo }: { promo: PromoToday }) {
         </a>
       ) : null}
 
-      <p className="border-t border-edge/70 px-3.5 py-2 text-[10px] leading-relaxed text-slate-600">
+      <p className="border-t border-edge/70 px-3.5 py-2 text-[10px] text-slate-600">
         The ${stake} is compulsory, so this is the cheapest way to satisfy it rather than
-        a bet worth making &mdash; {qualifier.beatsVig ? "today it happens to clear the vig" : "today it still loses in expectation"}.
-        The bonus is where the money is: each ${stake} earns its own ${face}, and the
-        whole promotion is worth about ${worth.toFixed(0)}. Counted from bets you have
-        logged, so a day you did not log is a day this cannot see.{" "}
+        a bet worth making. Promotion worth ~${worth.toFixed(0)}.{" "}
         <Link href="/bets" className="underline underline-offset-2">
-          Log a bet
+          Log it
         </Link>
       </p>
     </section>
