@@ -376,33 +376,29 @@ export default async function SurvivorPage({
             ))}
         </div>
 
-        <p className="mt-2.5 text-[12px] leading-relaxed text-slate-400">
+        <p className="mt-2 text-[11px] text-slate-500">
           {(here.pool.lossesAllowed ?? 0) > 0 ? (
             <>
-              The spare life is worth{" "}
-              <span className="font-medium text-slate-200">
+              Spare life worth{" "}
+              <span className="font-medium text-slate-300">
                 {here.lifeMultiple.toFixed(1)}&times;
-              </span>{" "}
-              &mdash; that is how much more often you last the season than you would if
-              one loss ended it. Planning this pool on a one-life number would understate
-              it by that factor.{" "}
+              </span>
+              .{" "}
             </>
           ) : null}
           {here.odds.likelyEndWeek === null ? (
-            <>
-              <span className="font-medium text-amber-300">
-                This pool does not resolve inside the season.
-              </span>{" "}
-              About {here.odds.fieldAlive[here.odds.fieldAlive.length - 1].toFixed(0)}{" "}
-              rivals are still standing after week {here.odds.alive.length}, so surviving
-              will not win it. The prize goes to whoever separated from the field, which
-              means a pick most of them did not make.
-            </>
+            <span className="text-amber-400/90">
+              Does not resolve inside the season &mdash; about{" "}
+              {here.odds.fieldAlive[here.odds.fieldAlive.length - 1].toFixed(0)} rivals
+              still standing, so separation decides it, not survival.
+            </span>
           ) : (
             <>
-              The field is expected to be under one rival by week{" "}
-              <span className="font-medium text-slate-200">{here.odds.likelyEndWeek}</span>,
-              so simply not losing is a real route to winning this one.
+              Field drops under one rival by week{" "}
+              <span className="font-medium text-slate-300">
+                {here.odds.likelyEndWeek}
+              </span>
+              .
             </>
           )}
         </p>
