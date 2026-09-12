@@ -31,6 +31,14 @@ export { collapseAlerts, normalizeRow };
 /** Mirrors calibration.py. Below this many decided games, no rate is published. */
 export const MIN_SAMPLES = 50;
 
+export interface AlertCounts {
+  alerts: number;
+  grades: number;
+  /** When the current rule version started producing alerts. */
+  firstAlert: string | null;
+  lastGraded: string | null;
+}
+
 export interface DataSource {
   games(): Promise<Game[]>;
   /**
@@ -41,6 +49,8 @@ export interface DataSource {
    * methods as one. `activeRuleVersion` is stamped by the pipeline on every run.
    */
   alerts(): Promise<Alert[]>;
+  /** True totals, counted in SQL rather than inferred from the capped alert list. */
+  alertCounts(): Promise<AlertCounts>;
   history(eventId: string): Promise<HistoryPoint[]>;
   grades(): Promise<Grade[]>;
   results(): Promise<GameResult[]>;
@@ -114,6 +124,18 @@ const fixtureSource: DataSource = {
     const data = await snapshot();
     return activeOnly(data.alerts, data.activeRuleVersion);
   },
+  alertCounts: async () => {
+    // The fixture holds everything it has, so the arrays ARE the totals here.
+    const data = await snapshot();
+    const alerts = activeOnly(data.alerts, data.activeRuleVersion);
+    const grades = activeOnly(data.grades ?? [], data.activeRuleVersion);
+    return {
+      alerts: alerts.length,
+      grades: grades.length,
+      firstAlert: alerts.map((a) => a.created_at).sort()[0] ?? null,
+      lastGraded: null,
+    };
+  },
   history: async (eventId) => (await snapshot()).history[eventId] ?? [],
   grades: async () => {
     const data = await snapshot();
@@ -154,6 +176,26 @@ SELECT g.grade_id, g.alert_id, g.graded_at, g.rule_version_id, g.market,
        g.result_covered, g.result_push, a.kind, a.league
   FROM alert_grades g JOIN alerts a USING (alert_id)
  WHERE g.rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)`;
+
+/**
+ * How many alerts and grades there actually are.
+ *
+ * Counted in SQL rather than measured off the arrays, because ALERTS is capped at the
+ * strongest 500 while GRADES is uncapped. Subtracting one from the other produced an
+ * "awaiting results" figure that was not a backlog at all -- it was the cap minus every
+ * grade ever written, and it moved when the cap bound rather than when games were
+ * played. Exactly the kind of number this project exists not to publish.
+ */
+const COUNTS = `
+SELECT
+  (SELECT COUNT(*) FROM alerts
+    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS alerts,
+  (SELECT COUNT(*) FROM alert_grades
+    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS grades,
+  (SELECT MIN(created_at) FROM alerts
+    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS first_alert,
+  (SELECT MAX(graded_at) FROM alert_grades
+    WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)) AS last_graded`;
 
 const RESULTS = `
 SELECT event_id, league, home_team, away_team, home_score, away_score,
@@ -296,6 +338,17 @@ const postgresSource: DataSource = {
   alerts: cachedQuery(() => query<Alert>(ALERTS), "alerts"),
   history: async (eventId) => query<HistoryPoint>(HISTORY, [eventId]),
   grades: cachedQuery(() => query<Grade>(GRADES), "grades"),
+  alertCounts: cachedQuery(async () => {
+    const rows = await query<Record<string, unknown>>(COUNTS);
+    const row = rows[0] ?? {};
+    const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
+    return {
+      alerts: num(row.alerts),
+      grades: num(row.grades),
+      firstAlert: row.first_alert ? String(row.first_alert) : null,
+      lastGraded: row.last_graded ? String(row.last_graded) : null,
+    };
+  }, "alertCounts"),
   results: cachedQuery(() => query<GameResult>(RESULTS), "results"),
   // Refit only by the backfill workflow, so it can be cached far longer.
   marginModels: unstable_cache(async () => {
@@ -384,15 +437,28 @@ export function calibratedProbability(
   return inBucket.filter((g) => g.result_covered).length / inBucket.length;
 }
 
-export function buildTrackRecord(alerts: Alert[], grades: Grade[]): TrackRecord {
+export function buildTrackRecord(
+  alerts: Alert[],
+  grades: Grade[],
+  /**
+   * True totals. Without these the headline numbers come off a capped list: ALERTS
+   * takes the strongest 500, so "alerts" read as exactly 500 forever and "awaiting"
+   * was that cap minus every grade ever written -- a figure that moved when the cap
+   * bound rather than when a game was played.
+   */
+  counts?: { alerts: number; grades: number },
+): TrackRecord {
   const kinds = ["first_price", "steam", "key_number", "drift"] as const;
   const decided = grades.filter((g) => g.result_covered !== null);
 
   return {
     minSamples: MIN_SAMPLES,
-    totalAlerts: alerts.length,
-    totalGraded: grades.length,
-    awaitingResults: alerts.length - grades.length,
+    totalAlerts: counts?.alerts ?? alerts.length,
+    totalGraded: counts?.grades ?? grades.length,
+    awaitingResults: Math.max(
+      0,
+      (counts?.alerts ?? alerts.length) - (counts?.grades ?? grades.length),
+    ),
     byKind: kinds.map((kind) =>
       summarise(kind, grades.filter((g) => g.kind === kind)),
     ),

@@ -182,12 +182,13 @@ function SpreadBands({ model, league }: { model: MarginModel; league: string }) 
 
 export default async function RecordPage() {
   const data = getData();
-  const [alerts, grades, models] = await Promise.all([
+  const [alerts, grades, models, counts] = await Promise.all([
     data.alerts(),
     data.grades(),
     data.marginModels(),
+    data.alertCounts(),
   ]);
-  const record = buildTrackRecord(alerts, grades);
+  const record = buildTrackRecord(alerts, grades, counts);
 
   return (
     <>
