@@ -4,16 +4,29 @@ Mirrors the ``http_request(url, headers, timeout) -> (status, headers, body)``
 contract that ``HttpClient`` depends on, and records every call so tests can
 assert on the request side as well as the parse side.
 """
+
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 
 def scoreboard(events):
     return {"events": events}
 
 
-def event(event_id="401856782", date="2026-09-12T16:00Z", home=("197", "Oklahoma State Cowboys"),
+#: The day fixtures kick off on, always in the future.
+#:
+#: This was a hardcoded date, which made every test using it a time bomb: the
+#: poller correctly skips a game already under way, so the suite passed all
+#: morning and failed the moment that fixed kickoff passed. Six tests broke
+#: mid-afternoon with no code change behind it, which is the worst kind of
+#: failure -- it points at the wrong thing.
+FIXTURE_DAY = (datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat()
+FIXTURE_KICKOFF = f"{FIXTURE_DAY}T16:00Z"
+
+
+def event(event_id="401856782", date=FIXTURE_KICKOFF, home=("197", "Oklahoma State Cowboys"),
           away=("2483", "Oregon Ducks"), state="pre", completed=False, name="STATUS_SCHEDULED"):
     return {
         "id": event_id, "date": date,

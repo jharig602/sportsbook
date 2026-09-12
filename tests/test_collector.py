@@ -13,7 +13,7 @@ import json
 import pytest
 
 import odds_poller as op
-from helpers import EMPTY_ODDS, FakeHttp, event, odds_item, odds_page, scoreboard
+from helpers import EMPTY_ODDS, FakeHttp, event, odds_item, odds_page, scoreboard, FIXTURE_DAY
 
 
 def run(routes, argv, default=None):
@@ -36,7 +36,8 @@ def run(routes, argv, default=None):
     return code, summary, http
 
 
-BASE_ARGV = ["--league", "ncaaf", "--start-date", "2026-09-12", "--days", "1", "--dry-run"]
+# Derived from the same day the fixtures kick off on, so the window always contains them.
+BASE_ARGV = ["--league", "ncaaf", "--start-date", FIXTURE_DAY, "--days", "1", "--dry-run"]
 
 
 # --- price parsing -------------------------------------------------------------
@@ -76,7 +77,7 @@ def test_cfbd_does_not_get_espn_headers(monkeypatch):
     monkeypatch.setenv("CFBD_KEY", "test-key")
     _, _, http = run({"collegefootballdata.com": []},
                      ["--league", "ncaaf", "--source", "cfbd", "--cfbd-year", "2026",
-                      "--cfbd-week", "2", "--start-date", "2026-09-12", "--days", "1",
+                      "--cfbd-week", "2", "--start-date", FIXTURE_DAY, "--days", "1",
                       "--dry-run"])
     assert http.calls
     for url, headers in http.calls:
