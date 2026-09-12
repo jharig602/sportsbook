@@ -23,12 +23,16 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Incorrect passcode." }, { status: 401 });
   }
-  if (String(body.passcode ?? "") !== expected) {
+  const given = String(body.passcode ?? "");
+  const viewer = process.env.APP_VIEWER_PASSCODE;
+  // Either passcode is accepted; which one decides what the cookie unlocks.
+  const matched = given === expected ? expected : viewer && given === viewer ? viewer : null;
+  if (matched === null) {
     return NextResponse.json({ error: "Incorrect passcode." }, { status: 401 });
   }
 
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(UNLOCK_COOKIE, await digest(expected), {
+  const response = NextResponse.json({ ok: true, role: matched === expected ? "owner" : "viewer" });
+  response.cookies.set(UNLOCK_COOKIE, await digest(matched), {
     httpOnly: true,
     sameSite: "lax",
     secure: true,

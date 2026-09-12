@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { digest, isOpenPath, sameDigest } from "./unlock.ts";
+import { digest, isOpenPath, roleFor, sameDigest, viewerAllowed } from "./unlock.ts";
 
 test("the cookie holds a digest, never the passcode", () => {
   return digest("hunter2").then((d) => {
@@ -65,4 +65,59 @@ test("pages are gated too, so the ledger is not world-readable", () => {
   for (const p of ["/", "/bets", "/shop", "/survivor", "/record"]) {
     assert.equal(isOpenPath(p), false, p);
   }
+});
+
+// --- the read-only viewer -------------------------------------------------------------
+
+test("a viewer sees the market, never your money", () => {
+  for (const p of ["/", "/shop", "/record", "/movers", "/edges", "/about", "/game/401856782"]) {
+    assert.equal(viewerAllowed(p), true, p);
+  }
+  for (const p of ["/bets", "/survivor"]) {
+    assert.equal(viewerAllowed(p), false, `${p} must stay private`);
+  }
+});
+
+test("survivor is closed to viewers as strategy, not privacy", () => {
+  // The objective is P(last entrant standing), and its value comes from NOT holding
+  // the same ticket as the field. Showing a rival the pick converts a differentiated
+  // entry into a shared one for free.
+  assert.equal(viewerAllowed("/survivor"), false);
+  assert.equal(viewerAllowed("/survivor?pool=1"), false, "a query string is not a way in");
+});
+
+test("a viewer can never write, on any route", () => {
+  for (const p of [
+    "/api/bets", "/api/book-lines", "/api/pools", "/api/settings",
+    "/api/favourites", "/api/push/test", "/api/push/subscribe", "/api/unlock",
+  ]) {
+    assert.equal(viewerAllowed(p), false, p);
+  }
+});
+
+test("a prefix is not a way past the page list", () => {
+  // "/betsomething" must not ride in on "/bets" being absent, and "/shopping" must not
+  // ride in on "/shop" being present.
+  assert.equal(viewerAllowed("/shopping"), false);
+  assert.equal(viewerAllowed("/recordings"), false);
+});
+
+test("the cookie decides the role, and a wrong one decides nothing", () => {
+  const owner = "a".repeat(64);
+  const viewer = "b".repeat(64);
+  assert.equal(roleFor(owner, owner, viewer), "owner");
+  assert.equal(roleFor(viewer, owner, viewer), "viewer");
+  assert.equal(roleFor("c".repeat(64), owner, viewer), null);
+  assert.equal(roleFor(undefined, owner, viewer), null);
+});
+
+test("with no viewer passcode set, only the owner cookie means anything", () => {
+  const owner = "a".repeat(64);
+  assert.equal(roleFor(owner, owner, null), "owner");
+  assert.equal(roleFor("b".repeat(64), owner, null), null);
+});
+
+test("the owner cookie wins even if both digests somehow matched", () => {
+  const same = "a".repeat(64);
+  assert.equal(roleFor(same, same, same), "owner", "never downgrade the owner");
 });

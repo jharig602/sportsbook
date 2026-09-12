@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 
 type Tab = { href: string; label: string; icon: React.ReactNode };
 
+import { viewerAllowed, type Role } from "@/lib/unlock";
+
 const stroke = {
   fill: "none",
   stroke: "currentColor",
@@ -86,13 +88,16 @@ const TABS: Tab[] = [
   },
 ];
 
-export function NavBar() {
+export function NavBar({ role }: { role: Role }) {
   const pathname = usePathname();
+  // A viewer is shown only what they can open. Rendering a tab that bounces them back
+  // to the board would read as a broken app rather than a deliberate boundary.
+  const tabs = role === "viewer" ? TABS.filter((t) => viewerAllowed(t.href)) : TABS;
 
   return (
     <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-edge/60 bg-ink/80 backdrop-blur-2xl">
       <ul className="mx-auto flex w-full max-w-3xl px-1">
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const active =
             tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
           return (

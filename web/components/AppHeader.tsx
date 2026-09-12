@@ -1,6 +1,8 @@
 import Link from "next/link";
 
-export function AppHeader() {
+import type { Role } from "@/lib/unlock";
+
+export function AppHeader({ role }: { role: Role }) {
   // Read at render. When no passcode is configured the app is reachable by anyone who
   // finds the URL, and /api/book-lines accepts a quote that joins the consensus every
   // edge is measured against. Failing open is defensible; failing open QUIETLY is not.
@@ -28,7 +30,11 @@ export function AppHeader() {
             Dissent
           </span>
         </Link>
-        {unprotected ? (
+        {role === "viewer" ? (
+          <span className="ml-auto rounded-full bg-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            read only
+          </span>
+        ) : unprotected ? (
           <span
             className="ml-auto rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-rose-300"
             title="Set APP_PASSCODE in Vercel to require a passcode."

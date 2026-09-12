@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 
+import { cookies } from "next/headers";
+
 import { themeFor } from "@/lib/favourites";
+import { digest, roleFor, UNLOCK_COOKIE } from "@/lib/unlock";
 import { getFavourites } from "@/lib/settings-db";
 import { Inter } from "next/font/google";
 
@@ -37,6 +40,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // of a missing database: no favourites simply means the default blue.
   const theme = themeFor(await getFavourites().catch(() => []));
 
+  // Resolved here rather than in middleware headers, so a page render and its nav can
+  // never disagree about what this visitor is allowed to open.
+  const passcode = process.env.APP_PASSCODE;
+  const viewerCode = process.env.APP_VIEWER_PASSCODE;
+  const role = passcode
+    ? roleFor(
+        (await cookies()).get(UNLOCK_COOKIE)?.value,
+        await digest(passcode),
+        viewerCode ? await digest(viewerCode) : null,
+      )
+    : "owner";
+
   return (
     <html lang="en" className={inter.variable}>
       {/*
@@ -57,9 +72,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             : undefined
         }
       >
-        <AppHeader />
+        <AppHeader role={role} />
         <main className="mx-auto w-full max-w-3xl px-3 pb-28 pt-3">{children}</main>
-        <NavBar />
+        <NavBar role={role} />
         <ServiceWorker />
       </body>
     </html>

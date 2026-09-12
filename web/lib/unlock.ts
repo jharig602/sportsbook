@@ -64,3 +64,40 @@ export function isOpenPath(pathname: string): boolean {
     pathname === "/offline.html"
   );
 }
+
+export type Role = "owner" | "viewer" | null;
+
+/**
+ * Pages a viewer may see.
+ *
+ * Everything about the MARKET is shareable — the board, the line shopping, the track
+ * record of whether any of this works. Everything about YOU is not: the bets ledger is
+ * your money, and the survivor picks are the one thing that must not be shared at all.
+ *
+ * The survivor exclusion is not privacy, it is strategy. The whole objective this app
+ * computes is P(last entrant standing), and its value comes from NOT holding the same
+ * ticket as the field — measured at up to 1.43x par in a 137-entry pool. Showing a
+ * rival your pick converts a differentiated entry into a shared one for free, which is
+ * precisely the thing the planner spends its whole run avoiding.
+ */
+const VIEWER_PAGES = ["/", "/shop", "/record", "/movers", "/edges", "/about", "/game"];
+
+export function viewerAllowed(pathname: string): boolean {
+  // No writes, ever. A viewer who could POST could type a line into /api/book-lines
+  // that joins the consensus every price on the board is measured against.
+  if (pathname.startsWith("/api/")) return false;
+  return VIEWER_PAGES.some(
+    (page) => pathname === page || (page !== "/" && pathname.startsWith(`${page}/`)),
+  );
+}
+
+/** Which passcode the cookie matches, if either. */
+export function roleFor(
+  cookie: string | undefined,
+  ownerDigest: string,
+  viewerDigest: string | null,
+): Role {
+  if (sameDigest(cookie, ownerDigest)) return "owner";
+  if (viewerDigest && sameDigest(cookie, viewerDigest)) return "viewer";
+  return null;
+}

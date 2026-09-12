@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isOpenPath, sameDigest, UNLOCK_COOKIE, digest } from "@/lib/unlock";
+import { digest, isOpenPath, roleFor, UNLOCK_COOKIE, viewerAllowed } from "@/lib/unlock";
 
 /**
  * The passcode gate.
@@ -20,9 +20,25 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (isOpenPath(pathname)) return NextResponse.next();
 
-  const expected = await digest(passcode);
-  if (sameDigest(request.cookies.get(UNLOCK_COOKIE)?.value, expected)) {
-    return NextResponse.next();
+  const viewerCode = process.env.APP_VIEWER_PASSCODE;
+  const role = roleFor(
+    request.cookies.get(UNLOCK_COOKIE)?.value,
+    await digest(passcode),
+    viewerCode ? await digest(viewerCode) : null,
+  );
+
+  if (role === "owner") return NextResponse.next();
+  if (role === "viewer") {
+    if (viewerAllowed(pathname)) return NextResponse.next();
+    // Not "locked" — they are let in, just not here. Sending them to the passcode form
+    // would imply a better passcode exists for them, which it does not.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Read-only." }, { status: 403 });
+    }
+    const home = request.nextUrl.clone();
+    home.pathname = "/";
+    home.search = "";
+    return NextResponse.redirect(home);
   }
 
   // An API call gets a status it can act on; a page gets sent to the passcode form.
