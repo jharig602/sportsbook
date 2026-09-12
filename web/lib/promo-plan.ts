@@ -1,7 +1,9 @@
+import { withoutBlowouts, isBlowout } from "./blowout";
 import { allBookLines } from "./book-lines";
 import { listBets } from "./bets-db";
 import { buildBoardShop } from "./board-shop";
 import { getData } from "./data";
+import { getMaxSpread } from "./settings-db";
 import { winProbabilityFromSpread } from "./probability";
 import {
   bestBonusTarget,
@@ -54,6 +56,7 @@ export async function promoToday(): Promise<PromoToday> {
     listBets().catch(() => []),
     data.results().catch(() => []),
   ]);
+  const maxSpread = await getMaxSpread();
 
   // Games you already have money on. Recommending one of those is useless advice and
   // quietly concentrates risk: the two tickets then win and lose together.
@@ -62,7 +65,12 @@ export async function promoToday(): Promise<PromoToday> {
 
   const done = progress(qualifyingDates(ledger, PROMO_BOOK, PROMO_STAKE), PROMO_DAYS);
   const shop = buildBoardShop(games, lines, models);
-  const qualifier = bestQualifier(shop.rows, PROMO_BOOK, PROMO_STAKE, alreadyOn);
+  const qualifier = bestQualifier(
+    withoutBlowouts(shop.rows, maxSpread).kept,
+    PROMO_BOOK,
+    PROMO_STAKE,
+    alreadyOn,
+  );
 
   // Bonus candidates: every moneyline this book offers, priced with OUR model's
   // probability rather than the one implied by the price. The implied number carries
@@ -74,6 +82,9 @@ export async function promoToday(): Promise<PromoToday> {
     const spread = game.spread?.home?.line;
     if (!model || spread === null || spread === undefined) continue;
     if (new Date(game.commenceTime).getTime() <= Date.now()) continue;
+    // A bonus bet on a game nobody has priced seriously is the same problem as a
+    // qualifier on one: the long price is long because the market is not watching.
+    if (isBlowout(spread, maxSpread)) continue;
 
     for (const side of ["home", "away"] as const) {
       const quotes = lines.get(game.eventId) ?? [];

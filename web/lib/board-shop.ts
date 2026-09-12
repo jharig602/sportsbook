@@ -19,6 +19,14 @@ import type { Game } from "./types";
 
 export interface BoardEdge extends ShopResult {
   eventId: string;
+  /**
+   * The game's own spread, home side, regardless of which market this row is.
+   *
+   * Carried so a row can be judged on how lopsided the GAME is, not how lopsided the
+   * bet is. A moneyline on a 56-point mismatch is exactly as thinly traded as the
+   * spread on it, and filtering only on the row's own line would let it through.
+   */
+  gameSpread: number | null;
   league: Game["league"];
   homeTeam: string;
   awayTeam: string;
@@ -72,6 +80,7 @@ export function buildBoardShop(
       if (result.booksCompared === 0 || result.stale) continue;
       rows.push({
         ...result,
+        gameSpread: game.spread?.home?.line ?? null,
         eventId: game.eventId,
         league: game.league,
         homeTeam: game.homeTeam ?? "Home",

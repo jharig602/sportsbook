@@ -3,6 +3,7 @@ import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, Explainer, NotAdvice, PageHeader, Pill, Segmented, Stats } from "@/components/ui";
 import { ParlayBuilder } from "@/components/ParlayBuilder";
 import { PromoCard } from "@/components/PromoCard";
+import { DEFAULT_MAX_SPREAD, NO_LIMIT, parseMaxSpread, withoutBlowouts } from "@/lib/blowout";
 import { allBookLines } from "@/lib/book-lines";
 import { bookLink } from "@/lib/book-links";
 import { promoToday } from "@/lib/promo-plan";
@@ -116,9 +117,9 @@ function Row({ row }: { row: BoardEdge }) {
 export default async function ShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ book?: string }>;
+  searchParams: Promise<{ book?: string; spread?: string }>;
 }) {
-  const { book: bookFilter } = await searchParams;
+  const { book: bookFilter, spread: spreadParam } = await searchParams;
   const data = getData();
   const [games, models, lines, myBooks, promo] = await Promise.all([
     data.games(),
@@ -135,6 +136,13 @@ export default async function ShopPage({
 
   const shop = buildBoardShop(games, lines, models);
 
+  // Games too lopsided for anyone to have priced seriously. Not because blowouts are
+  // volatile -- measured, they are not -- but because the sample thins to nothing out
+  // there and a two-point gap in a market nobody bets is far more likely stale than
+  // real. See blowout.ts for the numbers.
+  const maxSpread = spreadParam === undefined ? DEFAULT_MAX_SPREAD : parseMaxSpread(spreadParam);
+  const cut = withoutBlowouts(shop.rows, maxSpread);
+
   // "My books" appears only once some are chosen, and becomes the default then: a
   // ranked list of prices you cannot get is not the first thing you should see.
   const hasMine = myBooks.some((book) => shop.books.includes(book));
@@ -146,12 +154,13 @@ export default async function ShopPage({
         ? requested
         : "all";
 
+  // Every view reads the filtered list, so the cut cannot be escaped by switching tab.
   const visible =
     active === "all"
-      ? shop.rows
+      ? cut.kept
       : active === "mine"
-        ? shop.rows.filter((row) => myBooks.includes(row.book))
-        : shop.rows.filter((row) => row.book === active);
+        ? cut.kept.filter((row) => myBooks.includes(row.book))
+        : cut.kept.filter((row) => row.book === active);
   const visiblePositive = visible.filter((row) => (row.expectedRoi ?? -1) > 0);
 
   const options = [
@@ -216,6 +225,28 @@ export default async function ShopPage({
                 distance is the finding.
               </p>
             </Card>
+          ) : null}
+
+          {cut.removed > 0 ? (
+            <p className="mb-3 text-[11px] text-slate-600">
+              {cut.removed} row{cut.removed === 1 ? "" : "s"} hidden on games of{" "}
+              {maxSpread}+ points &mdash; too few comparable games have ever been played
+              for the model to price them, and nobody is betting those lines hard enough
+              for a gap to mean much.{" "}
+              <a
+                href={`/shop?book=${active}&spread=${NO_LIMIT}`}
+                className="underline underline-offset-2"
+              >
+                show them
+              </a>
+            </p>
+          ) : maxSpread >= NO_LIMIT ? (
+            <p className="mb-3 text-[11px] text-amber-500/80">
+              Showing every game, including mismatches the model cannot price.{" "}
+              <a href={`/shop?book=${active}`} className="underline underline-offset-2">
+                hide them again
+              </a>
+            </p>
           ) : null}
 
           <ParlayBuilder rows={visible} />

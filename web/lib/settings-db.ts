@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_SPREAD, parseMaxSpread } from "./blowout";
 import { databaseUrl } from "./env";
 import { DEFAULT_POOLS, parsePools, type StoredPool } from "./pools";
 import { parseMyBooks, serializeMyBooks } from "./my-books";
@@ -190,4 +191,38 @@ export async function recordPromoSent(date: string): Promise<void> {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
     [PROMO_SENT_KEY, date],
   );
+}
+
+export const MAX_SPREAD_KEY = "max_spread";
+
+/**
+ * How lopsided a game may be before its prices stop being shown.
+ *
+ * Stored rather than kept in the URL because the notification has to obey it too: a
+ * board that hides a 56-point mismatch while the push recommends one is worse than
+ * either behaviour on its own.
+ */
+export async function getMaxSpread(): Promise<number> {
+  if (!databaseUrl()) return DEFAULT_MAX_SPREAD;
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [
+      MAX_SPREAD_KEY,
+    ]);
+    return parseMaxSpread(result.rows[0]?.value ?? null);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return DEFAULT_MAX_SPREAD;
+    throw error;
+  }
+}
+
+export async function setMaxSpread(points: number): Promise<number> {
+  const db = await getPool();
+  const value = parseMaxSpread(String(points));
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [MAX_SPREAD_KEY, String(value)],
+  );
+  return value;
 }
