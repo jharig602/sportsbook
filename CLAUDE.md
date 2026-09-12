@@ -109,12 +109,23 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
 
 ## Scheduling reality
 
-`.github/workflows/collect.yml` asks for ~5 runs a day midweek and ~48 at a weekend.
-**GitHub delivers 3–5 a day, at arbitrary minutes.** Measured over five days: zero landed
-in the old two-hour promo window.
+`.github/workflows/collect.yml` is dense inside game windows and sparse outside, asking
+for ~144 cycles a week (~21/day). **GitHub has historically delivered 3–5 a day, at
+arbitrary minutes** — measured over five days, zero landed in the old two-hour promo
+window. Whether the new shape is delivered any better is visible on the Freshness line,
+not assumed.
 
-This is not a minutes problem — usage is ~320 of the 2,000 free private minutes a month
-(16%). It is the scheduler dropping a cron that asks for too much.
+Minutes are not a constraint: the repo is public, so Actions are unlimited. The three
+real limits, measured:
+
+| limit | figure |
+|---|---|
+| **ESPN** (unofficial endpoint) | ~195 requests per cycle. Being blocked leaves you with no data, not stale data. |
+| **Neon** free tier | 0.5 GB. ~612 snapshot rows per cycle, plus raw bodies pruned at 7 days. |
+| **GitHub's scheduler** | Drops most of what a dense cron asks. Asking harder does not produce more. |
+
+And the one none of those capture: **lines barely move midweek.** NCAAF prices are 6%
+populated 13 days out. Polling hard on a Tuesday is watching nothing happen, repeatedly.
 
 Consequences that are already handled, and must stay handled:
 
@@ -163,6 +174,21 @@ Pool labels derive from size unless named. Crowding comes from the popularity fe
 default it to a guess.
 
 ---
+
+## Access
+
+The app is behind a passcode: `APP_PASSCODE` in Vercel, checked in `middleware.ts`
+before any route. With it unset the app stays open — so you are never locked out of your
+own data — but the header shows a red **unlocked** badge.
+
+It has to be a cookie rather than a bearer secret because the browser calls the write
+endpoints itself, and a secret the client must send is in the bundle. The dispatchers
+stay open because Actions has no cookie; they carry a bearer secret already.
+
+The repo is **public**. Nothing secret has ever been committed (history was scanned; the
+only connection strings are placeholders), and credentials live in Actions secrets and
+Vercel env. **Actions logs are public too** — keep anything sensitive out of stdout, and
+note `redact_url()` exists for exactly that reason.
 
 ## Deploying
 
