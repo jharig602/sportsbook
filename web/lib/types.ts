@@ -69,6 +69,29 @@ export interface Grade {
   league: League;
 }
 
+/**
+ * One cross-book edge, scored.
+ *
+ * `fair_probability` is the prediction the rule made, copied onto the grade rather than
+ * joined for: a calibration curve is read BY predicted probability, so joining to a
+ * model that gets refitted would re-bucket history underneath the chart.
+ */
+export interface ShopGrade {
+  grade_id: string;
+  pick_id: string;
+  graded_at: string;
+  rule_version_id: string;
+  league: League;
+  market: Market;
+  side: Side;
+  line: number | null;
+  price: number | null;
+  fair_probability: number;
+  expected_roi: number | null;
+  result_covered: boolean | null;
+  result_push: boolean;
+}
+
 export interface GameResult {
   event_id: string;
   league: League;

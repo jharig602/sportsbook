@@ -1,7 +1,9 @@
 import { Freshness } from "@/components/Freshness";
 import { Card, Empty, PageHeader, Segmented, Stats } from "@/components/ui";
+import { calibrate, type Calibration } from "@/lib/calibration";
 import {
   buildBreakdown,
+  type Gradeable,
   filterGrades,
   LEAGUES,
   MARKETS,
@@ -371,12 +373,93 @@ function MarketGrid({ breakdown, market, league }: { breakdown: Breakdown; marke
   );
 }
 
+/**
+ * Did the probabilities tell the truth.
+ *
+ * Shown only for the shopping rule, because only it makes a probabilistic claim. An
+ * alert names a side; a shop row says "this side, at this number, wins 56% of the time",
+ * and that is a far sharper thing to be wrong about. It is also testable much sooner —
+ * the cover record has been undecided for a season, and this needs dozens.
+ */
+function CalibrationTable({ calibration }: { calibration: Calibration }) {
+  if (calibration.n === 0) return null;
+  const pct = (v: number | null, digits = 1) => (v === null ? "—" : `${(v * 100).toFixed(digits)}%`);
+
+  return (
+    <Card className="mb-3 px-3.5 py-3">
+      <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        Were the probabilities honest
+      </h2>
+      <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+        Each band asks whether picks called at one probability actually landed at it. A
+        band is judged against <em>its own claim</em>, not against break-even: predicting
+        42% and delivering 42% is perfectly honest and still a losing bet, and confusing
+        the two is how a working model gets thrown out.
+      </p>
+      <div className="-mx-1 overflow-x-auto">
+        <table className="w-full min-w-[380px] text-[12px]">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+              <th className="px-1 py-1 text-left font-medium">said</th>
+              <th className="px-1 py-1 text-right font-medium">n</th>
+              <th className="px-1 py-1 text-right font-medium">predicted</th>
+              <th className="px-1 py-1 text-right font-medium">actual</th>
+              <th className="px-1 py-1 text-right font-medium">gap</th>
+            </tr>
+          </thead>
+          <tbody>
+            {calibration.bands.map((band) => (
+              <tr key={band.label} className="border-t border-edge/60">
+                <td className="px-1 py-1.5 text-slate-300">{band.label}</td>
+                <td className="tabular px-1 py-1.5 text-right text-slate-500">{band.n}</td>
+                <td className="tabular px-1 py-1.5 text-right text-slate-400">{pct(band.predicted)}</td>
+                <td className="tabular px-1 py-1.5 text-right text-slate-200">{pct(band.actual)}</td>
+                <td
+                  className={`tabular px-1 py-1.5 text-right ${
+                    band.gap === null
+                      ? "text-slate-600"
+                      : band.verdict?.state === "fails"
+                        ? "text-rose-300"
+                        : "text-slate-500"
+                  }`}
+                >
+                  {band.gap === null ? "—" : `${band.gap > 0 ? "+" : ""}${(band.gap * 100).toFixed(1)}`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {calibration.brier !== null && calibration.brierBaseline !== null ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+          Brier score{" "}
+          <span
+            className={`tabular ${
+              calibration.brier < calibration.brierBaseline ? "text-emerald-300" : "text-rose-300"
+            }`}
+          >
+            {calibration.brier.toFixed(4)}
+          </span>{" "}
+          against {calibration.brierBaseline.toFixed(4)} for saying &ldquo;coin
+          flip&rdquo; about every one of the same games. Carried because the table above
+          cannot catch a rule that says 50% to everything &mdash; that rule is perfectly
+          calibrated and perfectly useless, and only this number says so.
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 export default async function RecordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ market?: string; league?: string }>;
+  searchParams: Promise<{ market?: string; league?: string; source?: string }>;
 }) {
   const params = await searchParams;
+  // Which rule these numbers describe. It was never named before, and a page called
+  // "Track Record" showing only the line-movement rule reads as a verdict on the whole
+  // app -- which is exactly how it was read.
+  const source: "movers" | "shop" = params.source === "shop" ? "shop" : "movers";
   const market: MarketFilter =
     params.market === "spread" || params.market === "total" || params.market === "moneyline"
       ? params.market
@@ -384,25 +467,45 @@ export default async function RecordPage({
   const league: LeagueFilter =
     params.league === "nfl" || params.league === "ncaaf" ? params.league : "all";
   const data = getData();
-  const [alerts, grades, models, counts, freshness] = await Promise.all([
+  const [alerts, moverGrades, shopGrades, models, counts, freshness] = await Promise.all([
     data.alerts(),
     data.grades(),
+    data.shopGrades(),
     data.marginModels(),
     data.alertCounts(),
     data.freshness(),
   ]);
+  // Never pooled. They answer different questions, and one rate over both would
+  // describe neither -- which is the confusion this whole toggle exists to end. Kept as
+  // two separately typed lists rather than a union with casts at the bottom: a cast here
+  // would compile and then read `move_strength` off a row that has none.
+  const moverShown = filterGrades(moverGrades, market, league);
+  const shopShown = filterGrades(shopGrades, market, league);
+  const shown: Gradeable[] = source === "shop" ? shopShown : moverShown;
+
   // The grid always shows every cell -- narrowing it would hide the thing it exists to
   // reveal -- but everything below reflects the filter.
-  const breakdown = buildBreakdown(grades);
-  const shown = filterGrades(grades, market, league);
+  const breakdown = buildBreakdown(source === "shop" ? shopGrades : moverGrades);
   const filtered = market !== "all" || league !== "all";
-  const record = buildTrackRecord(alerts, shown, filtered ? undefined : counts);
+
+  // byKind and byStrength read `kind` and `move_strength`, which only an alert has, so
+  // this structure is the movers' alone. Fed an empty list for the other source rather
+  // than computed and quietly filled with zeros that would read as measured.
+  const record = buildTrackRecord(
+    alerts,
+    source === "movers" ? moverShown : [],
+    filtered || source !== "movers" ? undefined : counts,
+  );
+
+  // Only the shopping rule states a probability, so only it has a calibration to check.
+  const calibration = calibrate(source === "shop" ? shopShown : []);
 
   // Judged separately, because they currently disagree: cover looks strong and line
   // value does not, and showing only the flattering one would be the same failure this
-  // page exists to prevent.
+  // page exists to prevent. Line value is a mover-only measure -- it asks whether the
+  // book's own number kept moving the way the alert said.
   const decidedCover = shown.filter((g) => g.result_covered !== null);
-  const decidedLine = shown.filter((g) => g.line_value_won !== null);
+  const decidedLine = moverShown.filter((g) => g.line_value_won !== null);
   const cover = judge(decidedCover.filter((g) => g.result_covered).length, decidedCover.length);
   const lineValue = judge(decidedLine.filter((g) => g.line_value_won).length, decidedLine.length);
 
@@ -410,15 +513,48 @@ export default async function RecordPage({
     <>
       <PageHeader
         title="Track Record"
-        subtitle="How the alerts have actually done. This page exists to tell you when they do not work."
+        subtitle={
+          source === "shop"
+            ? "How the cross-book edges have actually done — the disagreement this app is named after."
+            : "How the line-movement alerts have actually done. Not the shopping rule; use the toggle."
+        }
+      />
+
+      {/*
+        Named first and always. Every number below belongs to exactly one rule, and for
+        a long time the page showed one of them under a title that read as both.
+      */}
+      <Segmented
+        options={[
+          { key: "movers", label: "Line moves" },
+          { key: "shop", label: "Line shopping" },
+        ]}
+        active={source}
+        hrefFor={(key) =>
+          `/record?source=${key}${market === "all" ? "" : `&market=${market}`}${
+            league === "all" ? "" : `&league=${league}`
+          }`
+        }
       />
 
       <Stats
-        items={[
-          { value: String(record.totalAlerts), label: "alerts" },
-          { value: String(record.totalGraded), label: "graded" },
-          { value: String(record.awaitingResults), label: "awaiting" },
-        ]}
+        items={
+          source === "shop"
+            ? [
+                { value: String(shopGrades.length), label: "edges graded" },
+                { value: String(shown.length), label: "in this slice" },
+                {
+                  value:
+                    calibration.actual === null ? "—" : formatPercent(calibration.actual, 1),
+                  label: "actually landed",
+                },
+              ]
+            : [
+                { value: String(record.totalAlerts), label: "alerts" },
+                { value: String(record.totalGraded), label: "graded" },
+                { value: String(record.awaitingResults), label: "awaiting" },
+              ]
+        }
       />
       <div className="mb-2 space-y-1.5">
         <Segmented
@@ -428,7 +564,7 @@ export default async function RecordPage({
           ]}
           active={market}
           hrefFor={(key) =>
-            `/record?market=${key}${league === "all" ? "" : `&league=${league}`}`
+            `/record?source=${source}&market=${key}${league === "all" ? "" : `&league=${league}`}`
           }
         />
         <Segmented
@@ -438,16 +574,36 @@ export default async function RecordPage({
           ]}
           active={league}
           hrefFor={(key) =>
-            `/record?league=${key}${market === "all" ? "" : `&market=${market}`}`
+            `/record?source=${source}&league=${key}${market === "all" ? "" : `&market=${market}`}`
           }
         />
       </div>
 
       <MarketGrid breakdown={breakdown} market={market} league={league} />
 
+      {source === "shop" ? <CalibrationTable calibration={calibration} /> : null}
+
+      {source === "shop" && shopGrades.length === 0 ? (
+        <Empty
+          title="No cross-book edges scored yet"
+          detail={
+            <>
+              Until now the board computed an expected return, showed it, sometimes sent
+              a notification about it, and never checked. Nothing was stored that could
+              settle the claim &mdash; `shop_notifications` kept the book, game, market
+              and side, but no line and no price, so it could not be graded in either
+              direction. Every number you have read on this page until now was the
+              line-movement rule, not this one. Recording starts from the next collector
+              run; grades follow once those games finish.
+            </>
+          }
+        />
+      ) : null}
+
       {filtered ? (
         <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
-          Showing {shown.length} alert{shown.length === 1 ? "" : "s"} in{" "}
+          Showing {shown.length} {source === "shop" ? "edge" : "alert"}
+          {shown.length === 1 ? "" : "s"} in{" "}
           {market === "all" ? "every market" : market} ·{" "}
           {league === "all" ? "both leagues" : league.toUpperCase()}. Every number below
           is this slice only, and it is one of {MARKETS.length * LEAGUES.length} slices
@@ -462,7 +618,10 @@ export default async function RecordPage({
       ))}
 
 
-      {record.totalGraded === 0 ? (
+      {/* Mover-only. Under the shopping source `record` is built from an empty list,
+          so this fired alongside the shop empty state and the page showed two different
+          explanations for the same blank screen. */}
+      {source === "movers" && record.totalGraded === 0 ? (
         <Empty
           title="Nothing has been graded yet"
           detail={
@@ -476,8 +635,14 @@ export default async function RecordPage({
         />
       ) : (
         <div className="space-y-4">
-          <RecordTable rows={record.byKind} caption="By alert kind" />
-          <RecordTable rows={record.byStrength} caption="By Move Strength bucket" />
+          {/* Both read fields only an alert carries, so neither exists for the
+              shopping rule. Rendering them empty would read as "measured, and zero". */}
+          {source === "movers" ? (
+            <>
+              <RecordTable rows={record.byKind} caption="By alert kind" />
+              <RecordTable rows={record.byStrength} caption="By Move Strength bucket" />
+            </>
+          ) : null}
 
           <Card className="px-3 py-3">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">

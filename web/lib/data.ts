@@ -20,6 +20,7 @@ import type {
   Alert,
   Game,
   Grade,
+  ShopGrade,
   GameResult,
   HistoryPoint,
   RecordRow,
@@ -66,6 +67,15 @@ export interface DataSource {
   freshness(): Promise<Freshness>;
   history(eventId: string): Promise<HistoryPoint[]>;
   grades(): Promise<Grade[]>;
+  /**
+   * Graded cross-book edges — the half of the app that was never scored until v16.
+   *
+   * Kept as its own method rather than folded into `grades()` because the two answer
+   * different questions and pooling them would produce a rate describing neither. That
+   * confusion is the reason this exists: the Record page said "Track Record" and showed
+   * only the line-movement rule, which reads as a verdict on the whole app.
+   */
+  shopGrades(): Promise<ShopGrade[]>;
   results(): Promise<GameResult[]>;
   /** Fitted residual model per league; empty until fit_margins has run. */
   marginModels(): Promise<Record<string, MarginModel>>;
@@ -152,6 +162,10 @@ const fixtureSource: DataSource = {
     };
   },
   history: async (eventId) => (await snapshot()).history[eventId] ?? [],
+  // The fixture predates shop grading and has no such rows. An empty list is the
+  // truthful answer -- nothing has been scored -- and the page says so rather than
+  // pretending the feature is missing.
+  shopGrades: async () => [],
   grades: async () => {
     const data = await snapshot();
     return activeOnly(data.grades, data.activeRuleVersion);
@@ -192,6 +206,21 @@ SELECT alert_id, created_at, league, event_id, market, side, kind,
   FROM alerts
  WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
  ORDER BY move_strength DESC, created_at DESC LIMIT 2000`;
+
+/**
+ * Scored cross-book edges, current rule only.
+ *
+ * No LIMIT. The alert list is capped at 2000 because it is ranked for display and the
+ * cap once made `totalAlerts` read as exactly 500 forever; this list is a SAMPLE and a
+ * cap on it would silently truncate the record itself -- the one thing that must never
+ * be quietly shortened, since the whole argument on that page is about how long it is.
+ */
+const SHOP_GRADES = `
+SELECT grade_id, pick_id, graded_at, rule_version_id, league, market, side,
+       line, price, fair_probability, expected_roi, result_covered, result_push
+  FROM shop_grades
+ WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
+ ORDER BY graded_at DESC`;
 
 const GRADES = `
 SELECT g.grade_id, g.alert_id, g.graded_at, g.rule_version_id, g.market,
@@ -384,6 +413,7 @@ const postgresSource: DataSource = {
   alerts: cachedQuery(() => query<Alert>(ALERTS), "alerts"),
   history: async (eventId) => query<HistoryPoint>(HISTORY, [eventId]),
   grades: cachedQuery(() => query<Grade>(GRADES), "grades"),
+  shopGrades: cachedQuery(() => query<ShopGrade>(SHOP_GRADES).catch(() => []), "shopGrades"),
   freshness: cachedQuery(async () => {
     const rows = await query<{ started_at: string }>(FRESHNESS);
     const times = rows

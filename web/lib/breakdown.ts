@@ -19,9 +19,24 @@
  * good if nothing here had any edge at all? That number is usually the one that settles
  * the argument, and it is usually much larger than people expect.
  */
-import type { Grade, League, Market } from "./types";
+import type { League, Market } from "./types";
 import { binomialTailAtLeast } from "./stats";
 import { BREAK_EVEN, judge, zForFamily, type Judgement } from "./verdict";
+
+/**
+ * The least a row needs to be counted.
+ *
+ * Both graded sources fit it — line-movement alerts and cross-book edges — so one
+ * breakdown serves both and the two can never drift into disagreeing about what a
+ * push does to a denominator.
+ */
+export interface Gradeable {
+  market: Market;
+  league: League;
+  /** Null means push: neither a hit nor a miss. */
+  result_covered: boolean | null;
+  result_push: boolean;
+}
 
 export const MARKETS: Market[] = ["spread", "total", "moneyline"];
 export const LEAGUES: League[] = ["nfl", "ncaaf"];
@@ -69,18 +84,18 @@ export interface Breakdown {
   breakEven: number;
 }
 
-function matches(grade: Grade, market: MarketFilter, league: LeagueFilter): boolean {
+function matches(grade: Gradeable, market: MarketFilter, league: LeagueFilter): boolean {
   if (market !== "all" && grade.market !== market) return false;
   if (league !== "all" && grade.league !== league) return false;
   return true;
 }
 
 /** Grades left after a filter. Exported because the page filters more than the table. */
-export function filterGrades(
-  grades: Grade[],
+export function filterGrades<T extends Gradeable>(
+  grades: T[],
   market: MarketFilter,
   league: LeagueFilter,
-): Grade[] {
+): T[] {
   return grades.filter((g) => matches(g, market, league));
 }
 
@@ -91,7 +106,7 @@ export function labelFor(market: MarketFilter, league: LeagueFilter): string {
 }
 
 function cell(
-  grades: Grade[],
+  grades: Gradeable[],
   market: MarketFilter,
   league: LeagueFilter,
   breakEven: number,
@@ -128,7 +143,7 @@ function cell(
  * different and worse lie.
  */
 export function buildBreakdown(
-  grades: Grade[],
+  grades: Gradeable[],
   { breakEven = BREAK_EVEN, minCompared = 5 }: { breakEven?: number; minCompared?: number } = {},
 ): Breakdown {
   const combos: Array<[MarketFilter, LeagueFilter]> = [];

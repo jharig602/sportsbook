@@ -126,10 +126,30 @@ Three markets are collected, graded and shopped, but they are **not equally mode
   has the closing totals and `game_results` the scores, so one is fittable on the same
   backfill; until it is, treat totals edges on Shop as approximate.
 
-The **Record** page grid cuts cover rate by market × league. Every cell is judged twice:
-`alone` (z=1.96, the naive number, not safe to act on) and `adjusted` (Bonferroni across
-the six). `selection.familyP` prices the search itself — the probability *some* cell
-reads as well as the best one does when nothing has any edge. It is usually large.
+The **Record** page has **two sources**, and they are never pooled:
+
+- **Line moves** — `alerts` → `alert_grades`. Cover 61.4%/101 (beats a coin flip
+  p=0.022, not break-even p=0.070); line value 38.8%, already failed.
+- **Line shopping** — `shop_picks` → `shop_grades`, new in v16. **Everything on this
+  page before v16 was the movers**, under a title that reads as a verdict on the whole
+  app. That is how it was read. Label the source, always.
+
+Only shopping has a **calibration** table, because only it states a probability. A band
+is judged against *its own claim*, not break-even: predicting 42% and delivering 42% is
+honest and still a losing bet. A Brier score sits alongside, because a rule that says
+50% about everything is perfectly calibrated and perfectly useless and the table cannot
+see it.
+
+The grid cuts cover rate by market × league. Every cell is judged twice: `alone`
+(z=1.96, the naive number, not safe to act on) and `adjusted` (Bonferroni across the
+six). `selection.familyP` prices the search itself — the probability *some* cell reads
+as well as the best one does when nothing has any edge. It is usually large.
+
+**Recording rules for `shop_picks`** (both are statistical, not tidiness): one row per
+*offer*, not per poll — the board recomputes every cycle and repeated rows are one
+observation, not dozens, so `pick_id` hashes the offer and re-inserts DO NOTHING; and
+*every* positive row, not just those clearing the notification bar, or the sample
+measures the notification threshold instead of the rule.
 
 ## Scheduling reality
 
