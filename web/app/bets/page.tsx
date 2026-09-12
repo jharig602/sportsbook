@@ -1,6 +1,6 @@
 import { BetForm } from "@/components/BetForm";
 import { TeamLogo } from "@/components/TeamLogo";
-import { Banner, Card, Empty, NotAdvice, PageHeader, Pill } from "@/components/ui";
+import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Stats } from "@/components/ui";
 import { CorrectBet } from "@/components/CorrectBet";
 import { listBets } from "@/lib/bets-db";
 import { getData } from "@/lib/data";
@@ -118,40 +118,23 @@ export default async function BetsPage() {
       ) : null}
 
       {totals.placed > 0 ? (
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          <Card className="px-2 py-2.5 text-center">
-            <p className="tabular text-lg font-semibold text-slate-100">
-              {totals.won}-{totals.lost}
-              {totals.push > 0 ? `-${totals.push}` : ""}
-            </p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">record</p>
-          </Card>
-          <Card className="px-2 py-2.5 text-center">
-            <p
-              className={`tabular text-lg font-semibold ${
-                totals.profit > 0
-                  ? "text-emerald-300"
-                  : totals.profit < 0
-                    ? "text-rose-300"
-                    : "text-slate-300"
-              }`}
-            >
-              {money(totals.profit)}
-            </p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">profit</p>
-          </Card>
-          <Card className="px-2 py-2.5 text-center">
-            <p className="tabular text-lg font-semibold text-slate-100">
-              {totals.roi === null ? "—" : formatPercent(totals.roi, 1)}
-            </p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">roi</p>
-            {totals.bonusProfit !== 0 ? (
-              <p className="mt-0.5 text-[9px] text-slate-600">
-                on your money only
-              </p>
-            ) : null}
-          </Card>
-        </div>
+        <Stats
+          items={[
+            {
+              value: `${totals.won}-${totals.lost}${totals.push > 0 ? `-${totals.push}` : ""}`,
+              label: "record",
+            },
+            {
+              value: money(totals.profit),
+              label: totals.bonusProfit !== 0 ? "profit · your money" : "profit",
+              tone: totals.profit > 0 ? ("good" as const) : totals.profit < 0 ? ("bad" as const) : ("plain" as const),
+            },
+            {
+              value: totals.roi === null ? "—" : formatPercent(totals.roi, 1),
+              label: "roi",
+            },
+          ]}
+        />
       ) : null}
 
       {totals.settled > 0 && totals.settled < 30 ? (

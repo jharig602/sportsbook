@@ -1,4 +1,4 @@
-import { Card, Empty, PageHeader } from "@/components/ui";
+import { Card, Empty, PageHeader, Stats } from "@/components/ui";
 import { buildTrackRecord, getData, MIN_SAMPLES } from "@/lib/data";
 import { formatKind, formatPercent } from "@/lib/format";
 import type { RecordRow } from "@/lib/types";
@@ -78,20 +78,13 @@ export default async function RecordPage() {
         subtitle="How the alerts have actually done. This page exists to tell you when they do not work."
       />
 
-      <div className="mb-4 grid grid-cols-3 gap-2">
-        {[
-          { label: "Alerts", value: record.totalAlerts },
-          { label: "Graded", value: record.totalGraded },
-          { label: "Awaiting", value: record.awaitingResults },
-        ].map((stat) => (
-          <Card key={stat.label} className="px-3 py-3 text-center">
-            <p className="tabular text-lg font-semibold text-slate-100">{stat.value}</p>
-            <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-500">
-              {stat.label}
-            </p>
-          </Card>
-        ))}
-      </div>
+      <Stats
+        items={[
+          { value: String(record.totalAlerts), label: "alerts" },
+          { value: String(record.totalGraded), label: "graded" },
+          { value: String(record.awaitingResults), label: "awaiting" },
+        ]}
+      />
 
       {record.totalGraded === 0 ? (
         <Empty

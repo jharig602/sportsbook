@@ -1,6 +1,6 @@
 import { TeamLogo } from "@/components/TeamLogo";
 import { MyBooksPicker } from "@/components/MyBooksPicker";
-import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
+import { Card, Empty, Explainer, NotAdvice, PageHeader, Pill, Segmented, Stats } from "@/components/ui";
 import { PromoCard } from "@/components/PromoCard";
 import { allBookLines } from "@/lib/book-lines";
 import { bookLink } from "@/lib/book-links";
@@ -175,32 +175,17 @@ export default async function ShopPage({
         />
       ) : (
         <>
-          <div className="mb-3 grid grid-cols-3 gap-2">
-            <Card className="px-2 py-2.5 text-center">
-              <p className="tabular text-lg font-semibold text-slate-100">
-                {shop.gamesWithSecondBook}
-              </p>
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">games</p>
-            </Card>
-            <Card className="px-2 py-2.5 text-center">
-              <p className="tabular text-lg font-semibold text-slate-100">
-                {shop.books.length}
-              </p>
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">books</p>
-            </Card>
-            <Card className="px-2 py-2.5 text-center">
-              <p
-                className={`tabular text-lg font-semibold ${
-                  visiblePositive.length > 0 ? "text-emerald-300" : "text-slate-500"
-                }`}
-              >
-                {visiblePositive.length}
-              </p>
-              <p className="text-[10px] uppercase tracking-wide text-slate-500">
-                beat the vig
-              </p>
-            </Card>
-          </div>
+          <Stats
+            items={[
+              { value: String(shop.gamesWithSecondBook), label: "games" },
+              { value: String(shop.books.length), label: "books" },
+              {
+                value: String(visiblePositive.length),
+                label: "beat the vig",
+                tone: visiblePositive.length > 0 ? ("good" as const) : ("plain" as const),
+              },
+            ]}
+          />
 
           <MyBooksPicker books={shop.books} selected={myBooks} />
 
@@ -243,10 +228,7 @@ export default async function ShopPage({
         </>
       )}
 
-      <Card className="mt-4 px-3.5 py-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Why this list and not Edges
-        </h2>
+      <Explainer title="How this is read">
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           Edges asks whether DraftKings&rsquo; spread agrees with DraftKings&rsquo; own
           moneyline. A book that prices its board coherently cannot disagree with itself
@@ -280,7 +262,7 @@ export default async function ShopPage({
           DraftKings&rsquo; moneyline stops tracking its own spread, that is where it
           shows up.
         </p>
-      </Card>
+      </Explainer>
 
       <NotAdvice className="mt-6" />
     </>

@@ -141,3 +141,70 @@ export function NotAdvice({ className = "" }: { className?: string }) {
     </p>
   );
 }
+
+/**
+ * A compact row of headline numbers.
+ *
+ * Deliberately small. These are read once on arrival and then ignored, so they were
+ * taking a card's worth of vertical space each to say three short things — pushing the
+ * list you actually came for below the fold. One bordered strip instead of three cards,
+ * and no number larger than the text it sits above.
+ */
+export function Stats({
+  items,
+}: {
+  items: Array<{ value: string; label: string; tone?: "plain" | "good" | "bad" }>;
+}) {
+  return (
+    <div className="mb-3 flex divide-x divide-edge/70 overflow-hidden rounded-xl border border-edge bg-surface">
+      {items.map((item) => (
+        <div key={item.label} className="flex-1 px-2 py-2 text-center">
+          <p
+            className={`tabular text-[15px] font-semibold leading-tight ${
+              item.tone === "good"
+                ? "text-emerald-300"
+                : item.tone === "bad"
+                  ? "text-rose-300"
+                  : "text-slate-100"
+            }`}
+          >
+            {item.value}
+          </p>
+          <p className="mt-0.5 truncate text-[9px] uppercase tracking-wide text-slate-500">
+            {item.label}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Long-form explanation, folded away.
+ *
+ * The reasoning behind every number here is worth keeping and is not worth reading
+ * daily. Collapsing it is the compromise: nothing is deleted, the page stops opening
+ * with six paragraphs of prose, and anyone who wants to know why can still ask.
+ *
+ * A native <details> rather than state, so it costs no JavaScript and works in a server
+ * component.
+ */
+export function Explainer({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="mt-4 overflow-hidden rounded-xl border border-edge bg-surface">
+      <summary className="cursor-pointer list-none px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 marker:hidden">
+        {title}
+        <span className="float-right font-normal normal-case tracking-normal text-slate-600">
+          why
+        </span>
+      </summary>
+      <div className="border-t border-edge/70 px-3.5 py-3">{children}</div>
+    </details>
+  );
+}

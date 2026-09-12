@@ -2,7 +2,16 @@ import Link from "next/link";
 import { LogPickButton } from "@/components/LogPickButton";
 import { PinPicker } from "@/components/PinPicker";
 import { PoolPicker } from "@/components/PoolPicker";
-import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
+import {
+  Card,
+  Empty,
+  Explainer,
+  NotAdvice,
+  PageHeader,
+  Pill,
+  Segmented,
+  Stats,
+} from "@/components/ui";
 import { allBookLines, type BookLineRow } from "@/lib/book-lines";
 import { getMyBooks, getPools } from "@/lib/settings-db";
 import { toBettable, type BettablePick } from "@/lib/survivor-bet";
@@ -301,30 +310,23 @@ export default async function SurvivorPage({
     <>
       <PageHeader title="Survivor" subtitle="One team a week, each team only once" />
 
-      <div className="mb-3 grid grid-cols-3 gap-2">
-        <Card className="px-2 py-2.5 text-center">
-          <p className="tabular text-lg font-semibold text-slate-100">{plan.weeksPlanned}</p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">weeks</p>
-        </Card>
-        <Card className="px-2 py-2.5 text-center">
-          <p className="tabular text-lg font-semibold text-slate-100">
-            {percent(here.odds.survival)}
-          </p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">
-            {(here.pool.lossesAllowed ?? 0) > 0
-              ? `survive (${(here.pool.lossesAllowed ?? 0) + 1} lives)`
-              : "survive all"}
-          </p>
-        </Card>
-        <Card className="px-2 py-2.5 text-center">
-          <p className="tabular text-lg font-semibold text-emerald-300">
-            {percent(poolEntry?.poolWin ?? here.odds.winChance)}
-          </p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">
-            last one standing
-          </p>
-        </Card>
-      </div>
+      <Stats
+        items={[
+          { value: String(plan.weeksPlanned), label: "weeks" },
+          {
+            value: percent(here.odds.survival),
+            label:
+              (here.pool.lossesAllowed ?? 0) > 0
+                ? `survive · ${(here.pool.lossesAllowed ?? 0) + 1} lives`
+                : "survive all",
+          },
+          {
+            value: percent(poolEntry?.poolWin ?? here.odds.winChance),
+            label: "last standing",
+            tone: "good" as const,
+          },
+        ]}
+      />
 
       {multi.pools.length > 1 ? (
         <Card className="mb-3 px-3.5 py-2.5">
@@ -343,11 +345,9 @@ export default async function SurvivorPage({
               </p>
             ))}
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Different teams on purpose. Playing one team in both entries means you are
-            out of both when it loses &mdash; one bet paid for twice. At least one
-            survives {percent(multi.atLeastOne)} of the time against{" "}
-            {percent(multi.single)} for a single entry.
+          <p className="mt-1.5 text-[11px] text-slate-600">
+            Different teams on purpose &mdash; at least one survives{" "}
+            {percent(multi.atLeastOne)} against {percent(multi.single)} alone.
           </p>
         </Card>
       ) : null}
@@ -627,20 +627,11 @@ export default async function SurvivorPage({
             )}
           </p>
 
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Ranked on P(you are the last entrant standing) over {plan.weeksPlanned}{" "}
-            weeks &mdash; not on P(survive to the end), which is a different question and
-            a worse one. This pool empties entirely a good share of seasons, and every
-            one of those still has a winner: whoever lasted longest. Scoring survival
-            alone treats going out in week 2 and week 16 as the same result, which they
-            are not.{" "}
+          <p className="mt-1.5 text-[11px] text-slate-600">
+            Ranked on last-one-standing over {plan.weeksPlanned} weeks.{" "}
             {havePopularity
-              ? `Pick shares are a national average across public Yahoo and ESPN pools.${
-                  (here.pool.size ?? 1) >= 50
-                    ? " For a pool this size that is a reasonable proxy."
-                    : ` For ${here.pool.size} entrants it is a rough guide only: one person here is ${(100 / (here.pool.size ?? 1)).toFixed(0)} points of share, and these specific people need not resemble the country.`
-                } The ${(crowding * 100).toFixed(0)}% measured this week is assumed to hold for the rest of the season, which is the weakest part of this: only week one is actually observed.`
-              : ""}
+              ? `${(crowding * 100).toFixed(0)}% crowding measured this week, assumed to hold.`
+              : "No popularity collected, so no crowding is assumed."}
           </p>
         </Card>
       ) : null}
@@ -673,56 +664,44 @@ export default async function SurvivorPage({
         </Card>
       ) : null}
 
-      <Card className="mt-4 px-3.5 py-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          How this is chosen
-        </h2>
-        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
+      <Explainer title="How this is chosen">
+        <p className="text-[12px] leading-relaxed text-slate-400">
           The trap is picking greedily. Taking the biggest favourite every week spends
           your best teams in September against opponents you would have beaten with
-          anyone, and leaves December holding only teams you have already used. The
-          question is not who is safest this week but{" "}
-          <em>which week each team is worth spending in</em>, which is an assignment
-          problem rather than a ranking.
+          anyone, and leaves December holding only teams you have already used.
         </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-          So this maximises the chance of surviving <em>every</em> planned week at once
-          &mdash; the product of the chosen probabilities &mdash; solved exactly, not
-          approximated. Against picking the biggest available favourite each week it is
-          worth {((plan.survival - plan.greedySurvival) * 100).toFixed(1)} points of
-          survival over {plan.weeksPlanned} weeks.
+          So it does not maximise survival. It maximises the chance you are the{" "}
+          <em>last entrant standing</em> &mdash; which is the actual rule, and a
+          different question, because this pool empties entirely a good share of seasons
+          and every one of those still has a winner. Against picking the biggest
+          available favourite each week, the plan is worth{" "}
+          {((plan.survival - plan.greedySurvival) * 100).toFixed(1)} points of survival
+          over {plan.weeksPlanned} weeks &mdash; but survival is only part of what it is
+          buying. The rest is not sharing a ticket with the crowd, because a week you
+          both win decides nothing and a week you both lose ends you together.
         </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-          Win probabilities come from the median spread across {" "}
-          {games[0]?.books ?? "several"} books, converted using the residual
-          distribution fitted to{" "}
-          {(models.nfl?.games ?? 0).toLocaleString()} completed NFL games. No power
-          rating of ours is involved: this is the market&rsquo;s opinion, priced.
+          Win probabilities come from the median spread across{" "}
+          {games[0]?.books ?? "several"} books, converted using the residual distribution
+          fitted to {(models.nfl?.games ?? 0).toLocaleString()} completed NFL games. No
+          power rating of ours is involved: this is the market&rsquo;s opinion, priced.
         </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-          Two limits worth holding onto. Lines beyond the next week or two are early and
-          will move, often by several points &mdash; so treat this as a way of choosing{" "}
-          <em>this</em> week with the rest of the season in view, not a commitment to
-          week {plan.picks[plan.picks.length - 1]?.week}. And the plan assumes you
-          survive; a real pool ends the moment you lose, which means the early weeks
-          deserve more weight than the arithmetic alone gives them.
-        </p>
-        <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
-          That is why the horizon is a control rather than a hidden constant. Planning
-          further satisfies more constraints, which is the point &mdash; but it does so
-          using numbers nobody has bet into. The line above says whether it actually
-          matters here: if this week&rsquo;s pick is the same at four weeks and at{" "}
-          {priced}, the horizon is not doing the work and you can stop worrying about it.
+          Two limits. Lines beyond the next week or two are early and will move by
+          several points, so treat this as a way of choosing <em>this</em> week with the
+          season in view rather than a commitment to week{" "}
+          {plan.picks[plan.picks.length - 1]?.week}. And the crowding rate is measured
+          once, on this week&rsquo;s popularity, then assumed to hold &mdash; the softest
+          input here by some distance.
         </p>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-400">
           <span className="font-medium text-slate-300">On betting these picks.</span> A
           survivor pick and a good moneyline bet are chosen by opposite rules. Survivor
-          wants the highest chance of winning and does not care what it pays, because
-          there is no price. A bet wants the largest gap between what a team is worth and
-          what it costs &mdash; and a heavy favourite is exactly where that gap is
-          smallest and the vig bites hardest. So the expected return is shown on every
-          button, and it is usually negative. Occasionally one is priced well, and that
-          is the case worth knowing about.
+          wants the highest chance of winning and does not care what it pays. A bet wants
+          the largest gap between what a team is worth and what it costs &mdash; and a
+          heavy favourite is where that gap is smallest. So the expected return is shown
+          on every button, and it is usually negative.
         </p>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
           {priced} of {weeks.length} weeks on the schedule are priced
@@ -731,7 +710,7 @@ export default async function SurvivorPage({
             : ", and all of them are planned here"}
           .
         </p>
-      </Card>
+      </Explainer>
 
       <NotAdvice className="mt-6" />
     </>
