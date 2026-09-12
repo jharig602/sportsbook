@@ -25,23 +25,14 @@ const TABS: Tab[] = [
     ),
   },
   {
-    href: "/movers",
-    label: "Movers",
-    icon: (
-      <>
-        <path d="M3 17l5-5 4 3 8-9" {...stroke} />
-        <path d="M15 6h5v5" {...stroke} />
-      </>
-    ),
-  },
-  {
-    // Shop takes the slot Edges used to hold.
+    // Shop takes the slot Edges used to hold, and Movers has since given up its own.
     //
-    // Edges asks whether one book agrees with itself, which has a structural answer of
-    // zero -- confirmed on 8,357 games. It is still worth keeping as a detector for a
-    // stale moneyline, but it is a diagnostic, not something to open every day, and
-    // giving it a permanent tab put the one list that cannot find anything in front of
-    // the one that can. It is linked from Shop instead.
+    // The rule that decides this bar: a tab is for what you open daily to act on.
+    // Edges asks whether one book agrees with itself, which is structurally zero on
+    // 8,357 games. Movers reports unusual line movement, which is still detected and
+    // still graded on the Track Record -- but it stopped notifying for a reason, and
+    // something you deliberately muted should not hold a permanent slot in front of
+    // the lists you act on. Both are linked from Shop and Settings instead.
     href: "/shop",
     label: "Shop",
     icon: (
@@ -99,8 +90,8 @@ export function NavBar() {
   const pathname = usePathname();
 
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-edge/70 bg-ink/90 backdrop-blur-xl">
-      <ul className="mx-auto flex w-full max-w-3xl">
+    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-edge/60 bg-ink/80 backdrop-blur-2xl">
+      <ul className="mx-auto flex w-full max-w-3xl px-1">
         {TABS.map((tab) => {
           const active =
             tab.href === "/" ? pathname === "/" : pathname.startsWith(tab.href);
@@ -109,14 +100,32 @@ export function NavBar() {
               <Link
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex flex-col items-center gap-1 pb-1.5 pt-2 transition-colors ${
-                  active ? "text-accent" : "text-slate-500"
-                }`}
+                className="group relative flex flex-col items-center gap-[3px] pb-2 pt-2.5"
               >
-                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" aria-hidden="true">
+                {/* The active marker sits above the icon rather than under the label:
+                    the label is the first thing a thumb covers. */}
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-0 h-[2px] w-7 rounded-full transition-all duration-200 ${
+                    active ? "bg-accent opacity-100" : "opacity-0"
+                  }`}
+                />
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`h-[23px] w-[23px] transition-colors duration-150 ${
+                    active ? "text-accent" : "text-slate-500 group-active:text-slate-300"
+                  }`}
+                  aria-hidden="true"
+                >
                   {tab.icon}
                 </svg>
-                <span className="text-[10px] font-medium tracking-wide">{tab.label}</span>
+                <span
+                  className={`text-[10px] tracking-wide transition-colors duration-150 ${
+                    active ? "font-semibold text-accent" : "font-medium text-slate-500"
+                  }`}
+                >
+                  {tab.label}
+                </span>
               </Link>
             </li>
           );

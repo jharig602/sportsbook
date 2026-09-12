@@ -1,22 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { listBets } from "@/lib/bets-db";
-import { allBookLines } from "@/lib/book-lines";
-import { buildBoardShop } from "@/lib/board-shop";
-import { getData } from "@/lib/data";
-import { winProbabilityFromSpread } from "@/lib/probability";
-import { bestBonusTarget, bestQualifier, progress, promoValue, qualifyingDates } from "@/lib/promo";
+import { qualifyingDates } from "@/lib/promo";
+import { promoToday } from "@/lib/promo-plan";
 import { promoDue, centralDate } from "@/lib/promo-window";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { promoSentOn, recordPromoSent } from "@/lib/settings-db";
-import type { Candidate } from "@/lib/survivor";
 
 export const dynamic = "force-dynamic";
 
-const BOOK = "FanDuel";
-const STAKE = 5;
-const BONUS_FACE = 50;
-const DAYS = 7;   // seven qualifying bets, each earning its own $50
 
 /**
  * The daily qualifying bet, and where to put the bonus it earns.
@@ -83,65 +75,15 @@ export async function POST(request: Request) {
   }
 
   try {
-    const data = getData();
-    const [games, models, lines, subscriptions, ledger] = await Promise.all([
-      data.games(),
-      data.marginModels(),
-      allBookLines(),
-      listSubscriptions(),
-      listBets().catch(() => []),
-    ]);
-
-    // Which qualifying day this is, counted from bets actually logged rather than from
-    // the calendar. A day you forgot is a day that did not count -- the book is not
-    // going to award the bonus for a bet you did not place, and a tracker that assumed
-    // otherwise would announce completion while it was still unearned. The cost of that
-    // honesty is that the count is only as good as the logging, which the push says.
-    const logged = qualifyingDates(ledger, BOOK, STAKE);
-    const done = progress(logged, DAYS);
+    const [promo, subscriptions] = await Promise.all([promoToday(), listSubscriptions()]);
+    const { qualifier, bonus, progress: done, worth: total } = promo;
+    const { book: BOOK, stake: STAKE, face: BONUS_FACE } = promo;
+    const DAYS = done.required;
+    const logged = qualifyingDates(await listBets().catch(() => []), BOOK, STAKE);
     // `today` means "the next day still to qualify", so once today's bet is logged the
     // label runs a day ahead of itself and reads as tomorrow's reminder arriving early.
     // There is nothing to remind about either way: the bet is placed.
     const alreadyPlaced = due !== null && logged.includes(due);
-
-    const shop = buildBoardShop(games, lines, models);
-    const qualifier = bestQualifier(shop.rows, BOOK, STAKE);
-
-    // Bonus candidates: every moneyline this book offers, priced with OUR model's
-    // probability rather than the one implied by the price. The implied number carries
-    // the favourite-longshot bias, which would push every recommendation toward
-    // +5000 shots that win far less often than they are priced to.
-    const targets: Array<{ candidate: Candidate; price: number }> = [];
-    for (const game of games) {
-      const model = models[game.league];
-      const spread = game.spread?.home?.line;
-      if (!model || spread === null || spread === undefined) continue;
-      if (new Date(game.commenceTime).getTime() <= Date.now()) continue;
-
-      for (const side of ["home", "away"] as const) {
-        const quotes = lines.get(game.eventId) ?? [];
-        const mine = quotes.find(
-          (q) => q.book === BOOK && q.market === "moneyline" && q.side === side,
-        );
-        const price = mine?.price ?? game.moneyline?.[side]?.price ?? null;
-        if (price === null) continue;
-        const probability = winProbabilityFromSpread(model, spread, side);
-        if (probability === null) continue;
-        targets.push({
-          candidate: {
-            team: (side === "home" ? game.homeTeam : game.awayTeam) ?? "?",
-            opponent: (side === "home" ? game.awayTeam : game.homeTeam) ?? "?",
-            home: side === "home",
-            winProbability: probability,
-            spread: side === "home" ? spread : -spread,
-            commenceTime: game.commenceTime,
-            eventId: game.eventId,
-          },
-          price,
-        });
-      }
-    }
-    const bonus = bestBonusTarget(targets, BONUS_FACE);
 
     const parts: string[] = [];
     if (qualifier.pick) {
@@ -161,8 +103,6 @@ export async function POST(request: Request) {
           `(worth ~$${bonus.value.toFixed(0)})`,
       );
     }
-
-    const total = promoValue(qualifier.expectedProfit, DAYS, bonus?.value ?? 0);
 
     // Nothing left to qualify for, so nothing to interrupt anyone about. Without this
     // the reminder simply runs for ever.

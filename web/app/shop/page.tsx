@@ -1,7 +1,10 @@
 import { TeamLogo } from "@/components/TeamLogo";
 import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, NotAdvice, PageHeader, Pill, Segmented } from "@/components/ui";
+import { PromoCard } from "@/components/PromoCard";
 import { allBookLines } from "@/lib/book-lines";
+import { bookLink } from "@/lib/book-links";
+import { promoToday } from "@/lib/promo-plan";
 import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
 
 import { getData } from "@/lib/data";
@@ -16,6 +19,29 @@ function sideLabel(row: BoardEdge): string {
   if (side === "home") return row.homeTeam;
   if (side === "away") return row.awayTeam;
   return side;
+}
+
+/**
+ * A one-tap hop to the book, for books you actually hold.
+ *
+ * Outside the Card rather than inside it, because the Card is already a link to the
+ * game page and an anchor cannot nest. Shown only for your own books: a link to a
+ * sportsbook you have no account at is an advert, not a shortcut.
+ */
+function OpenBook({ book }: { book: string }) {
+  const href = bookLink(book);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-400/90"
+    >
+      Open {book}
+      <span aria-hidden="true">&#8599;</span>
+    </a>
+  );
 }
 
 function Row({ row }: { row: BoardEdge }) {
@@ -93,13 +119,17 @@ export default async function ShopPage({
 }) {
   const { book: bookFilter } = await searchParams;
   const data = getData();
-  const [games, models, lines, myBooks] = await Promise.all([
+  const [games, models, lines, myBooks, promo] = await Promise.all([
     data.games(),
     data.marginModels(),
     data.backend === "postgres" ? allBookLines() : Promise.resolve(new Map()),
     // Read server-side, so the board you look at and the alerts you receive can never
     // disagree about which books are yours.
     data.backend === "postgres" ? getMyBooks() : Promise.resolve([] as string[]),
+    // The daily qualifying bet lives here rather than in a tab of its own: it is a
+    // book-specific bet, which is what this page is for, and it is a seven-day thing
+    // that a permanent tab would outlive.
+    promoToday().catch(() => null),
   ]);
 
   const shop = buildBoardShop(games, lines, models);
@@ -135,6 +165,8 @@ export default async function ShopPage({
         title="Shop"
         subtitle="Where one book disagrees with the others, biggest first"
       />
+
+      {promo && !promo.progress.complete ? <PromoCard promo={promo} /> : null}
 
       {shop.gamesWithSecondBook === 0 ? (
         <Empty
@@ -202,7 +234,10 @@ export default async function ShopPage({
 
           <div className="space-y-1.5">
             {visible.slice(0, 40).map((row) => (
-              <Row key={`${row.eventId}-${row.book}-${row.market}-${row.side}`} row={row} />
+              <div key={`${row.eventId}-${row.book}-${row.market}-${row.side}`}>
+                <Row row={row} />
+                {myBooks.includes(row.book) ? <OpenBook book={row.book} /> : null}
+              </div>
             ))}
           </div>
         </>

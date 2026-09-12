@@ -71,6 +71,30 @@ export default function AboutPage() {
         </p>
       </Section>
 
+      <Section title="Other pages">
+        <p>
+          Not in the tab bar, because a tab is for what you open daily to act on.
+          Both are still collected, still graded, and still here.
+        </p>
+        <ul className="list-disc space-y-1 pl-4">
+          <li>
+            <a href="/movers" className="text-sky-400 underline underline-offset-2">
+              Movers
+            </a>{" "}
+            &mdash; unusual line movement. Still detected and graded on the Track Record,
+            but it deliberately stopped notifying: a channel that fires on every unusual
+            move is one you mute inside a weekend.
+          </li>
+          <li>
+            <a href="/edges" className="text-sky-400 underline underline-offset-2">
+              Edges
+            </a>{" "}
+            &mdash; whether one book agrees with itself. Structurally zero on 8,357
+            games, so it is a detector for a stale moneyline rather than a list of bets.
+          </li>
+        </ul>
+      </Section>
+
       <Section title="The expected outcome">
         <p>
           Line movement in a liquid market is mostly efficient. The most likely finding is
