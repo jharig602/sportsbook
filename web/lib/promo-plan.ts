@@ -47,13 +47,13 @@ export interface PromoToday {
   face: number;
 }
 
-export async function promoToday(): Promise<PromoToday> {
+export async function promoToday(ownerId: string): Promise<PromoToday> {
   const data = getData();
   const [games, models, lines, ledger, results] = await Promise.all([
     data.games(),
     data.marginModels(),
     allBookLines(),
-    listBets().catch(() => []),
+    listBets(ownerId).catch(() => []),
     data.results().catch(() => []),
   ]);
   const maxSpread = await getMaxSpread();

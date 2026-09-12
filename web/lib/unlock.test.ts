@@ -69,13 +69,13 @@ test("pages are gated too, so the ledger is not world-readable", () => {
 
 // --- the read-only viewer -------------------------------------------------------------
 
-test("a viewer sees the market, never your money", () => {
-  for (const p of ["/", "/shop", "/record", "/movers", "/edges", "/about", "/game/401856782"]) {
+test("a viewer sees the market, and keeps their own ledger", () => {
+  for (const p of [
+    "/", "/shop", "/record", "/movers", "/edges", "/about", "/game/401856782", "/bets",
+  ]) {
     assert.equal(viewerAllowed(p), true, p);
   }
-  for (const p of ["/bets", "/survivor"]) {
-    assert.equal(viewerAllowed(p), false, `${p} must stay private`);
-  }
+  assert.equal(viewerAllowed("/survivor"), false, "survivor must stay private");
 });
 
 test("survivor is closed to viewers as strategy, not privacy", () => {
@@ -86,20 +86,38 @@ test("survivor is closed to viewers as strategy, not privacy", () => {
   assert.equal(viewerAllowed("/survivor?pool=1"), false, "a query string is not a way in");
 });
 
-test("a viewer can never write, on any route", () => {
+test("a viewer writes their own rows and nothing shared", () => {
+  // The line is shared vs personal, not read vs write. Their ledger is their own rows
+  // under their own owner id and touches nobody else's numbers.
+  for (const p of ["/api/bets", "/api/ledger/transfer", "/api/ledger/claim"]) {
+    assert.equal(viewerAllowed(p), true, p);
+  }
+  // Everything here is one board, one set of preferences, one phone.
   for (const p of [
-    "/api/bets", "/api/book-lines", "/api/pools", "/api/settings",
+    "/api/book-lines", "/api/pools", "/api/settings",
     "/api/favourites", "/api/push/test", "/api/push/subscribe", "/api/unlock",
   ]) {
     assert.equal(viewerAllowed(p), false, p);
   }
 });
 
+test("the api allowlist is an allowlist, not a prefix game", () => {
+  // A route named to LOOK like an allowed one must not ride in on it. This is the
+  // failure the allowlist exists to prevent, so it is worth asserting rather than
+  // trusting the loop above to have covered.
+  assert.equal(viewerAllowed("/api/betsy"), false);
+  assert.equal(viewerAllowed("/api/bets-admin"), false);
+  assert.equal(viewerAllowed("/api/ledgers"), false);
+  assert.equal(viewerAllowed("/api/dispatch-alerts"), false);
+});
+
 test("a prefix is not a way past the page list", () => {
-  // "/betsomething" must not ride in on "/bets" being absent, and "/shopping" must not
-  // ride in on "/shop" being present.
+  // A page whose name merely STARTS with an allowed one is not the allowed one. Only
+  // "/bets" and "/bets/..." are the ledger; "/betsomething" is a different page.
   assert.equal(viewerAllowed("/shopping"), false);
   assert.equal(viewerAllowed("/recordings"), false);
+  assert.equal(viewerAllowed("/betsomething"), false);
+  assert.equal(viewerAllowed("/bets/401856782"), true, "but a real sub-path is");
 });
 
 test("the cookie decides the role, and a wrong one decides nothing", () => {

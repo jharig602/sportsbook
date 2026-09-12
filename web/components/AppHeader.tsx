@@ -30,9 +30,14 @@ export function AppHeader({ role }: { role: Role }) {
             Dissent
           </span>
         </Link>
+        {/* "guest", not "read only": they keep a ledger of their own, they just do not
+            touch the shared board, the settings, or the survivor entry. */}
         {role === "viewer" ? (
-          <span className="ml-auto rounded-full bg-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            read only
+          <span
+            className="ml-auto rounded-full bg-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500"
+            title="Your bets are your own. The board, the settings and the survivor entry belong to the owner."
+          >
+            guest
           </span>
         ) : unprotected ? (
           <span

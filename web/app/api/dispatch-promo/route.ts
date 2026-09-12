@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { listBets } from "@/lib/bets-db";
 import { qualifyingDates } from "@/lib/promo";
+import { HOUSE } from "@/lib/owner";
 import { promoToday } from "@/lib/promo-plan";
 import { promoDue, centralDate } from "@/lib/promo-window";
 import { listSubscriptions, recordFailure } from "@/lib/push";
@@ -75,11 +76,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const [promo, subscriptions] = await Promise.all([promoToday(), listSubscriptions()]);
+    const [promo, subscriptions] = await Promise.all([promoToday(HOUSE), listSubscriptions()]);
     const { qualifier, bonus, progress: done, worth: total } = promo;
     const { book: BOOK, stake: STAKE, face: BONUS_FACE } = promo;
     const DAYS = done.required;
-    const logged = qualifyingDates(await listBets().catch(() => []), BOOK, STAKE);
+    const logged = qualifyingDates(await listBets(HOUSE).catch(() => []), BOOK, STAKE);
     // `today` means "the next day still to qualify", so once today's bet is logged the
     // label runs a day ahead of itself and reads as tomorrow's reminder arriving early.
     // There is nothing to remind about either way: the bet is placed.

@@ -68,24 +68,48 @@ export function isOpenPath(pathname: string): boolean {
 export type Role = "owner" | "viewer" | null;
 
 /**
- * Pages a viewer may see.
+ * What a viewer may open.
  *
- * Everything about the MARKET is shareable — the board, the line shopping, the track
- * record of whether any of this works. Everything about YOU is not: the bets ledger is
- * your money, and the survivor picks are the one thing that must not be shared at all.
+ * The line is SHARED versus PERSONAL, not read versus write — which is a change from
+ * how this started, and the reason is worth keeping.
  *
- * The survivor exclusion is not privacy, it is strategy. The whole objective this app
- * computes is P(last entrant standing), and its value comes from NOT holding the same
- * ticket as the field — measured at up to 1.43x par in a 137-entry pool. Showing a
- * rival your pick converts a differentiated entry into a shared one for free, which is
- * precisely the thing the planner spends its whole run avoiding.
+ * Everything about the MARKET is shared: one board, one consensus, one track record,
+ * collected once at real cost and identical for everybody. A viewer reads all of it and
+ * writes none of it. `/api/book-lines` is the sharpest case — it accepts a quote that
+ * joins the consensus every price in the app is measured against, so a mistyped or
+ * mischievous line there manufactures an edge that is not there, for everyone, and
+ * nothing downstream could tell. Settings are shared too: they decide which books the
+ * dispatcher considers reachable and when a phone buzzes.
+ *
+ * Everything about a PERSON is theirs alone. Their ledger is their own rows under their
+ * own owner id, so they write freely there and it touches nobody else's numbers — two
+ * people's bets in one tally would produce a win rate that describes neither of them.
+ *
+ * Survivor is the exception that is neither: it is excluded for strategy rather than
+ * privacy. The objective the planner computes is P(last entrant standing), and its value
+ * comes from NOT holding the same ticket as the field — measured at up to 1.43x par in a
+ * 137-entry pool. Showing a rival the pick converts a differentiated entry into a shared
+ * one for free, which is precisely what the solver spends its whole run avoiding. It
+ * stays behind the owner passcode however many people use the rest of the app.
  */
-const VIEWER_PAGES = ["/", "/shop", "/record", "/movers", "/edges", "/about", "/game"];
+const VIEWER_PAGES = [
+  "/", "/shop", "/record", "/movers", "/edges", "/about", "/game", "/bets",
+];
+
+/**
+ * The only routes a viewer may call. An allowlist rather than a blocklist, because the
+ * failure directions are not symmetric: a forgotten entry here means a viewer sees a
+ * page that does not load, which they will report. A forgotten entry on a blocklist
+ * means a stranger writing to the consensus, which nobody would ever notice.
+ */
+const VIEWER_APIS = ["/api/bets", "/api/ledger"];
 
 export function viewerAllowed(pathname: string): boolean {
-  // No writes, ever. A viewer who could POST could type a line into /api/book-lines
-  // that joins the consensus every price on the board is measured against.
-  if (pathname.startsWith("/api/")) return false;
+  if (pathname.startsWith("/api/")) {
+    return VIEWER_APIS.some(
+      (api) => pathname === api || pathname.startsWith(`${api}/`),
+    );
+  }
   return VIEWER_PAGES.some(
     (page) => pathname === page || (page !== "/" && pathname.startsWith(`${page}/`)),
   );

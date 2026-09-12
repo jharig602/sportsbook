@@ -9,6 +9,20 @@
 import { databaseUrl } from "./env";
 import type { Bet } from "./settle";
 
+/**
+ * Every function here takes the ledger's owner FIRST, and none of them have a default.
+ *
+ * That shape is the safety property. A missing filter on a multi-tenant table does not
+ * throw or blank the page -- it silently returns other people's rows, and a tally built
+ * from them is a win rate that describes nobody while looking exactly like one that
+ * describes you. Making the owner a required leading argument turns that mistake into a
+ * compile error instead of a plausible number.
+ *
+ * `HOUSE` is passed explicitly by the cron paths (the promo dispatcher has no request
+ * and therefore no cookie), which is also why it is not a default: a default would make
+ * "I forgot" and "I meant the owner" the same line of code.
+ */
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 let pool: any = null;
 
@@ -28,7 +42,7 @@ async function getPool() {
 }
 
 const COLUMNS = [
-  "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
+  "owner_id", "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
   "commence_time", "market", "side", "line", "price", "stake", "book",
   "model_probability", "market_probability", "rule_version_id", "note", "bonus",
   "supersedes", "voided", "parlay_id", "parlay_price",
@@ -42,26 +56,35 @@ const COLUMNS = [
  * in each caller because "did you remember the boolean" is not a thing any write path
  * should have to know.
  */
-function values(bet: Bet): unknown[] {
+function values(ownerId: string, bet: Bet): unknown[] {
   const row = bet as unknown as Record<string, unknown>;
-  return COLUMNS.map((c) =>
-    c === "bonus" || c === "voided" ? row[c] === true : (row[c] ?? null),
-  );
+  return COLUMNS.map((c) => {
+    if (c === "owner_id") return ownerId;
+    return c === "bonus" || c === "voided" ? row[c] === true : (row[c] ?? null);
+  });
 }
 
-export async function saveBet(bet: Bet): Promise<void> {
+export async function saveBet(ownerId: string, bet: Bet): Promise<void> {
   const db = await getPool();
   const marks = COLUMNS.map((_, i) => `$${i + 1}`).join(", ");
   await db.query(
     `INSERT INTO bets (${COLUMNS.join(", ")}) VALUES (${marks})`,
-    values(bet),
+    values(ownerId, bet),
   );
 }
 
-export async function listBets(): Promise<Bet[]> {
+/** Everything a Bet carries. owner_id is a filter, not a field the app reads back. */
+const READ_COLUMNS = COLUMNS.filter((c) => c !== "owner_id");
+
+export async function listBets(ownerId: string): Promise<Bet[]> {
   const db = await getPool();
+  // The limit is per owner, so one person's busy season cannot push another's rows off
+  // the end of the query -- which would read as a shorter record rather than a truncated
+  // one, and the Record page's entire argument is about how long the record is.
   const result = await db.query(
-    `SELECT ${COLUMNS.join(", ")} FROM bets ORDER BY placed_at DESC LIMIT 500`,
+    `SELECT ${READ_COLUMNS.join(", ")} FROM bets WHERE owner_id = $1
+       ORDER BY placed_at DESC LIMIT 500`,
+    [ownerId],
   );
   return (result.rows as Record<string, unknown>[]).map((row) => {
     const out: Record<string, unknown> = {};
@@ -85,7 +108,7 @@ export async function listBets(): Promise<Bet[]> {
  * as singles, each carrying the full stake, and the ticket would report a result it
  * never had. One transaction, so the ledger never holds a partial ticket.
  */
-export async function saveParlay(legs: Bet[]): Promise<void> {
+export async function saveParlay(ownerId: string, legs: Bet[]): Promise<void> {
   if (legs.length === 0) return;
   const db = await getPool();
   const client = await db.connect();
@@ -95,7 +118,7 @@ export async function saveParlay(legs: Bet[]): Promise<void> {
     for (const leg of legs) {
       await client.query(
         `INSERT INTO bets (${COLUMNS.join(", ")}) VALUES (${marks})`,
-        values(leg),
+        values(ownerId, leg),
       );
     }
     await client.query("COMMIT");

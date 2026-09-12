@@ -177,9 +177,26 @@ default it to a guess.
 
 ## Access
 
-The app is behind a passcode: `APP_PASSCODE` in Vercel, checked in `middleware.ts`
-before any route. With it unset the app stays open — so you are never locked out of your
-own data — but the header shows a red **unlocked** badge.
+Two passcodes, both checked in `middleware.ts` before any route.
+
+`APP_PASSCODE` is the owner. `APP_VIEWER_PASSCODE` is a guest — optional, and with it
+unset there are simply no guests. With **neither** set the app stays open, so you are
+never locked out of your own data, and the header shows a red **unlocked** badge.
+
+The line a guest cannot cross is **shared versus personal**, not read versus write:
+
+- **Shared** — the board, the consensus, `/api/book-lines`, settings, notifications.
+  Read by everyone, written by the owner. A quote typed into `book-lines` joins the
+  consensus every price in the app is measured against, for everybody.
+- **Personal** — the ledger. Every guest gets their own and writes it freely.
+- **Survivor** is neither: owner-only for **strategy**, not privacy. The objective is
+  P(last entrant standing) and its value comes from *not* holding the field's ticket —
+  up to 1.43x par in a 137-entry pool. Showing a rival the pick gives that away free.
+
+`viewerAllowed()` is an **allowlist** for API routes. The failure directions are not
+symmetric: a missing entry means a guest sees a page that will not load, which they
+report; a missing blocklist entry means a stranger writing to the consensus, which
+nobody would notice.
 
 It has to be a cookie rather than a bearer secret because the browser calls the write
 endpoints itself, and a secret the client must send is in the bundle. The dispatchers
@@ -189,6 +206,35 @@ The repo is **public**. Nothing secret has ever been committed (history was scan
 only connection strings are placeholders), and credentials live in Actions secrets and
 Vercel env. **Actions logs are public too** — keep anything sensitive out of stdout, and
 note `redact_url()` exists for exactly that reason.
+
+## Whose ledger
+
+`bets.owner_id`, schema v14. Two ways to be an owner and only two:
+
+- **`HOUSE` (`'owner'`)** — whoever holds `APP_PASSCODE`. A fixed string, and
+  deliberately **not a valid cookie value** (`validOwnerId` rejects it), so my ledger is
+  not addressable by guessing or forging an identifier. It is also what v14 backfilled
+  the existing season to.
+- **A guest** — 128 random bits minted into a cookie by middleware. No email, no
+  password, nothing stored about them. The cookie *is* the credential, which is an
+  acceptable bar for a record of $5 bets and for nothing else, so nothing else is kept
+  against it.
+
+Every `bets-db` function takes the owner **first, with no default**. A forgotten filter
+on a multi-tenant table does not throw — it returns other people's rows and produces a
+win rate that describes nobody while looking exactly like one that describes you. The
+required argument turns that into a compile error. Cron paths pass `HOUSE` explicitly
+(no request means no cookie), which is the other reason there is no default: it would
+make "I forgot" and "I meant the owner" the same line of code.
+
+**Never fall back to `HOUSE` when `ownerId` is null.** Show nothing and say so. The
+fallback's failure mode is showing a stranger my ledger.
+
+`ledger_transfers` moves a guest ledger to a second device: eight characters, fifteen
+minutes, one use, `DELETE ... RETURNING` so two devices racing cannot both win it.
+Refused for the owner in both directions — the passcode already works on a phone, and a
+code would be a second, weaker way in.
+
 
 ## Deploying
 

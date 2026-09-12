@@ -9,6 +9,7 @@ import { DEFAULT_MAX_SPREAD, NO_LIMIT, parseMaxSpread, withoutBlowouts } from "@
 import { allBookLines } from "@/lib/book-lines";
 import { bookLink } from "@/lib/book-links";
 import { promoToday } from "@/lib/promo-plan";
+import { currentSession } from "@/lib/session";
 import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
 
 import { Freshness } from "@/components/Freshness";
@@ -125,6 +126,9 @@ export default async function ShopPage({
 }) {
   const { book: bookFilter, spread: spreadParam } = await searchParams;
   const data = getData();
+  // The promotion tracks whose seven days these are. With the app open to one person
+  // that is always me; with a viewer passcode issued it is whoever is looking.
+  const session = await currentSession();
   const [games, models, lines, myBooks, promo, freshness, favourites] = await Promise.all([
     data.games(),
     data.marginModels(),
@@ -135,7 +139,8 @@ export default async function ShopPage({
     // The daily qualifying bet lives here rather than in a tab of its own: it is a
     // book-specific bet, which is what this page is for, and it is a seven-day thing
     // that a permanent tab would outlive.
-    promoToday().catch(() => null),
+    // No ledger attached means no promotion progress to report -- never the owner's.
+    session.ownerId ? promoToday(session.ownerId).catch(() => null) : Promise.resolve(null),
     data.freshness(),
     data.backend === "postgres" ? getFavourites() : Promise.resolve([] as string[]),
   ]);

@@ -5,6 +5,8 @@ import { CorrectBet } from "@/components/CorrectBet";
 import { listBets } from "@/lib/bets-db";
 import { Freshness } from "@/components/Freshness";
 import { getData } from "@/lib/data";
+import { LedgerTransfer } from "@/components/LedgerTransfer";
+import { currentSession } from "@/lib/session";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
 import { activeBets, tally, type Bet, type Score, type Settlement } from "@/lib/settle";
@@ -127,6 +129,7 @@ function BetRow({ bet }: { bet: Bet & Settlement }) {
 
 export default async function BetsPage() {
   const data = getData();
+  const session = await currentSession();
   const [games, results, freshness] = await Promise.all([
     data.games(),
     data.results(),
@@ -135,9 +138,14 @@ export default async function BetsPage() {
 
   let bets: Bet[] = [];
   let loadError: string | null = null;
-  if (databaseUrl()) {
+  if (!session.ownerId) {
+    // Never fall back to the owner's ledger here. Middleware mints an identifier for
+    // every visitor it lets through, so this should be unreachable -- and if it ever is
+    // reached, showing somebody my rows would be a far worse answer than showing none.
+    loadError = "No ledger is attached to this session, so there is nothing to show.";
+  } else if (databaseUrl()) {
     try {
-      bets = await listBets();
+      bets = await listBets(session.ownerId);
     } catch (error) {
       loadError = error instanceof Error ? error.message : String(error);
     }
@@ -172,6 +180,12 @@ export default async function BetsPage() {
       <PageHeader title="Bets" subtitle="What you actually staked, and how it did" />
 
       {loadError ? <Banner tone="error">{loadError}</Banner> : null}
+
+      {/*
+        Guests only. My own ledger moves with the passcode, so the panel would be
+        offering a second and weaker way into it.
+      */}
+      {session.role === "viewer" ? <LedgerTransfer bets={standing.length} /> : null}
 
       {corrections > 0 ? (
         <p className="mb-3 text-[11px] leading-relaxed text-slate-600">
