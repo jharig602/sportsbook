@@ -97,7 +97,12 @@ export async function POST(request: Request) {
     // going to award the bonus for a bet you did not place, and a tracker that assumed
     // otherwise would announce completion while it was still unearned. The cost of that
     // honesty is that the count is only as good as the logging, which the push says.
-    const done = progress(qualifyingDates(ledger, BOOK, STAKE), DAYS);
+    const logged = qualifyingDates(ledger, BOOK, STAKE);
+    const done = progress(logged, DAYS);
+    // `today` means "the next day still to qualify", so once today's bet is logged the
+    // label runs a day ahead of itself and reads as tomorrow's reminder arriving early.
+    // There is nothing to remind about either way: the bet is placed.
+    const alreadyPlaced = due !== null && logged.includes(due);
 
     const shop = buildBoardShop(games, lines, models);
     const qualifier = bestQualifier(shop.rows, BOOK, STAKE);
@@ -163,6 +168,11 @@ export async function POST(request: Request) {
     // the reminder simply runs for ever.
     if (done.complete && !forced && !dry) {
       return NextResponse.json({ sent: 0, reason: "promotion complete", done: done.done });
+    }
+    if (alreadyPlaced && !forced && !dry) {
+      // Stamped so the day is closed out rather than re-offered by every later run.
+      if (due !== null) await recordPromoSent(due);
+      return NextResponse.json({ sent: 0, reason: "today's qualifier is already logged", done: done.done });
     }
 
     const dayLabel = done.today === null ? "complete" : `day ${done.today} of ${DAYS}`;
