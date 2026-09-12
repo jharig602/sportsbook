@@ -9,6 +9,7 @@ import { bookLink } from "@/lib/book-links";
 import { promoToday } from "@/lib/promo-plan";
 import { buildBoardShop, type BoardEdge } from "@/lib/board-shop";
 
+import { Freshness } from "@/components/Freshness";
 import { getData } from "@/lib/data";
 import { formatKickoff, formatLeague, formatLine, formatPrice } from "@/lib/format";
 import { getMyBooks } from "@/lib/settings-db";
@@ -121,7 +122,7 @@ export default async function ShopPage({
 }) {
   const { book: bookFilter, spread: spreadParam } = await searchParams;
   const data = getData();
-  const [games, models, lines, myBooks, promo] = await Promise.all([
+  const [games, models, lines, myBooks, promo, freshness] = await Promise.all([
     data.games(),
     data.marginModels(),
     data.backend === "postgres" ? allBookLines() : Promise.resolve(new Map()),
@@ -132,6 +133,7 @@ export default async function ShopPage({
     // book-specific bet, which is what this page is for, and it is a seven-day thing
     // that a permanent tab would outlive.
     promoToday().catch(() => null),
+    data.freshness(),
   ]);
 
   const shop = buildBoardShop(games, lines, models);
@@ -297,6 +299,8 @@ export default async function ShopPage({
           shows up.
         </p>
       </Explainer>
+
+      <Freshness data={freshness} />
 
       <NotAdvice className="mt-6" />
     </>

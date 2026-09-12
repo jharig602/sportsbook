@@ -1,3 +1,4 @@
+import { Freshness } from "@/components/Freshness";
 import { Card, Empty, PageHeader, Stats } from "@/components/ui";
 import { buildTrackRecord, getData, MIN_SAMPLES } from "@/lib/data";
 import { formatKind, formatPercent } from "@/lib/format";
@@ -256,11 +257,12 @@ function VerdictLine({
 
 export default async function RecordPage() {
   const data = getData();
-  const [alerts, grades, models, counts] = await Promise.all([
+  const [alerts, grades, models, counts, freshness] = await Promise.all([
     data.alerts(),
     data.grades(),
     data.marginModels(),
     data.alertCounts(),
+    data.freshness(),
   ]);
   const record = buildTrackRecord(alerts, grades, counts);
 
@@ -365,6 +367,7 @@ export default async function RecordPage() {
           computed walk-forward, so a slice is never scored on the games used to tune it.
         </p>
       </div>
+      <Freshness data={freshness} />
     </>
   );
 }

@@ -41,6 +41,14 @@ export interface AlertCounts {
   gradedLast7: number;
 }
 
+export interface Freshness {
+  /** When the collector last completed a run. Null before the first one. */
+  lastRun: string | null;
+  /** Median hours between recent runs. Null until there are two to compare. */
+  medianGapHours: number | null;
+  runsSeen: number;
+}
+
 export interface DataSource {
   games(): Promise<Game[]>;
   /**
@@ -53,6 +61,8 @@ export interface DataSource {
   alerts(): Promise<Alert[]>;
   /** True totals, counted in SQL rather than inferred from the capped alert list. */
   alertCounts(): Promise<AlertCounts>;
+  /** How current the data is, measured rather than promised. */
+  freshness(): Promise<Freshness>;
   history(eventId: string): Promise<HistoryPoint[]>;
   grades(): Promise<Grade[]>;
   results(): Promise<GameResult[]>;
@@ -126,6 +136,7 @@ const fixtureSource: DataSource = {
     const data = await snapshot();
     return activeOnly(data.alerts, data.activeRuleVersion);
   },
+  freshness: async () => ({ lastRun: null, medianGapHours: null, runsSeen: 0 }),
   alertCounts: async () => {
     // The fixture holds everything it has, so the arrays ARE the totals here.
     const data = await snapshot();
@@ -212,6 +223,24 @@ SELECT
   (SELECT COUNT(*) FROM alert_grades
     WHERE rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)
       AND graded_at > NOW() - INTERVAL '7 days') AS graded_last_7`;
+
+/**
+ * When the collector last ran, and how often it actually does.
+ *
+ * Deliberately NOT a countdown. The cron asks for five runs a day midweek and about
+ * forty-eight at a weekend; GitHub delivers three to five, at arbitrary minutes, and
+ * drops the rest. A timer counting down to the next scheduled minute would be a
+ * confident number that is wrong most of the time -- the same class of thing as the
+ * "397 awaiting" that turned out to be a cap.
+ *
+ * So this reports the last run, which is a fact, and the MEDIAN gap over recent runs,
+ * which is a measurement. Between them you can tell whether the loop is alive without
+ * being promised a minute nobody controls.
+ */
+const FRESHNESS = `
+SELECT started_at FROM poll_runs
+ WHERE status <> 'error'
+ ORDER BY started_at DESC LIMIT 25`;
 
 const RESULTS = `
 SELECT event_id, league, home_team, away_team, home_score, away_score,
@@ -354,6 +383,23 @@ const postgresSource: DataSource = {
   alerts: cachedQuery(() => query<Alert>(ALERTS), "alerts"),
   history: async (eventId) => query<HistoryPoint>(HISTORY, [eventId]),
   grades: cachedQuery(() => query<Grade>(GRADES), "grades"),
+  freshness: cachedQuery(async () => {
+    const rows = await query<{ started_at: string }>(FRESHNESS);
+    const times = rows
+      .map((r) => new Date(r.started_at).getTime())
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => b - a);
+    if (times.length === 0) return { lastRun: null, medianGapHours: null, runsSeen: 0 };
+    const gaps: number[] = [];
+    for (let i = 1; i < times.length; i += 1) gaps.push((times[i - 1] - times[i]) / 3600000);
+    gaps.sort((a, b) => a - b);
+    return {
+      lastRun: new Date(times[0]).toISOString(),
+      // Median, not mean: one twelve-hour overnight gap should not read as the norm.
+      medianGapHours: gaps.length ? gaps[Math.floor(gaps.length / 2)] : null,
+      runsSeen: times.length,
+    };
+  }, "freshness"),
   alertCounts: cachedQuery(async () => {
     const rows = await query<Record<string, unknown>>(COUNTS);
     const row = rows[0] ?? {};

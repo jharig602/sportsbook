@@ -3,6 +3,7 @@ import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Stats } from "@/components/ui";
 import { CorrectBet } from "@/components/CorrectBet";
 import { listBets } from "@/lib/bets-db";
+import { Freshness } from "@/components/Freshness";
 import { getData } from "@/lib/data";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
@@ -126,7 +127,11 @@ function BetRow({ bet }: { bet: Bet & Settlement }) {
 
 export default async function BetsPage() {
   const data = getData();
-  const [games, results] = await Promise.all([data.games(), data.results()]);
+  const [games, results, freshness] = await Promise.all([
+    data.games(),
+    data.results(),
+    data.freshness(),
+  ]);
 
   let bets: Bet[] = [];
   let loadError: string | null = null;
@@ -230,6 +235,8 @@ export default async function BetsPage() {
           })}
         </div>
       )}
+
+      <Freshness data={freshness} />
 
       <NotAdvice className="mt-6" />
     </>
