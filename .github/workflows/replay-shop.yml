@@ -1,0 +1,73 @@
+name: replay-shop
+
+# Rebuild the cross-book board from stored history and record what the rule would have
+# said, at the moment it would have said it.
+#
+# The shop rule went a season ungraded, so its record starts at zero -- but the evidence
+# to grade it has been in the database all along. book_lines and odds_snapshots are both
+# append-only with observed_at, so the board at any past moment rebuilds exactly, and
+# games that have already finished can be scored tonight rather than in three weeks.
+#
+# Manual only, and idempotent: picks are keyed by a hash of the offer, so re-running adds
+# only what was genuinely missing. Shares the `collect` concurrency group because it
+# writes to the same tables the collector does.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Check the secret is present
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL secret is not set. Add it in Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci --prefix web
+
+      # The script reads DATABASE_URL from the environment, never argv, so the
+      # connection string stays out of the process list -- and out of these logs, which
+      # are public.
+      - name: Replay the board and record picks
+        run: |
+          cd web
+          npx tsx scripts/replay-shop-picks.ts || {
+            code=$?
+            if [ $code -eq 3 ]; then
+              echo "ran clean, nothing new to record"
+            else
+              exit $code
+            fi
+          }
+
+      # Grade immediately, so a replay of games that have already finished produces a
+      # readable record in the same run rather than waiting for the next collector tick.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install collector deps
+        run: pip install -r requirements.txt
+
+      - name: Grade what can now be graded
+        run: python collector/pipeline.py --postgres
