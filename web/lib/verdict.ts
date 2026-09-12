@@ -20,7 +20,13 @@
  * "Needed" is the sample at which the interval would stop straddling IF the observed
  * rate held. It is a projection, not a promise: a rate that drifts toward break-even
  * pushes the finish line away faster than games arrive, which is itself the answer.
+ *
+ * The critical value is a parameter because the same record can be asked one question
+ * or many. Read on its own, a slice gets 1.96. Picked as the best of six, it does not:
+ * see `zForFamily`.
  */
+
+import { probit } from "./stats";
 
 /** Break-even at -110: a winner returns 100/110, a loser costs the stake. */
 export const BREAK_EVEN = 110 / 210;
@@ -52,14 +58,37 @@ export interface Judgement {
   roi: number | null;
 }
 
-const Z = 1.96;
+/** 95% two-sided, when one question is being asked. */
+export const Z = 1.96;
 
-export function judge(hits: number, n: number, breakEven = BREAK_EVEN): Judgement {
+/**
+ * The critical value for ONE cell when `k` of them are being compared.
+ *
+ * Bonferroni: spend the 5% across every comparison rather than on each. Slicing a
+ * record six ways and reading the best cell is not six independent questions, it is one
+ * question — "is any of these good?" — and answering it at 1.96 finds something about a
+ * quarter of the time in a record with no edge anywhere in it.
+ *
+ * Conservative, and deliberately so. The cost of the strict version is missing a real
+ * edge for another month; the cost of the loose one is betting money on a coincidence.
+ */
+export function zForFamily(k: number): number {
+  if (!Number.isFinite(k) || k <= 1) return Z;
+  return probit(1 - 0.05 / (2 * k));
+}
+
+export function judge(
+  hits: number,
+  n: number,
+  breakEven = BREAK_EVEN,
+  /** Raise it when this is one slice of many; see `zForFamily`. */
+  z: number = Z,
+): Judgement {
   if (n <= 0) {
     return { n: 0, hits: 0, rate: null, lo: 0, hi: 1, state: "no-data", needed: null, moreNeeded: null, roi: null };
   }
   const rate = hits / n;
-  const half = Z * Math.sqrt((rate * (1 - rate)) / n);
+  const half = z * Math.sqrt((rate * (1 - rate)) / n);
   const lo = Math.max(0, rate - half);
   const hi = Math.min(1, rate + half);
 
@@ -68,7 +97,7 @@ export function judge(hits: number, n: number, breakEven = BREAK_EVEN): Judgemen
   // How large a sample makes the half-width smaller than the distance to break-even.
   const gap = Math.abs(rate - breakEven);
   const needed =
-    gap < 1e-9 ? null : Math.ceil((Z / gap) ** 2 * rate * (1 - rate));
+    gap < 1e-9 ? null : Math.ceil((z / gap) ** 2 * rate * (1 - rate));
 
   return {
     n,

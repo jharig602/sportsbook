@@ -1,5 +1,14 @@
 import { Freshness } from "@/components/Freshness";
-import { Card, Empty, PageHeader, Stats } from "@/components/ui";
+import { Card, Empty, PageHeader, Segmented, Stats } from "@/components/ui";
+import {
+  buildBreakdown,
+  filterGrades,
+  LEAGUES,
+  MARKETS,
+  type Breakdown,
+  type LeagueFilter,
+  type MarketFilter,
+} from "@/lib/breakdown";
 import { buildTrackRecord, getData, MIN_SAMPLES } from "@/lib/data";
 import { formatKind, formatPercent } from "@/lib/format";
 import type { RecordRow } from "@/lib/types";
@@ -255,7 +264,125 @@ function VerdictLine({
   );
 }
 
-export default async function RecordPage() {
+/**
+ * Every market against every league, and what reading the grid costs you.
+ *
+ * The grid is the feature; the paragraph under it is the reason the feature is safe to
+ * have. Six cells of a hundred-alert record hold about seventeen games each, and
+ * seventeen games hand you a 70% rate roughly one time in eight with no edge at all --
+ * so a six-cell grid almost always contains something that looks like a discovery. The
+ * only defence is to price the search itself, which is what `familyP` does.
+ */
+function MarketGrid({ breakdown, market, league }: { breakdown: Breakdown; market: MarketFilter; league: LeagueFilter }) {
+  const { cells, selection } = breakdown;
+  const pct = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(1)}%`);
+
+  return (
+    <Card className="mb-3 px-3.5 py-3">
+      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        By market and league
+      </h2>
+      <div className="-mx-1 overflow-x-auto">
+        <table className="w-full min-w-[420px] text-[12px]">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+              <th className="px-1 py-1 text-left font-medium">market</th>
+              {LEAGUES.map((l) => (
+                <th key={l} className="px-1 py-1 text-right font-medium">{l.toUpperCase()}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MARKETS.map((m) => (
+              <tr key={m} className="border-t border-edge/60">
+                <td className="px-1 py-1.5 text-slate-300">{m}</td>
+                {LEAGUES.map((l) => {
+                  const c = cells.find((x) => x.market === m && x.league === l)!;
+                  const isBest = selection.best?.market === m && selection.best?.league === l;
+                  const highlighted = (market === m || market === "all") && (league === l || league === "all");
+                  return (
+                    <td
+                      key={l}
+                      className={`px-1 py-1.5 text-right tabular ${highlighted ? "" : "opacity-40"}`}
+                    >
+                      <span
+                        className={
+                          c.rate === null
+                            ? "text-slate-600"
+                            : c.adjusted.state === "clears"
+                              ? "text-emerald-300"
+                              : c.adjusted.state === "fails"
+                                ? "text-rose-300"
+                                : "text-slate-200"
+                        }
+                      >
+                        {pct(c.rate)}
+                      </span>
+                      <span className="ml-1 text-[10px] text-slate-600">
+                        {c.decided > 0 ? `n=${c.decided}` : "—"}
+                      </span>
+                      {isBest && c.decided > 0 ? (
+                        <span className="ml-1 text-[10px] text-amber-400">best</span>
+                      ) : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+        Green means the cell clears {(breakdown.breakEven * 100).toFixed(1)}% break-even
+        even after paying for the fact that six cells were compared. Red means it fails
+        the same way. Everything else is undecided, which at these sample sizes is almost
+        everything.
+      </p>
+
+      {selection.best && selection.familyP !== null ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+          Best cell is <span className="text-slate-200">{selection.best.label}</span> at{" "}
+          <span className="tabular text-slate-200">{pct(selection.best.rate)}</span> over{" "}
+          {selection.best.decided}.{" "}
+          {selection.familyP > 0.2 ? (
+            <>
+              With no edge anywhere, at least one of the {selection.compared} cells reads
+              that well{" "}
+              <span className="text-amber-300">
+                {(selection.familyP * 100).toFixed(0)}% of the time
+              </span>
+              . That is not a finding, it is the grid doing what grids do — betting it
+              would be betting the search rather than the signal.
+            </>
+          ) : (
+            <>
+              With no edge anywhere, some cell reads that well{" "}
+              <span className="text-emerald-300">
+                {(selection.familyP * 100).toFixed(1)}% of the time
+              </span>
+              , which is low enough to be worth watching. Watching, not staking the
+              season on: it is still one slice chosen out of {selection.compared}.
+            </>
+          )}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+export default async function RecordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ market?: string; league?: string }>;
+}) {
+  const params = await searchParams;
+  const market: MarketFilter =
+    params.market === "spread" || params.market === "total" || params.market === "moneyline"
+      ? params.market
+      : "all";
+  const league: LeagueFilter =
+    params.league === "nfl" || params.league === "ncaaf" ? params.league : "all";
   const data = getData();
   const [alerts, grades, models, counts, freshness] = await Promise.all([
     data.alerts(),
@@ -264,13 +391,18 @@ export default async function RecordPage() {
     data.alertCounts(),
     data.freshness(),
   ]);
-  const record = buildTrackRecord(alerts, grades, counts);
+  // The grid always shows every cell -- narrowing it would hide the thing it exists to
+  // reveal -- but everything below reflects the filter.
+  const breakdown = buildBreakdown(grades);
+  const shown = filterGrades(grades, market, league);
+  const filtered = market !== "all" || league !== "all";
+  const record = buildTrackRecord(alerts, shown, filtered ? undefined : counts);
 
   // Judged separately, because they currently disagree: cover looks strong and line
   // value does not, and showing only the flattering one would be the same failure this
   // page exists to prevent.
-  const decidedCover = grades.filter((g) => g.result_covered !== null);
-  const decidedLine = grades.filter((g) => g.line_value_won !== null);
+  const decidedCover = shown.filter((g) => g.result_covered !== null);
+  const decidedLine = shown.filter((g) => g.line_value_won !== null);
   const cover = judge(decidedCover.filter((g) => g.result_covered).length, decidedCover.length);
   const lineValue = judge(decidedLine.filter((g) => g.line_value_won).length, decidedLine.length);
 
@@ -288,8 +420,45 @@ export default async function RecordPage() {
           { value: String(record.awaitingResults), label: "awaiting" },
         ]}
       />
-      {Object.entries(models).map(([league, model]) => (
-        <SpreadBands key={league} model={model} league={league} />
+      <div className="mb-2 space-y-1.5">
+        <Segmented
+          options={[
+            { key: "all", label: "All markets" },
+            ...MARKETS.map((m) => ({ key: m, label: m === "moneyline" ? "ML" : m })),
+          ]}
+          active={market}
+          hrefFor={(key) =>
+            `/record?market=${key}${league === "all" ? "" : `&league=${league}`}`
+          }
+        />
+        <Segmented
+          options={[
+            { key: "all", label: "Both leagues" },
+            ...LEAGUES.map((l) => ({ key: l, label: l.toUpperCase() })),
+          ]}
+          active={league}
+          hrefFor={(key) =>
+            `/record?league=${key}${market === "all" ? "" : `&market=${market}`}`
+          }
+        />
+      </div>
+
+      <MarketGrid breakdown={breakdown} market={market} league={league} />
+
+      {filtered ? (
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
+          Showing {shown.length} alert{shown.length === 1 ? "" : "s"} in{" "}
+          {market === "all" ? "every market" : market} ·{" "}
+          {league === "all" ? "both leagues" : league.toUpperCase()}. Every number below
+          is this slice only, and it is one of {MARKETS.length * LEAGUES.length} slices
+          you could have picked &mdash; read it alongside the grid above, not instead of
+          it. The count is every cell, not just the ones with data: a slice you skipped
+          because it looked thin was still a slice you chose against.
+        </p>
+      ) : null}
+
+      {Object.entries(models).map(([leagueKey, model]) => (
+        <SpreadBands key={leagueKey} model={model} league={leagueKey} />
       ))}
 
 

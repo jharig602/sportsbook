@@ -84,6 +84,7 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
 | Correlation with the field is harmless | **False.** It cuts against you on the crowd's ticket and for you off it. |
 | Survivor: maximise survival | **Wrong objective.** The pool pays the last entrant standing; a 13-entry pool wipes out entirely ~44% of seasons. |
 | Blowouts should be filtered because they are unpredictable | Right action, **wrong reason**. They are predictable; the sample is too thin to have fitted the residual *shape*, and nobody bets those lines. |
+| A market/league breakdown shows where the rule works | **Only with the search priced in.** Six cells of ~17 games contain a 70% cell one time in eight per cell; `selection.familyP` reports how often the *best of six* looks that good with no edge anywhere. |
 
 ---
 
@@ -106,6 +107,29 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
   that had not landed. Twice. Poll for something only the new build can produce.
 
 ---
+
+## Reading the record
+
+Three markets are collected, graded and shopped, but they are **not equally modelled**:
+
+- **Spread** — fully modelled. `fit_margins.py` fits `margin + home_spread`, giving
+  dispersion, key-number mass and push odds, bucketed by spread size.
+- **Moneyline** — shopped against other books' de-vigged prices, no model needed, and
+  **band-limited**: outside roughly even money it refuses to quote a return, because
+  multiplicative de-vig breaks in the tails. That refusal killed the 79 phantom +37%s.
+- **Totals** — graded correctly (`grade_total` is right), but **priced with the margin
+  model**. `shop.ts` has no totals branch, so a total falls through to
+  `pointsToProbability(model, consensusOriented)` and `sdForSpread` looks up a 40.5
+  *total* in the |home_spread| buckets. It lands in the extreme-blowout band (sd 13.63
+  vs league 15.43), overstating a point of total by ~13%, or falls off the table and
+  silently reverts to the league figure. **There is no totals model.** `historical_lines`
+  has the closing totals and `game_results` the scores, so one is fittable on the same
+  backfill; until it is, treat totals edges on Shop as approximate.
+
+The **Record** page grid cuts cover rate by market × league. Every cell is judged twice:
+`alone` (z=1.96, the naive number, not safe to act on) and `adjusted` (Bonferroni across
+the six). `selection.familyP` prices the search itself — the probability *some* cell
+reads as well as the best one does when nothing has any edge. It is usually large.
 
 ## Scheduling reality
 
