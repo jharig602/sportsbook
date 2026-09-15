@@ -39,6 +39,17 @@ function row(over: Partial<BookLineRow>): BookLineRow {
   } as BookLineRow;
 }
 
+/**
+ * The moment every fixture here was observed at.
+ *
+ * Passed explicitly because `quotesForGame` defaults `now` to the real clock and marks
+ * anything past the freshness window stale. Tests that relied on the default passed for
+ * thirty hours after the fixtures were written and then failed forever, with no code
+ * change behind it -- the same time bomb the Python fixtures carried. Anything that
+ * reads freshness or consensus gets this, not the wall clock.
+ */
+const FIXTURE_NOW = new Date("2026-09-12T13:00:00Z");
+
 test("the board's own book is derived, not stored", () => {
   const quotes = quotesForGame(GAME, []);
   const books = new Set(quotes.map((q) => q.book));
@@ -62,7 +73,7 @@ test("a moneyline carries no line, only a price", () => {
 });
 
 test("a stored book joins the comparison", () => {
-  const quotes = quotesForGame(GAME, [row({}), row({ quote_id: "q2", side: "away", line: 1 })]);
+  const quotes = quotesForGame(GAME, [row({}), row({ quote_id: "q2", side: "away", line: 1 })], "DraftKings", FIXTURE_NOW);
   assert.equal(quotes.filter((q) => q.book === "BetMGM").length, 2);
   const mgm = quotes.find((q) => q.book === "BetMGM" && q.side === "home")!;
   assert.equal(mgm.line, -1);
@@ -81,7 +92,7 @@ test("a stored row claiming to be the feed's book cannot shadow the snapshot", (
 test("the real case end to end: DK -1.5 juiced against MGM -1", () => {
   // The line the user actually checked by hand. DK posts -1.5 but charges +102/-122
   // for it; MGM posts -1 at -110. The gap is half a point of posted line.
-  const rows = shopAll(quotesForGame(GAME, [row({}), row({ quote_id: "q2", side: "away", line: 1 })]), NFL);
+  const rows = shopAll(quotesForGame(GAME, [row({}), row({ quote_id: "q2", side: "away", line: 1 })], "DraftKings", FIXTURE_NOW), NFL);
   const mgm = rows.find((r) => r.book === "BetMGM" && r.market === "spread" && r.side === "home")!;
   assert.equal(mgm.consensusLine, -1.5);
   assert.equal(mgm.advantagePoints, 0.5);
@@ -96,7 +107,7 @@ test("a genuinely stale second book shows up as positive return", () => {
     quotesForGame(GAME, [
       row({ line: 0.5, price: -110 }),
       row({ quote_id: "q2", side: "away", line: -0.5, price: -110 }),
-    ]),
+    ], "DraftKings", FIXTURE_NOW),
     NFL,
   );
   const mgm = rows.find((r) => r.book === "BetMGM" && r.market === "spread" && r.side === "home")!;
@@ -111,7 +122,7 @@ test("a missing game still prices stored books against each other", () => {
     quotesForGame(undefined, [
       row({ book: "BetMGM", line: -1 }),
       row({ quote_id: "q2", book: "Caesars", line: -3 }),
-    ]),
+    ], "DraftKings", FIXTURE_NOW),
     NFL,
   );
   assert.equal(rows.length, 2);
