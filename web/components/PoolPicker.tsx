@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { poolLabel, type StoredPool } from "@/lib/pools";
+import { fieldState, poolLabel, type StoredPool } from "@/lib/pools";
 
 /**
  * Record what an entry actually picked, and show what it has already spent.
@@ -55,6 +55,36 @@ export function PoolPicker({
     save(pools.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
   }
 
+  /**
+   * Record how many are still alive on each number of losses.
+   *
+   * Stored as the state rather than as "how many lost this week", on purpose. A weekly
+   * delta has to be applied exactly once, and a form that is saved twice, or edited
+   * after the fact, would quietly apply it twice. The state can be re-saved any number
+   * of times and still mean the same thing.
+   */
+  function setAlive(losses: number, value: number) {
+    const current = pool.field ?? [pool.size];
+    const next = Array.from({ length: pool.lossesAllowed + 1 }, (_, k) =>
+      k === losses ? value : (current[k] ?? 0),
+    );
+    save(pools.map((p, i) => (i === index ? { ...p, field: next } : p)));
+  }
+
+  function setMyLosses(value: number) {
+    save(pools.map((p, i) => (i === index ? { ...p, myLosses: value } : p)));
+  }
+
+  function clearField() {
+    save(
+      pools.map((p, i) => {
+        if (i !== index) return p;
+        const { field: _field, myLosses: _mine, ...rest } = p;
+        return rest;
+      }),
+    );
+  }
+
   function addPool() {
     // A new entry starts unnamed, so its label follows whatever size you give it.
     save([...pools, { used: [], size: 20, lossesAllowed: pool?.lossesAllowed ?? 0 }]);
@@ -74,6 +104,8 @@ export function PoolPicker({
     );
     save(next);
   }
+
+  const state = fieldState(pool);
 
   return (
     <div className="mb-3 rounded-xl border border-edge bg-surface px-3 py-2.5">
@@ -108,12 +140,16 @@ export function PoolPicker({
               <span className="text-[10px] uppercase tracking-wide text-slate-500">
                 Entrants
               </span>
+              {/* With the field recorded, entrants is its total and not a separate number:
+                  two inputs that must agree should not both be editable. */}
               <input
                 type="text"
                 inputMode="numeric"
+                key={`size-${pool.size}-${state.recorded}`}
                 defaultValue={String(pool.size)}
+                disabled={state.recorded}
                 onBlur={(e) => setField("size", Number(e.target.value.replace(/[^0-9]/g, "")) || 1)}
-                className="tabular mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600"
+                className="tabular mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600 disabled:opacity-60"
               />
             </label>
             <label className="block">
@@ -130,6 +166,68 @@ export function PoolPicker({
                 <option value="2">2 — out on third loss</option>
               </select>
             </label>
+          </div>
+
+          <div className="mt-3 border-t border-edge/60 pt-2.5">
+            <p className="text-[10px] uppercase tracking-wide text-slate-500">
+              Still alive, by losses taken (you included)
+            </p>
+            <div className="mt-1 grid grid-cols-3 gap-2">
+              {Array.from({ length: pool.lossesAllowed + 1 }, (_, k) => (
+                <label key={k} className="block">
+                  <span className="text-[10px] text-slate-500">
+                    {k === 0 ? "unbeaten" : `${k} loss${k === 1 ? "" : "es"}`}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    key={`alive-${k}-${pool.field?.[k] ?? "none"}`}
+                    defaultValue={
+                      pool.field ? String(pool.field[k] ?? 0) : k === 0 ? String(pool.size) : "0"
+                    }
+                    onBlur={(e) => setAlive(k, Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+                    className="tabular mt-0.5 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600"
+                  />
+                </label>
+              ))}
+              <label className="block">
+                <span className="text-[10px] text-slate-500">your losses</span>
+                <select
+                  key={`mine-${pool.myLosses ?? 0}`}
+                  defaultValue={String(pool.myLosses ?? 0)}
+                  onChange={(e) => setMyLosses(Number(e.target.value))}
+                  className="mt-0.5 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600"
+                >
+                  {Array.from({ length: pool.lossesAllowed + 2 }, (_, k) => (
+                    <option key={k} value={k}>
+                      {k > pool.lossesAllowed ? `${k} — out` : String(k)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
+              {state.recorded
+                ? `Planning against ${state.rivals} rival${state.rivals === 1 ? "" : "s"}: ${state.rivalLosses
+                    .map((n, k) => `${n} ${k === 0 ? "unbeaten" : `on ${k} loss${k === 1 ? "" : "es"}`}`)
+                    .join(", ")}.`
+                : "Not recorded, so every rival is assumed unbeaten — only true before week 1."}{" "}
+              Enter the totals as they stand, not this week&rsquo;s changes; saving twice
+              then cannot count anyone twice.
+            </p>
+            {state.problem ? (
+              <p className="mt-1 text-[11px] leading-relaxed text-amber-300/90">{state.problem}</p>
+            ) : null}
+            {state.recorded ? (
+              <button
+                type="button"
+                onClick={clearField}
+                disabled={busy}
+                className="mt-1.5 text-[11px] text-slate-500 underline underline-offset-2"
+              >
+                forget the recorded field
+              </button>
+            ) : null}
           </div>
 
           {pool.used.length > 0 ? (

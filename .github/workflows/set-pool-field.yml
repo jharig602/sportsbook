@@ -1,0 +1,52 @@
+name: set-pool-field
+
+# Record where a survivor pool's field stands -- entrants alive by losses taken.
+#
+# Stored as state, not as "who lost this week", so running it twice is harmless. The
+# script refuses any size that matches no pool or several, any field with more buckets
+# than the pool allows, and an entry alive in an empty bucket. It prints sizes and loss
+# counts only: these logs are public, and survivor picks are strategy.
+#
+# Input example:   137:90,51:0 13:9,2:0
+#   MATCH (the pool's current size) : FIELD (alive by losses, you included) : YOUR LOSSES
+
+on:
+  workflow_dispatch:
+    inputs:
+      sets:
+        description: "Space-separated MATCH:FIELD:MYLOSSES, e.g. 137:90,51:0 13:9,2:0"
+        required: true
+      dry_run:
+        description: "Report what would change without writing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  set:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # Passed through the environment, never interpolated into the run line below:
+      # a dispatch input pasted into a shell command is a script injection.
+      POOL_SETS: ${{ inputs.sets }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Record the field
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            python collector/set_pool_field.py --dry-run
+          else
+            python collector/set_pool_field.py
+          fi

@@ -1,3 +1,4 @@
+import { fieldState } from "@/lib/pools";
 import Link from "next/link";
 import { LogPickButton } from "@/components/LogPickButton";
 import { PinPicker } from "@/components/PinPicker";
@@ -228,11 +229,20 @@ export default async function SurvivorPage({
     return {
       pool: entry.pool,
       probs,
-      odds: poolOdds(probs, entry.pool.lossesAllowed ?? 0, entry.pool.size ?? 1),
-      lifeMultiple: (entry.pool.lossesAllowed ?? 0) > 0 ? extraLifeMultiple(probs) : 1,
+      // The recorded field, so "field left" counts a rival on their last life as having
+      // one life, not two.
+      odds: poolOdds(
+        probs,
+        entry.pool.lossesAllowed ?? 0,
+        entry.pool.size ?? 1,
+        fieldState(entry.pool),
+      ),
+      // What a spare life is worth only means something if you still have one to spare.
+      lifeMultiple: fieldState(entry.pool).livesLeft > 0 ? extraLifeMultiple(probs) : 1,
     };
   });
   const here = odds[poolIndex] ?? odds[0];
+  const hereState = fieldState(here.pool);
 
   const ranking = poolEntry?.ranking ?? [];
 
@@ -254,6 +264,7 @@ export default async function SurvivorPage({
     beforeProbs,
     here.pool.lossesAllowed ?? 0,
     here.pool.size ?? 1,
+    hereState,
   );
   const whatIf =
     hasWhatIf
@@ -281,7 +292,11 @@ export default async function SurvivorPage({
   const stability = poolWinStability(weeks, [...HORIZONS, priced], {
     used: new Set(pools[poolIndex]?.used ?? []),
     lossesAllowed: pools[poolIndex]?.lossesAllowed ?? 0,
-    poolSize: pools[poolIndex]?.size ?? 1,
+    // Same field the headline pick was ranked against, or the card would be answering
+    // the question for an unbeaten pool while the pick above it answers the real one.
+    poolSize: hereState.rivals + 1,
+    rivalLosses: hereState.rivalLosses,
+    myLosses: hereState.myLosses,
     crowding,
     popularity,
   });
@@ -316,8 +331,8 @@ export default async function SurvivorPage({
           {
             value: percent(here.odds.survival),
             label:
-              (here.pool.lossesAllowed ?? 0) > 0
-                ? `survive · ${(here.pool.lossesAllowed ?? 0) + 1} lives`
+              hereState.livesLeft > 0
+                ? `survive · ${hereState.livesLeft + 1} lives`
                 : "survive all",
           },
           {
@@ -359,6 +374,45 @@ export default async function SurvivorPage({
             ? "out on the first loss"
             : `out on loss ${(here.pool.lossesAllowed ?? 0) + 1}`}
         </h2>
+        {/*
+          The field as it stands, said out loud. Every number on this card and the pick
+          above it turn on it, and an unrecorded field silently plans against a pool in
+          which nobody has lost -- true for exactly one week of the season.
+        */}
+        <p
+          className={`mt-1 text-[11px] leading-relaxed ${
+            hereState.recorded && !hereState.problem ? "text-slate-500" : "text-amber-300/90"
+          }`}
+        >
+          {hereState.recorded ? (
+            <>
+              Against {hereState.rivals} rival{hereState.rivals === 1 ? "" : "s"}:{" "}
+              {hereState.rivalLosses
+                .map((n, k) =>
+                  k === 0
+                    ? `${n} unbeaten`
+                    : k === (here.pool.lossesAllowed ?? 0)
+                      ? `${n} on their last life`
+                      : `${n} on ${k} loss${k === 1 ? "" : "es"}`,
+                )
+                .join(", ")}
+              . You{" "}
+              {hereState.livesLeft < 0
+                ? "are out of this pool."
+                : hereState.myLosses === 0
+                  ? "are unbeaten."
+                  : hereState.livesLeft === 0
+                    ? "are on your last life."
+                    : `have ${hereState.myLosses} loss${hereState.myLosses === 1 ? "" : "es"}.`}
+            </>
+          ) : (
+            <>
+              Field not recorded, so every rival is treated as unbeaten. After week 1 that
+              overstates how long the pool lasts &mdash; record it under &ldquo;edit&rdquo;.
+            </>
+          )}
+          {hereState.problem ? <> {hereState.problem}</> : null}
+        </p>
 
         <div className="tabular mt-2 space-y-1 text-[12px]">
           {[4, 8, 12, 18]
@@ -377,7 +431,7 @@ export default async function SurvivorPage({
         </div>
 
         <p className="mt-2 text-[11px] text-slate-500">
-          {(here.pool.lossesAllowed ?? 0) > 0 ? (
+          {hereState.livesLeft > 0 ? (
             <>
               Spare life worth{" "}
               <span className="font-medium text-slate-300">

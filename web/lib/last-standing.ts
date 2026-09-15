@@ -53,7 +53,7 @@ export function shareAgainstExits(before: number, level: number, rivals: number)
  * is why the array is one longer than the season. Written allocation-free for the same
  * reason as `rivalSurvival`: this runs once per sampled season per candidate.
  */
-function exitPmf(
+export function exitPmf(
   loseEachWeek: Float64Array,
   lossesAllowed: number,
   out: Float64Array,
@@ -126,11 +126,23 @@ export interface PreparedField {
   rivalAt: Float64Array;
 }
 
+/**
+ * `rivalLosses` is the field as it stands: how many rivals carry each number of losses
+ * already. Absent means everyone is unbeaten, which is only true before week 1.
+ *
+ * A rival a loss down is simulated with one fewer life, and each rival's exit
+ * distribution is the MIX of those, weighted by how many are in each state. That treats
+ * every rival as an independent draw from the recorded mix rather than holding the
+ * split fixed at exactly 90 and 51 — an approximation, and one that is measured rather
+ * than assumed: see "the mixed field stays close to the exact two-group answer" in the
+ * tests, which integrates the exact version and bounds the gap for both real pools.
+ */
 export function prepareField(
   field: Field,
   weeks: number,
   lossesAllowed: number,
   seasons: number = SEASONS,
+  rivalLosses?: number[],
 ): PreparedField {
   // xorshift32 with a fixed seed: the same seasons on every render and every machine,
   // so two candidates are always compared over identical worlds.
@@ -153,7 +165,13 @@ export function prepareField(
   }
   const lose = new Float64Array(weeks);
   const pmf = new Float64Array(span);
+  const part = new Float64Array(span);
   const dp = new Float64Array(lossesAllowed + 3);
+
+  // Shares by losses already taken. Only states with lives remaining are rivals at all.
+  const counts = (rivalLosses ?? [1]).slice(0, lossesAllowed + 1).map((n) => Math.max(0, n));
+  const total = counts.reduce((a, b) => a + b, 0);
+  const shares = total > 0 ? counts.map((n) => n / total) : [1];
 
   for (let s = 0; s < seasons; s += 1) {
     const w0 = s * weeks;
@@ -162,7 +180,16 @@ export function prepareField(
       crowdLost[w0 + i] = lost;
       lose[i] = lost ? base[i] + field.crowding : base[i];
     }
-    exitPmf(lose, lossesAllowed, pmf, dp);
+    if (shares.length === 1) {
+      exitPmf(lose, lossesAllowed, pmf, dp);
+    } else {
+      pmf.fill(0);
+      for (let k = 0; k < shares.length; k += 1) {
+        if (shares[k] === 0) continue;
+        exitPmf(lose, lossesAllowed - k, part, dp);
+        for (let t = 0; t < span; t += 1) pmf[t] += shares[k] * part[t];
+      }
+    }
     const p0 = s * span;
     let before = 0;
     for (let t = 0; t < span; t += 1) {
@@ -183,8 +210,13 @@ export function lastStandingWin(
   line: ScoredLine,
   prepared: PreparedField,
   poolSize: number,
+  /** Losses your entry has already taken. It plays the rest on the lives it has left. */
+  myLosses = 0,
 ): number {
-  const { weeks, lossesAllowed, seasons, crowdLost, rivalBefore, rivalAt } = prepared;
+  const { weeks, seasons, crowdLost, rivalBefore, rivalAt } = prepared;
+  const lossesAllowed = prepared.lossesAllowed - myLosses;
+  // Already out: there is no season in which an eliminated entry takes the pool.
+  if (lossesAllowed < 0) return 0;
   if (weeks === 0 || line.mine.length !== weeks) return 0;
   const rivals = Math.max(0, poolSize - 1);
   const span = weeks + 1;

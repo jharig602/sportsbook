@@ -84,6 +84,7 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
 | Correlation with the field is harmless | **False.** It cuts against you on the crowd's ticket and for you off it. |
 | Survivor: maximise survival | **Wrong objective.** The pool pays the last entrant standing; a 13-entry pool wipes out entirely ~44% of seasons. |
 | Blowouts should be filtered because they are unpredictable | Right action, **wrong reason**. They are predictable; the sample is too thin to have fitted the residual *shape*, and nobody bets those lines. |
+| Rivals already carrying a loss can be modelled as one mixed field | **Yes, measured.** Each rival drawn independently from the recorded split, against the exact two-group integral: +0.24% on a 141-entry pool (89 unbeaten / 51 on a last life), +1.66% on an 11-entry one (8 / 2). Stable at 1,500 and 12,000 seasons, so it is the approximation and not noise. |
 | A market/league breakdown shows where the rule works | **Only with the search priced in.** Six cells of ~17 games contain a 70% cell one time in eight per cell; `selection.familyP` reports how often the *best of six* looks that good with no edge anywhere. |
 
 ---
@@ -105,6 +106,12 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
   Timestamps within 30 minutes collapse to one cycle first.
 - **Deploy checks that matched a string the previous build already had** confirmed deploys
   that had not landed. Twice. Poll for something only the new build can produce.
+- **Test fixtures pinned to a date, checked against the real clock.** Twice now: the
+  Python `tests/helpers.py` kickoff went past and six tests failed mid-afternoon, then
+  `book-lines.test.ts` quotes dated 2026-09-12 aged out of the 30-hour freshness window
+  three days later. Both failed with no code change behind them, which points at the
+  wrong thing. **Any function that takes `now` gets it passed explicitly in tests**, and
+  fixture dates are relative or paired with that `now`.
 
 ---
 
@@ -182,7 +189,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **13**.
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **17**.
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -194,6 +201,13 @@ wait for it, then push the web change.
 ---
 
 ## The ledger
+
+Bets are logged from wherever the decision was made: the game page, each book's row under
+Line shopping, and the promo card all link to `/bets` with the game, market, side, line,
+price, book, stake and bonus flag filled in (`lib/bet-link.ts`, strictly re-validated on
+read). The form finds games by typing team names and lists games that kicked off in the
+last 48 hours after upcoming ones — the old dropdown held the first 80 upcoming games, so
+a college Saturday's game or a bet logged late could simply be missing.
 
 `bets` is append-only. Nothing is ever updated, because the outcome is derived from
 `game_results` at read time and a corrected score corrects the P&L by itself.
@@ -224,6 +238,22 @@ recommended team changes at 50 entrants.
 Pool labels derive from size unless named. Crowding comes from the popularity feed, and
 **null crowding must become 0**, which collapses the model back to plain survival. Never
 default it to a guess.
+
+**The field as it stands** is stored per pool (`field`: entrants alive by losses already
+taken, you included; `myLosses`). Without it every rival is simulated unbeaten, which is
+true for exactly one week. A rival a loss down gets one fewer life; the field's exit
+distribution is the head-count-weighted mix (measured above). Your plan runs on
+`lossesAllowed - myLosses`. With a field recorded, `size` is its total, not a separate
+number.
+
+Recorded as **state, never as a weekly delta** — "90 unbeaten, 51 on one loss", not "51
+lost this week". A delta must be applied exactly once; a state can be re-saved or re-run
+any number of times. `collector/set_pool_field.py` (workflow `set-pool-field`, dry run by
+default) applies it without the passcode and prints sizes and counts only — never `used`,
+because Actions logs are public and picks are strategy.
+
+`seasonGames` only returns `commence_time > NOW()`, so the planner's week 1 is the next
+unplayed week, not the season's. The field state is "as of now", which lines up.
 
 ---
 

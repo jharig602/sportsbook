@@ -1,4 +1,5 @@
 import { lastStandingWin, prepareField, type PreparedField } from "./last-standing";
+import { fieldState } from "./pools";
 import { aliveCurve } from "./pool-odds";
 import {
   buildPlan,
@@ -365,9 +366,11 @@ function bestSeparationPenalty(
     lossesAllowed: number;
     poolSize: number;
     pinned: Map<number, string>;
+    myLosses: number;
   },
 ): number {
-  const { used, lossesAllowed, poolSize, pinned } = options;
+  const { used, lossesAllowed, poolSize, pinned, myLosses } = options;
+  const livesLeft = Math.max(0, lossesAllowed - myLosses);
   const crowdByWeek = new Map<number, string>();
   planning.forEach((w, i) => {
     const team = crowdPicks[i]?.team;
@@ -382,7 +385,7 @@ function bestSeparationPenalty(
     const plan = refineForLives(
       planning,
       buildPlan(planning, planning.length, used, new Map(), pinned, avoid),
-      lossesAllowed,
+      livesLeft,
       used,
       pinned,
     );
@@ -391,7 +394,7 @@ function bestSeparationPenalty(
       (p, i) => p.pick !== null && p.pick?.team === (crowdPicks[i]?.team ?? null),
     );
     if (mine.length !== prepared.weeks) continue;
-    const score = lastStandingWin({ mine, shared }, prepared, poolSize);
+    const score = lastStandingWin({ mine, shared }, prepared, poolSize, myLosses);
     if (score > bestScore) {
       bestScore = score;
       best = lambda;
@@ -418,9 +421,20 @@ export function rankByPoolWin(
      * down the board it sits, so the page can show what choosing it would cost.
      */
     pinned?: Map<number, string>;
+    /**
+     * Rivals by losses already taken. Absent means an unbeaten field — true in week 1
+     * and false every week after, so anything past the opener should pass it.
+     */
+    rivalLosses?: number[];
+    /** Losses your own entry has taken; it plans on the lives it has left. */
+    myLosses?: number;
   },
 ): PoolWinRanking[] {
   const { lossesAllowed, poolSize, crowding } = options;
+  const myLosses = options.myLosses ?? 0;
+  // What YOUR plan gets to absorb. The field's allowance stays `lossesAllowed`, with
+  // each rival's own losses subtracted inside the simulation.
+  const livesLeft = lossesAllowed - myLosses;
   const pinned = options.pinned ?? new Map<number, string>();
   const used = options.used ?? new Set<string>();
   const reserved = options.excludeThisWeek ?? new Set<string>();
@@ -440,7 +454,7 @@ export function rankByPoolWin(
   const field: Field = { probabilities: crowdProbs, crowding };
   // The crowd's seasons and the rivals' exit distributions inside them do not depend on
   // which team you take, so they are built once here rather than per candidate.
-  const prepared = prepareField(field, planning.length, lossesAllowed);
+  const prepared = prepareField(field, planning.length, lossesAllowed, undefined, options.rivalLosses);
 
   const crowdByWeek = new Map<number, string>();
   planning.forEach((w, i) => {
@@ -469,7 +483,7 @@ export function rankByPoolWin(
     planning,
     crowdPicks,
     prepared,
-    { used, lossesAllowed, poolSize, pinned },
+    { used, lossesAllowed, poolSize, pinned, myLosses },
   );
   const avoid = (week: number, team: string) =>
     team === (crowdByWeek.get(week) ?? null) ? lambda : 0;
@@ -480,7 +494,7 @@ export function rankByPoolWin(
     const tail = refineForLives(
       rest,
       buildPlan(rest, rest.length, excluded, new Map(), pinned, avoid),
-      lossesAllowed,
+      Math.max(0, livesLeft),
       excluded,
       pinned,
     );
@@ -501,10 +515,12 @@ export function rankByPoolWin(
     const mine = picks.map((p) => p.pick?.winProbability ?? 1);
     const shared = teams.map((team, i) => team !== null && team === (crowdPicks[i]?.team ?? null));
 
-    const curve = aliveCurve(mine, lossesAllowed);
+    // An entry already out survives nothing; aliveCurve has no state for "fewer than zero
+    // lives" and would read past the end of its table rather than say so.
+    const curve = livesLeft >= 0 ? aliveCurve(mine, livesLeft) : mine.map(() => 0);
     out.push({
       candidate,
-      poolWin: lastStandingWin({ mine, shared }, prepared, poolSize),
+      poolWin: lastStandingWin({ mine, shared }, prepared, poolSize, myLosses),
       survival: curve.length ? curve[curve.length - 1] : 1,
       share: popularity[candidate.team] ?? null,
       isCrowdPick: candidate.team === (crowdPicks[0]?.team ?? null),
@@ -542,6 +558,8 @@ export function poolWinStability(
     poolSize: number;
     crowding: number;
     popularity?: Record<string, number>;
+    rivalLosses?: number[];
+    myLosses?: number;
   },
 ): Array<{ horizon: number; team: string | null }> {
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
@@ -576,6 +594,8 @@ export function crossoverCrowding(
   field: Field,
   lossesAllowed: number,
   poolSize: number,
+  rivalLosses?: number[],
+  myLosses = 0,
 ): number | null {
   // Scored on the same objective as the pick itself, but over far fewer seasons: this
   // is looking for the crowding rate where a sign flips, not for a level, and a
@@ -583,10 +603,12 @@ export function crossoverCrowding(
   // against the same seasons at each step, so the comparison stays clean.
   const weeks = challenger.mine.length;
   const gap = (crowding: number) => {
-    const prepared = prepareField({ ...field, crowding }, weeks, lossesAllowed, CROSSOVER_SEASONS);
+    const prepared = prepareField(
+      { ...field, crowding }, weeks, lossesAllowed, CROSSOVER_SEASONS, rivalLosses,
+    );
     return (
-      lastStandingWin(challenger, prepared, poolSize) -
-      lastStandingWin(incumbent, prepared, poolSize)
+      lastStandingWin(challenger, prepared, poolSize, myLosses) -
+      lastStandingWin(incumbent, prepared, poolSize, myLosses)
     );
   };
   // The sign at the low end is fixed, so take it once. Recomputing it inside the loop
@@ -638,6 +660,10 @@ export interface PoolEntry {
    * asking different questions; a pin is a what-if about one of them.
    */
   pinned?: Map<number, string>;
+  /** Entrants alive by losses already taken, you included. See `StoredPool.field`. */
+  field?: number[];
+  /** Losses your own entry has taken. */
+  myLosses?: number;
 }
 
 /**
@@ -661,14 +687,21 @@ export function buildPoolWinPlans(
     const used = new Set(pool.used);
     const lossesAllowed = pool.lossesAllowed ?? 0;
     const pinned = pool.pinned ?? new Map<number, string>();
+    // The field as recorded, with you taken out of your own bucket. The pool size the
+    // model sees is the rivals still alive plus you -- not entrants who have already
+    // gone out, who are nobody's rival any more.
+    const state = fieldState(pool);
+    const poolSize = state.rivals + 1;
     const ranking = rankByPoolWin(weeks, {
       used,
       excludeThisWeek: reservedThisWeek,
       lossesAllowed,
-      poolSize: pool.size ?? 1,
+      poolSize,
       crowding: options.crowding,
       popularity: options.popularity,
       pinned,
+      rivalLosses: state.rivalLosses,
+      myLosses: state.myLosses,
     });
 
     // A pin on the opening week overrides the ranking: you asked for that team, so the
@@ -696,7 +729,9 @@ export function buildPoolWinPlans(
               safest.line,
               { probabilities: crowd.map((c) => c?.winProbability ?? 1), crowding: options.crowding },
               lossesAllowed,
-              pool.size ?? 1,
+              poolSize,
+              state.rivalLosses,
+              state.myLosses,
             )
           : null,
       plan: top?.plan ?? {

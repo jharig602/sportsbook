@@ -101,10 +101,30 @@ export function poolOdds(
   probabilities: number[],
   lossesAllowed: number,
   poolSize: number,
+  /**
+   * The field as it stands: rivals by losses already taken, and your own losses.
+   * Absent means everyone unbeaten, which reproduces the original curve exactly.
+   *
+   * Without it, fifty-one rivals on their last life are counted as having two, and the
+   * "field left" line overstates how long the pool lasts by however many of them go
+   * out the first week their team loses -- which is most of them, soon.
+   */
+  state?: { rivalLosses: number[]; myLosses: number },
 ): PoolOdds {
-  const alive = aliveCurve(probabilities, lossesAllowed);
-  const rivals = Math.max(0, poolSize - 1);
-  const fieldAlive = alive.map((p) => rivals * p);
+  const myLosses = state?.myLosses ?? 0;
+  const livesLeft = lossesAllowed - myLosses;
+  const alive =
+    livesLeft >= 0 ? aliveCurve(probabilities, livesLeft) : probabilities.map(() => 0);
+  const rivalLosses = state?.rivalLosses ?? [Math.max(0, poolSize - 1)];
+  const rivals = rivalLosses.reduce((a, b) => a + b, 0);
+  // One curve per loss state, each on the lives that state has left, weighted by head
+  // count. With nobody carrying a loss this is the single curve it always was.
+  const curves = rivalLosses.map((n, k) =>
+    n > 0 && lossesAllowed - k >= 0 ? aliveCurve(probabilities, lossesAllowed - k) : null,
+  );
+  const fieldAlive = probabilities.map((_, i) =>
+    rivalLosses.reduce((sum, n, k) => sum + (curves[k] ? n * curves[k]![i] : 0), 0),
+  );
 
   let likelyEndWeek: number | null = null;
   for (let i = 0; i < fieldAlive.length; i += 1) {
