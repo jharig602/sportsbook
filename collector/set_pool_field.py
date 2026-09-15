@@ -73,6 +73,12 @@ def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[d
     """
     out = [dict(p) for p in pools]
     report: list[str] = []
+    # Sizes as STORED, captured before anything is applied. Reporting them from the
+    # working copy instead named a pool "141" that was stored at 137, because an earlier
+    # update in the same run had already been applied in memory -- and the next attempt,
+    # built on that, was refused for a size that did not exist. A refusal that misreports
+    # the state it refused is worse than one that says nothing.
+    stored_sizes = ", ".join(str(int(p.get("size") or 0)) for p in pools) or "none"
     for update in updates:
         target_total = sum(update.field)
         already = [
@@ -86,9 +92,9 @@ def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[d
 
         matches = [i for i, p in enumerate(out) if int(p.get("size") or 0) == update.match_size]
         if len(matches) != 1:
-            sizes = ", ".join(str(int(p.get("size") or 0)) for p in out) or "none"
             raise ValueError(
-                f"{len(matches)} pools have size {update.match_size}; sizes present: {sizes}"
+                f"{len(matches)} pools have size {update.match_size}; "
+                f"sizes as stored: {stored_sizes}"
             )
         index = matches[0]
         pool = out[index]

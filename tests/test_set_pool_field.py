@@ -46,7 +46,7 @@ def test_running_it_twice_changes_nothing():
 
 
 def test_an_unknown_size_is_refused_with_the_sizes_present():
-    with pytest.raises(ValueError, match="sizes present: 13, 137"):
+    with pytest.raises(ValueError, match="sizes as stored: 13, 137"):
         apply_updates(pools(), [parse_update("140:90,51:0")])
 
 
@@ -81,3 +81,13 @@ def test_malformed_updates_are_refused(bad):
 
 def test_a_well_formed_update_parses():
     assert parse_update(" 137:90,51:0 ") == FieldUpdate(137, (90, 51), 0)
+
+
+def test_a_refusal_reports_sizes_as_stored_not_half_applied():
+    # The first update applies in memory (137 -> 141) before the second is refused.
+    # The message must still name 137: that is what is in the database, and reporting
+    # the working copy sent the next attempt after a pool that did not exist.
+    with pytest.raises(ValueError) as error:
+        apply_updates(pools(), [parse_update("137:90,51:0"), parse_update("12:9,2:0")])
+    assert "sizes as stored: 13, 137" in str(error.value)
+    assert "141" not in str(error.value)
