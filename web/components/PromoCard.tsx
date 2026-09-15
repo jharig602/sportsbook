@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { betHref } from "@/lib/bet-link";
 import { bookLink } from "@/lib/book-links";
 import { formatKickoff } from "@/lib/format";
 import type { PromoToday } from "@/lib/promo-plan";
@@ -83,6 +84,23 @@ export function PromoCard({ promo }: { promo: PromoToday }) {
                   {((pick.expectedRoi ?? 0) * 100).toFixed(1)}%
                 </span>
               </p>
+              {/* Carries the stake and the book, because the promotion only counts a
+                  $5 bet at this book -- a logged row with either wrong silently fails to
+                  count as a qualifying day. */}
+              <Link
+                href={betHref({
+                  eventId: pick.eventId,
+                  market: pick.market,
+                  side: pick.side,
+                  line: pick.line,
+                  price: pick.price,
+                  book,
+                  stake,
+                })}
+                className="mt-1.5 inline-block rounded-md bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-300 ring-1 ring-inset ring-sky-500/25"
+              >
+                Log the ${stake} bet
+              </Link>
             </>
           ) : (
             <p className="mt-0.5 text-[13px] text-slate-400">
@@ -109,6 +127,22 @@ export function PromoCard({ promo }: { promo: PromoToday }) {
                   worth ~${bonus.value.toFixed(0)} of ${face}
                 </span>
               </p>
+              {/* Marked as a bonus: logged as cash, a losing one books a $50 loss
+                  against a bet that cost nothing. */}
+              <Link
+                href={betHref({
+                  eventId: bonus.candidate.eventId,
+                  market: "moneyline",
+                  side: bonus.candidate.home ? "home" : "away",
+                  price: bonus.price,
+                  book,
+                  stake: face,
+                  bonus: true,
+                })}
+                className="mt-1.5 inline-block rounded-md bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-300 ring-1 ring-inset ring-sky-500/25"
+              >
+                Log the ${face} bonus bet
+              </Link>
             </>
           ) : (
             <p className="mt-0.5 text-[13px] text-slate-400">

@@ -1,3 +1,4 @@
+import { betHref } from "@/lib/bet-link";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -336,9 +337,61 @@ export default async function GamePage({
         </Card>
       ) : null}
 
+      {game && !result ? (
+        // Tap the number you took and the form opens with it filled in. DraftKings is the
+        // board's book, so these are a starting point: the per-book rows under Line
+        // shopping carry each book's own number, which is the better link when your book
+        // is listed there.
+        <Card className="mt-2 px-3.5 py-3">
+          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Log a bet on this game
+          </h2>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(
+              [
+                ["spread", "away"], ["spread", "home"],
+                ["moneyline", "away"], ["moneyline", "home"],
+                ["total", "over"], ["total", "under"],
+              ] as const
+            ).map(([market, side]) => {
+              const quote = game[market]?.[side];
+              if (!quote || quote.price === null) return null;
+              const who =
+                side === "home" ? homeTeam : side === "away" ? awayTeam : side === "over" ? "Over" : "Under";
+              const number =
+                market === "moneyline" || quote.line === null
+                  ? ""
+                  : ` ${market === "spread" && quote.line > 0 ? "+" : ""}${quote.line}`;
+              return (
+                <Link
+                  key={`${market}-${side}`}
+                  href={betHref({
+                    eventId: game.eventId,
+                    market,
+                    side,
+                    line: quote.line,
+                    price: quote.price,
+                  })}
+                  className="flex min-w-0 items-baseline justify-between gap-1.5 rounded-lg bg-raised/70 px-2.5 py-2 text-[12px]"
+                >
+                  <span className="min-w-0 truncate text-slate-200">
+                    {who}
+                    {number}
+                    {market === "moneyline" ? " ML" : ""}
+                  </span>
+                  <span className="tabular shrink-0 text-slate-400">
+                    {quote.price > 0 ? `+${quote.price}` : quote.price}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </Card>
+      ) : null}
+
       {game ? (
         <section className="mt-2 space-y-2">
-          <LineShop rows={shopRows} homeTeam={homeTeam} awayTeam={awayTeam} />
+          <LineShop rows={shopRows} homeTeam={homeTeam} awayTeam={awayTeam} eventId={game.eventId} />
           <Card className="px-3.5 py-3">
             <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               Add another book

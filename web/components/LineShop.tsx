@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { Card } from "./ui";
+import { betHref } from "@/lib/bet-link";
 import { formatLine, formatPrice } from "@/lib/format";
 import type { ShopResult } from "@/lib/shop";
 import type { Side } from "@/lib/types";
@@ -20,10 +23,13 @@ export function LineShop({
   rows,
   homeTeam,
   awayTeam,
+  eventId,
 }: {
   rows: ShopResult[];
   homeTeam: string;
   awayTeam: string;
+  /** When given, each row links to the bet form filled in with that book's number. */
+  eventId?: string;
 }) {
   const comparable = rows.filter((row) => row.booksCompared > 0 || row.stale);
   const positive = comparable.filter((row) => (row.expectedRoi ?? -1) > 0);
@@ -109,6 +115,22 @@ export function LineShop({
                   )}
                 </p>
               </div>
+
+              {eventId && row.price !== null ? (
+                <Link
+                  href={betHref({
+                    eventId,
+                    market: row.market,
+                    side: row.side,
+                    line: row.line,
+                    price: row.price,
+                    book: row.book,
+                  })}
+                  className="shrink-0 rounded-md bg-sky-500/10 px-2 py-1.5 text-[11px] font-medium text-sky-300 ring-1 ring-inset ring-sky-500/25"
+                >
+                  log
+                </Link>
+              ) : null}
             </div>
           );
         })}

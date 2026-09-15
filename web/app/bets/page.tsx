@@ -1,4 +1,5 @@
 import { BetForm } from "@/components/BetForm";
+import { parseBetPrefill } from "@/lib/bet-link";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Stats } from "@/components/ui";
 import { CorrectBet } from "@/components/CorrectBet";
@@ -156,7 +157,13 @@ function BetRow({ bet }: { bet: GradedRow }) {
   );
 }
 
-export default async function BetsPage() {
+export default async function BetsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // A "log this" link elsewhere in the app opens the form already filled in.
+  const prefill = parseBetPrefill(await searchParams);
   const data = getData();
   const session = await currentSession();
   const [games, results, freshness] = await Promise.all([
@@ -198,11 +205,21 @@ export default async function BetsPage() {
   const corrections = bets.length - standing.length;
   const { rows, totals } = tally(standing, scores);
 
-  // Only games that have not kicked off can be bet.
+  // Every game you might be logging, not the first eighty.
+  //
+  // The cap was a dropdown's limit, and on a college Saturday eighty upcoming games is
+  // not all of them: the one you bet could simply be missing with nothing to say so.
+  // Search makes the length free. Games that kicked off in the last two days are kept
+  // too, after the upcoming ones, because a bet is often written down after it is
+  // struck -- and a form that only offers future games makes those unloggable.
+  const RECENT_MS = 48 * 60 * 60 * 1000;
   const now = Date.now();
-  const upcoming = games
-    .filter((g) => new Date(g.commenceTime).getTime() > now)
-    .slice(0, 80);
+  const kickoff = (g: { commenceTime: string }) => new Date(g.commenceTime).getTime();
+  const upcoming = games.filter((g) => kickoff(g) > now).sort((a, b) => kickoff(a) - kickoff(b));
+  const recent = games
+    .filter((g) => kickoff(g) <= now && kickoff(g) > now - RECENT_MS)
+    .sort((a, b) => kickoff(b) - kickoff(a));
+  const bettable = [...upcoming, ...recent];
 
   return (
     <>
@@ -280,12 +297,22 @@ export default async function BetsPage() {
         </Banner>
       ) : null}
 
-      <Card className="mb-3 px-3.5 py-3">
-        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Log a bet
-        </h2>
-        <BetForm games={upcoming} />
-      </Card>
+      {/* Anchored so a "log this" link lands on the form rather than the ledger's top. */}
+      <div id="log" className="scroll-mt-16">
+        <Card className="mb-3 px-3.5 py-3">
+          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Log a bet
+          </h2>
+          <BetForm
+            // Keyed on the prefill so following a second link re-seeds the form instead of
+            // keeping the first one's numbers.
+            key={prefill ? JSON.stringify(prefill) : "blank"}
+            games={bettable}
+            started={recent.map((g) => g.eventId)}
+            initial={prefill}
+          />
+        </Card>
+      </div>
 
       {rows.length === 0 ? (
         <Empty
