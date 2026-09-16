@@ -98,6 +98,12 @@ export interface ShopGrade {
    * The page says how many there are rather than presenting the two as one sample.
    */
   replayed: boolean;
+  /**
+   * The game and book, from the pick. Null only for a grade whose pick could not be
+   * joined. Needed to tell two books on one number apart from two separate results.
+   */
+  event_id: string | null;
+  book: string | null;
 }
 
 export interface GameResult {

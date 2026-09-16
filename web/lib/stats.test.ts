@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { binomialTailAtLeast, probit } from "./stats.ts";
+import { binomialTailAtLeast, probit, upperTail } from "./stats.ts";
 
 test("probit inverts the normal at the values everyone knows", () => {
   assert.ok(Math.abs(probit(0.975) - 1.959964) < 1e-5, "the 95% two-sided z");
@@ -58,4 +58,17 @@ test("a 12-of-17 cell is not the finding it looks like", () => {
   // from a rule with no edge at all -- before accounting for having picked it out of six.
   const p = binomialTailAtLeast(12, 17, 110 / 210);
   assert.ok(p > 0.1 && p < 0.16, `p=${p}`);
+});
+
+test("the normal tail matches the values everyone knows", () => {
+  assert.ok(Math.abs(upperTail(0) - 0.5) < 1e-7);
+  assert.ok(Math.abs(upperTail(1.959964) - 0.025) < 1e-6);
+  assert.ok(Math.abs(upperTail(-1.644854) - 0.95) < 1e-6);
+  assert.ok(Math.abs(upperTail(3) - 0.0013499) < 1e-6);
+});
+
+test("the normal tail and probit invert each other", () => {
+  for (const p of [0.01, 0.1, 0.3, 0.5, 0.8, 0.99]) {
+    assert.ok(Math.abs(upperTail(probit(1 - p)) - p) < 2e-7, String(p));
+  }
 });

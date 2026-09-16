@@ -10,6 +10,7 @@ import { buildBoardShop } from "./board-shop";
 import { openEvents, pickDailyBet, type DailyPick } from "./daily-bet";
 import { getData } from "./data";
 import { getMaxSpread, getMyBooks } from "./settings-db";
+import { collapseByOutcome } from "./shop-record";
 
 export interface DailyBetView extends DailyPick {
   /** Graded line-shopping picks the learning drew on, across every market. */
@@ -35,7 +36,9 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
   const pick = pickDailyBet(shop.rows, {
     myBooks,
     open: openEvents(ledger, settled),
-    grades,
+    // One result per outcome: a game quoted well at five books is one piece of evidence,
+    // not five, and learning from the raw rows would let it count five times.
+    grades: collapseByOutcome(grades),
     maxSpread,
   });
   return { ...pick, gradedTotal: grades.length, myBooks };

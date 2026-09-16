@@ -222,7 +222,8 @@ SELECT g.grade_id, g.pick_id, g.graded_at, g.rule_version_id, g.league, g.market
        -- Joined rather than copied forward, unlike the prediction fields. This one is
        -- immutable once written, so it cannot be re-bucketed underneath a chart the way
        -- a refitted probability could -- and a join costs nothing against this table.
-       COALESCE(p.replayed, FALSE) AS replayed
+       COALESCE(p.replayed, FALSE) AS replayed,
+       p.event_id, p.book
   FROM shop_grades g
   LEFT JOIN shop_picks p USING (pick_id)
  WHERE g.rule_version_id = (SELECT rule_version_id FROM active_rule WHERE id = 1)

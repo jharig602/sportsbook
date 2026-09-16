@@ -147,6 +147,15 @@ The **Record** page has **two sources**, and they are never pooled:
   page before v16 was the movers**, under a title that reads as a verdict on the whole
   app. That is how it was read. Label the source, always.
 
+**Shopping is judged by return, not win rate** (`shop-record.ts`). Its picks are at every
+price, so 52.4% is the wrong bar: a +300 underdog breaks even at 25%, and a −200 cell can
+win 60% and lose money. Each cell shows profit per $1 at the prices taken beside the
+predicted return. The verdict is price-aware: under fair pricing a pick paying `b` per
+dollar has variance exactly `b`, so a cell is called only when its return clears
+`z * sqrt(sum b) / n` (Bonferroni across six). **Picks collapse to one result per game,
+market, side and line** first — several books on one number were counted as several
+results decided by one game. The bet of the day learns from the collapsed results too.
+
 Only shopping has a **calibration** table, because only it states a probability. A band
 is judged against *its own claim*, not break-even: predicting 42% and delivering 42% is
 honest and still a losing bet. A Brier score sits alongside, because a rule that says

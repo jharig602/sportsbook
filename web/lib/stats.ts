@@ -90,3 +90,20 @@ export function binomialTailAtLeast(hits: number, n: number, p: number): number 
   }
   return Math.min(1, Math.max(0, total));
 }
+
+/**
+ * P(Z >= z) for a standard normal.
+ *
+ * Abramowitz and Stegun 7.1.26, good to 1.5e-7 -- used where many picks at mixed prices
+ * are summed, which is the case a normal approximation is for. The binomial tail above
+ * stays the tool wherever every pick shares one price.
+ */
+export function upperTail(z: number): number {
+  if (!Number.isFinite(z)) return z > 0 ? 0 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const poly =
+    t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+  const erfc = poly * Math.exp(-x * x);
+  return z >= 0 ? erfc / 2 : 1 - erfc / 2;
+}

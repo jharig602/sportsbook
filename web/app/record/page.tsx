@@ -1,6 +1,7 @@
 import { Freshness } from "@/components/Freshness";
 import { Card, Empty, PageHeader, Segmented, Stats } from "@/components/ui";
 import { calibrate, type Calibration } from "@/lib/calibration";
+import { buildRoiBreakdown, collapseByOutcome, roiCell, type RoiBreakdown } from "@/lib/shop-record";
 import {
   buildBreakdown,
   type Gradeable,
@@ -381,6 +382,108 @@ function MarketGrid({ breakdown, market, league }: { breakdown: Breakdown; marke
  * and that is a far sharper thing to be wrong about. It is also testable much sooner —
  * the cover record has been undecided for a season, and this needs dozens.
  */
+/**
+ * The line-shopping grid: return per dollar, one result per outcome.
+ *
+ * Win rate against 52.4% is the wrong question for these picks, most of which are not
+ * -110 bets; see shop-record.ts. Each cell shows what $1 on every result actually made,
+ * what the picks predicted, and a verdict that knows the prices.
+ */
+function RoiGrid({
+  breakdown,
+  market,
+  league,
+}: {
+  breakdown: RoiBreakdown;
+  market: MarketFilter;
+  league: LeagueFilter;
+}) {
+  const signedPct = (v: number | null) =>
+    v === null ? "—" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+  const { best, familyP } = breakdown;
+  return (
+    <Card className="mb-3 px-3.5 py-3">
+      <h2 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        Return by market and league
+      </h2>
+      <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+        {breakdown.picks} recorded picks are {breakdown.results} separate results: when
+        several books offered the same number on one game, that game is counted once.
+      </p>
+      <div className="-mx-1 overflow-x-auto">
+        <table className="w-full min-w-[440px] text-[12px]">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+              <th className="px-1 py-1 text-left font-medium">market</th>
+              {LEAGUES.map((l) => (
+                <th key={l} className="px-1 py-1 text-right font-medium">{l.toUpperCase()}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MARKETS.map((m) => (
+              <tr key={m} className="border-t border-edge/60">
+                <td className="px-1 py-1.5 text-slate-300">{m}</td>
+                {LEAGUES.map((l) => {
+                  const c = breakdown.cells.find((x) => x.market === m && x.league === l)!;
+                  const highlighted = (market === m || market === "all") && (league === l || league === "all");
+                  const isBest = best?.market === m && best?.league === l;
+                  return (
+                    <td key={l} className={`px-1 py-1.5 text-right tabular ${highlighted ? "" : "opacity-40"}`}>
+                      <span
+                        className={
+                          c.state === "clears"
+                            ? "text-emerald-300"
+                            : c.state === "fails"
+                              ? "text-rose-300"
+                              : c.roi === null
+                                ? "text-slate-600"
+                                : "text-slate-200"
+                        }
+                      >
+                        {signedPct(c.roi)}
+                      </span>
+                      <span className="ml-1 text-[10px] text-slate-600">
+                        {c.games > 0 ? `n=${c.games}` : ""}
+                      </span>
+                      {c.expectedRoi !== null ? (
+                        <span className="block text-[10px] text-slate-600">
+                          predicted {signedPct(c.expectedRoi)}
+                        </span>
+                      ) : null}
+                      {isBest ? <span className="block text-[10px] text-amber-400">best</span> : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+        Each number is what $1 on every result would have made, at the prices taken &mdash; a
+        +300 underdog only needs to win a quarter of the time. Green means the whole likely
+        range is profit even after allowing for six cells being compared; red means the
+        whole range is a loss. Everything else is undecided.
+      </p>
+      {best && familyP !== null ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+          Best cell is <span className="text-slate-200">{best.label}</span> at{" "}
+          <span className="tabular text-slate-200">{signedPct(best.roi)}</span> over{" "}
+          {best.games} results. If every pick had been priced fair, some cell would do at
+          least that well{" "}
+          <span className={familyP > 0.2 ? "text-amber-300" : "text-emerald-300"}>
+            {(familyP * 100).toFixed(0)}% of the time
+          </span>
+          {familyP > 0.2
+            ? " — that is luck, not a finding."
+            : " — worth watching, not staking the season on."}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
 function CalibrationTable({ calibration }: { calibration: Calibration }) {
   if (calibration.n === 0) return null;
   const pct = (v: number | null, digits = 1) => (v === null ? "—" : `${(v * 100).toFixed(digits)}%`);
@@ -480,12 +583,16 @@ export default async function RecordPage({
   // two separately typed lists rather than a union with casts at the bottom: a cast here
   // would compile and then read `move_strength` off a row that has none.
   const moverShown = filterGrades(moverGrades, market, league);
-  const shopShown = filterGrades(shopGrades, market, league);
+  // Several books on the same number are one result; see shop-record.ts.
+  const outcomes = collapseByOutcome(shopGrades);
+  const shopShown = filterGrades(outcomes, market, league);
   const shown: Gradeable[] = source === "shop" ? shopShown : moverShown;
 
   // The grid always shows every cell -- narrowing it would hide the thing it exists to
   // reveal -- but everything below reflects the filter.
-  const breakdown = buildBreakdown(source === "shop" ? shopGrades : moverGrades);
+  const breakdown = buildBreakdown(moverGrades);
+  const roiBreakdown = buildRoiBreakdown(outcomes);
+  const sliceReturn = roiCell(outcomes, market, league);
   const filtered = market !== "all" || league !== "all";
 
   // byKind and byStrength read `kind` and `move_strength`, which only an alert has, so
@@ -542,12 +649,24 @@ export default async function RecordPage({
         items={
           source === "shop"
             ? [
-                { value: String(shopGrades.length), label: "edges graded" },
-                { value: String(shown.length), label: "in this slice" },
+                { value: String(shown.length), label: "results here" },
+                {
+                  value:
+                    sliceReturn.roi === null
+                      ? "—"
+                      : `${sliceReturn.roi > 0 ? "+" : ""}${(sliceReturn.roi * 100).toFixed(1)}%`,
+                  label: "return per $1",
+                  tone:
+                    sliceReturn.state === "clears"
+                      ? ("good" as const)
+                      : sliceReturn.state === "fails"
+                        ? ("bad" as const)
+                        : ("plain" as const),
+                },
                 {
                   value:
                     calibration.actual === null ? "—" : formatPercent(calibration.actual, 1),
-                  label: "actually landed",
+                  label: "won",
                 },
               ]
             : [
@@ -580,7 +699,11 @@ export default async function RecordPage({
         />
       </div>
 
-      <MarketGrid breakdown={breakdown} market={market} league={league} />
+      {source === "shop" ? (
+        <RoiGrid breakdown={roiBreakdown} market={market} league={league} />
+      ) : (
+        <MarketGrid breakdown={breakdown} market={market} league={league} />
+      )}
 
       {/*
         Backfilled rows are named rather than blended in. They are the real rule at real
@@ -622,7 +745,7 @@ export default async function RecordPage({
 
       {filtered ? (
         <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
-          Showing {shown.length} {source === "shop" ? "edge" : "alert"}
+          Showing {shown.length} {source === "shop" ? "result" : "alert"}
           {shown.length === 1 ? "" : "s"} in{" "}
           {market === "all" ? "every market" : market} ·{" "}
           {league === "all" ? "both leagues" : league.toUpperCase()}. Every number below
