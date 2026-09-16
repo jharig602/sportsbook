@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { BoardEdge } from "./board-shop.ts";
-import { learnedShift, openEvents, pickDailyBet, type GradedPick } from "./daily-bet.ts";
+import { bestParlay, learnedShift, openEvents, pickDailyBet, type GradedPick } from "./daily-bet.ts";
 import type { Bet } from "./settle.ts";
 
 function edge(over: Partial<BoardEdge> = {}): BoardEdge {
@@ -190,4 +190,99 @@ test("when every game is one you hold, it says that rather than 'no edge'", () =
   const result = pickDailyBet([edge({ eventId: "E1" })], { ...base, open: new Set(["E1"]) });
   assert.equal(result.pick, null);
   assert.match(result.reason!, /already have money on/);
+});
+
+// --- the parlay of the day ----------------------------------------------------------
+
+test("the parlay is the likeliest two games, and never the single's game", () => {
+  const result = pickDailyBet(
+    [
+      edge({ eventId: "A", fairProbability: 0.6 }),
+      edge({ eventId: "B", fairProbability: 0.58 }),
+      edge({ eventId: "C", fairProbability: 0.56 }),
+    ],
+    base,
+  );
+  assert.equal(result.pick?.row.eventId, "A");
+  const legs = result.parlay!.legs.map((l) => l.row.eventId);
+  assert.deepEqual(legs, ["B", "C"], "A is the single, so it stays out of the parlay");
+  assert.ok(Math.abs(result.parlay!.p - 0.58 * 0.56) < 1e-12);
+});
+
+test("it is priced rounded down, as books pay, and still has to be worth it there", () => {
+  const result = pickDailyBet(
+    [edge({ eventId: "A", fairProbability: 0.6 }), edge({ eventId: "B" }), edge({ eventId: "C" })],
+    base,
+  );
+  const parlay = result.parlay!;
+  assert.equal(parlay.price, 264, "two -110 legs: 3.6446 decimal, +264 after rounding down");
+  assert.ok(Math.abs(parlay.roi - (parlay.p * 3.64 - 1)) < 1e-12);
+  assert.ok(parlay.roi > 0);
+});
+
+test("two prices on one game are never a parlay", () => {
+  // A spread and a moneyline on the same game win and lose together.
+  const candidates = pickDailyBet(
+    [
+      edge({ eventId: "A", fairProbability: 0.6 }),
+      edge({ eventId: "B", fairProbability: 0.58 }),
+      edge({ eventId: "B", market: "moneyline", line: null, price: -150, fairProbability: 0.66, breakEven: 0.6 }),
+    ],
+    base,
+  );
+  // B is now the likeliest single; with A as the only other game there is exactly one pair
+  // to consider once B is set aside -- and it needs two games.
+  assert.equal(candidates.pick?.row.eventId, "B");
+  assert.equal(candidates.parlay, null);
+});
+
+test("a ticket cannot span two books", () => {
+  const result = pickDailyBet(
+    [
+      edge({ eventId: "A", fairProbability: 0.6 }),
+      edge({ eventId: "B", book: "FanDuel" }),
+      edge({ eventId: "C", book: "BetMGM" }),
+    ],
+    { ...base, myBooks: ["FanDuel", "BetMGM"] },
+  );
+  assert.equal(result.parlay, null);
+});
+
+test("the book with the likelier pair wins", () => {
+  const sorted = pickDailyBet(
+    [
+      edge({ eventId: "X", fairProbability: 0.7 }),
+      edge({ eventId: "B", book: "BetMGM", fairProbability: 0.62 }),
+      edge({ eventId: "C", book: "BetMGM", fairProbability: 0.6 }),
+      edge({ eventId: "D", book: "FanDuel", fairProbability: 0.57 }),
+      edge({ eventId: "E", book: "FanDuel", fairProbability: 0.56 }),
+    ],
+    { ...base, myBooks: ["FanDuel", "BetMGM"] },
+  );
+  assert.equal(sorted.parlay!.book, "BetMGM");
+});
+
+test("no pair means no parlay, and no bet at all means neither", () => {
+  assert.equal(pickDailyBet([edge({ eventId: "A" }), edge({ eventId: "B" })], base).parlay, null,
+    "one game is left once the single is set aside");
+  const nothing = pickDailyBet([edge({ fairProbability: 0.5 })], base);
+  assert.equal(nothing.pick, null);
+  assert.equal(nothing.parlay, null);
+});
+
+test("games you hold are kept out of the parlay too", () => {
+  const result = pickDailyBet(
+    [edge({ eventId: "A", fairProbability: 0.6 }), edge({ eventId: "B" }), edge({ eventId: "C" }), edge({ eventId: "D" })],
+    { ...base, open: new Set(["B"]) },
+  );
+  assert.deepEqual(result.parlay!.legs.map((l) => l.row.eventId), ["C", "D"]);
+});
+
+test("bestParlay on its own refuses a pair that loses money at the rounded price", () => {
+  // Two legs that barely clear alone can fall below zero once the book rounds down.
+  const thin = [
+    { row: edge({ eventId: "P", price: -110 }), p: 0.524, edgePoints: 0.03, roi: 0.0004, adjustment: learnedShift([], "spread", "nfl") },
+    { row: edge({ eventId: "Q", price: -110 }), p: 0.524, edgePoints: 0.03, roi: 0.0004, adjustment: learnedShift([], "spread", "nfl") },
+  ];
+  assert.equal(bestParlay(thin, new Set()), null);
 });

@@ -244,6 +244,13 @@ with a standing bet in the viewer's ledger (`openEvents` uses `activeBets`, so v
 corrected rows do not block, and cashed-out tickets are finished). "No bet today" is
 shown, not hidden: it is the usual answer.
 
+The **parlay of the day** (`bestParlay`) uses the same qualifying bets, two at a time:
+different games, one book, never the single's game (so taking both never stacks two
+tickets on one result), likeliest pair first, priced at the combined price **rounded
+down** as books pay (`parlayPrice`) and required to stay positive there. `LogParlay` is
+the only screen that can record a parlay; it asks for the slip's combined price rather
+than assuming the product.
+
 **Learning** (`learnedShift`): for each market × league, the gap between how often graded
 shop picks won and how often they were predicted to, shrunk by `PRIOR_STRENGTH = 100`
 (`(hits - expected) / (n + 100)`), is added to future probabilities. Twenty lucky results

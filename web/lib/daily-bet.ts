@@ -16,6 +16,15 @@
  * **Never a game you already have money on.** A second ticket on the same game is not a
  * second opinion -- the two win and lose together.
  *
+ * ## Parlay of the day
+ *
+ * The same rules, two legs at a time: every leg clears the bar on its own, the two are
+ * on different games at one book (a same-game parlay is priced with a correlation
+ * adjustment nothing here can reproduce, and a ticket cannot span books), and neither
+ * is on the single's game, so taking both does not stack two tickets on one result.
+ * The likeliest pair wins. It is priced at the combined price rounded DOWN, as books
+ * pay it, and must still show a positive return at that price.
+ *
  * ## Learning
  *
  * Every line-shopping pick is graded against what happened (`shop_grades`). For each
@@ -29,6 +38,7 @@
 import type { BoardEdge } from "./board-shop";
 import { isBlowout } from "./blowout";
 import { expectedRoi } from "./shop";
+import { parlayPrice, profitPerDollar } from "./profit-boost";
 import { MIN_ALERT_EDGE_POINTS } from "./shop-alerts";
 import { activeBets, type Bet } from "./settle";
 
@@ -108,8 +118,61 @@ export interface DailyCandidate {
   adjustment: Adjustment;
 }
 
+export interface DailyParlay {
+  legs: DailyCandidate[];
+  book: string;
+  /** Combined American price, rounded down the way books pay it. */
+  price: number;
+  /** Chance every leg wins, treating different games as independent. */
+  p: number;
+  /** Expected return per dollar at `price`. */
+  roi: number;
+}
+
+/**
+ * The likeliest two-leg ticket from bets that each clear the bar.
+ *
+ * `candidates` must already be sorted likeliest-first, which makes the best pair at each
+ * book simply its top two games.
+ */
+export function bestParlay(
+  candidates: DailyCandidate[],
+  exclude: Set<string>,
+  legCount = 2,
+): DailyParlay | null {
+  const byBook = new Map<string, DailyCandidate[]>();
+  for (const c of candidates) {
+    if (exclude.has(c.row.eventId) || c.row.price === null) continue;
+    byBook.set(c.row.book, [...(byBook.get(c.row.book) ?? []), c]);
+  }
+
+  let best: DailyParlay | null = null;
+  for (const [book, list] of byBook) {
+    const legs: DailyCandidate[] = [];
+    const games = new Set<string>();
+    for (const c of list) {
+      if (games.has(c.row.eventId)) continue;
+      legs.push(c);
+      games.add(c.row.eventId);
+      if (legs.length === legCount) break;
+    }
+    if (legs.length < legCount) continue;
+
+    const price = parlayPrice(legs.map((l) => l.row.price as number));
+    const p = legs.reduce((acc, l) => acc * l.p, 1);
+    const roi = p * (1 + profitPerDollar(price)) - 1;
+    if (!(roi > 0)) continue;
+    if (!best || p > best.p || (p === best.p && roi > best.roi)) {
+      best = { legs, book, price, p, roi };
+    }
+  }
+  return best;
+}
+
 export interface DailyPick {
   pick: DailyCandidate | null;
+  /** Null when fewer than two qualifying bets share a book on different games. */
+  parlay: DailyParlay | null;
   /** Fresh, priced rows at your books, before the "already on it" filter. */
   considered: number;
   /** Rows dropped because you already have money on that game. */
@@ -171,6 +234,7 @@ export function pickDailyBet(
 
   qualifying.sort((a, b) => b.p - a.p || b.roi - a.roi);
   const pick = qualifying[0] ?? null;
+  const parlay = bestParlay(qualifying, new Set(pick ? [pick.row.eventId] : []));
 
   let reason: string | null = null;
   if (!pick) {
@@ -184,5 +248,5 @@ export function pickDailyBet(
         "That is the usual answer, and the right one to act on.";
     }
   }
-  return { pick, considered, skippedOpen, qualifying: qualifying.length, reason };
+  return { pick, parlay, considered, skippedOpen, qualifying: qualifying.length, reason };
 }

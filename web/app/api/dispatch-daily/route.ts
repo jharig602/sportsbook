@@ -80,11 +80,20 @@ export async function POST(request: Request) {
         ? " ML"
         : ` ${row.market === "spread" && row.line > 0 ? "+" : ""}${row.line}`;
     const price = row.price === null ? "" : ` ${row.price > 0 ? "+" : ""}${row.price}`;
+    // The parlay rides along in the same notification: one decision, one buzz.
+    const parlay = view.parlay;
+    const parlayText = parlay
+      ? `  ·  Parlay: ${parlay.legs
+          .map((leg) =>
+            leg.row.side === "home" ? leg.row.homeTeam : leg.row.side === "away" ? leg.row.awayTeam : leg.row.side,
+          )
+          .join(" + ")} ${parlay.price > 0 ? "+" : ""}${parlay.price} (~${Math.round(parlay.p * 100)}%)`
+      : "";
     const payload = JSON.stringify({
       title: "Bet of the day",
       body:
         `${who}${number}${price} at ${row.book} — wins ~${Math.round(p * 100)}%, ` +
-        `+${(roi * 100).toFixed(1)}% expected.`,
+        `+${(roi * 100).toFixed(1)}% expected.${parlayText}`,
       tag: "bet-of-the-day",
       renotify: true,
       url: "/shop",

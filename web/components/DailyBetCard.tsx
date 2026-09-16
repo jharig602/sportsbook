@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { LogParlay } from "./LogParlay";
 import { betHref } from "@/lib/bet-link";
+import type { BoardEdge } from "@/lib/board-shop";
 import type { DailyBetView } from "@/lib/daily-bet-plan";
 import { formatKickoff } from "@/lib/format";
 
@@ -9,6 +11,23 @@ function signed(n: number): string {
 }
 
 const pct = (p: number) => `${(p * 100).toFixed(0)}%`;
+
+/** "Detroit Lions -3", "Bills ML", "Over 45.5". */
+function betLabel(row: BoardEdge): string {
+  const who =
+    row.side === "home"
+      ? row.homeTeam
+      : row.side === "away"
+        ? row.awayTeam
+        : row.side === "over"
+          ? "Over"
+          : "Under";
+  const number =
+    row.market === "moneyline" || row.line === null
+      ? " ML"
+      : ` ${row.market === "spread" && row.line > 0 ? "+" : ""}${row.line}`;
+  return `${who}${number}`;
+}
 
 /**
  * The one bet worth making today, or a plain statement that there is none.
@@ -37,26 +56,11 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
         <div className="px-3.5 py-2.5">
           {(() => {
             const { row, p, edgePoints, roi, adjustment } = candidate;
-            const who =
-              row.side === "home"
-                ? row.homeTeam
-                : row.side === "away"
-                  ? row.awayTeam
-                  : row.side === "over"
-                    ? "Over"
-                    : "Under";
-            const number =
-              row.market === "moneyline" || row.line === null
-                ? " ML"
-                : ` ${row.market === "spread" && row.line > 0 ? "+" : ""}${row.line}`;
             const cell = `${row.league.toUpperCase()} ${row.market}`;
             return (
               <>
                 <p className="flex items-baseline gap-2 text-[15px] font-medium text-slate-100">
-                  <span className="min-w-0 truncate">
-                    {who}
-                    {number}
-                  </span>
+                  <span className="min-w-0 truncate">{betLabel(row)}</span>
                   <span className="tabular shrink-0 text-slate-400">
                     {signed(row.price ?? 0)} at {row.book}
                   </span>
@@ -112,6 +116,62 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
             : ""}
         </p>
       )}
+
+      {candidate ? (
+        <div className="border-t border-edge/70 px-3.5 py-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">Parlay of the day</p>
+          {view.parlay ? (
+            <>
+              <ul className="mt-1 space-y-0.5">
+                {view.parlay.legs.map((leg) => (
+                  <li key={leg.row.eventId} className="flex items-baseline gap-2 text-[13px] text-slate-200">
+                    <span className="min-w-0 truncate">{betLabel(leg.row)}</span>
+                    <span className="tabular shrink-0 text-slate-500">
+                      {signed(leg.row.price ?? 0)} &middot; {pct(leg.p)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="tabular mt-1 text-[12px] text-slate-300">
+                <span className="font-semibold text-slate-100">
+                  {signed(view.parlay.price)}
+                </span>{" "}
+                at {view.parlay.book} &middot; wins about{" "}
+                <span className="font-semibold text-slate-100">{pct(view.parlay.p)}</span>{" "}
+                &middot;{" "}
+                <span className="text-emerald-300">
+                  +{(view.parlay.roi * 100).toFixed(1)}% expected
+                </span>
+              </p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">
+                Different games, one book, and not the single above &mdash; take both and no
+                game carries two of your tickets. Priced rounded down as books pay; enter
+                the combined price your slip shows.
+              </p>
+              <LogParlay
+                book={view.parlay.book}
+                suggestedPrice={view.parlay.price}
+                legs={view.parlay.legs.map((leg) => ({
+                  eventId: leg.row.eventId,
+                  league: leg.row.league,
+                  homeTeam: leg.row.homeTeam,
+                  awayTeam: leg.row.awayTeam,
+                  commenceTime: leg.row.commenceTime,
+                  market: leg.row.market,
+                  side: leg.row.side,
+                  line: leg.row.line,
+                  price: leg.row.price,
+                }))}
+              />
+            </>
+          ) : (
+            <p className="mt-0.5 text-[12px] leading-relaxed text-slate-400">
+              None today: it needs two more games at one book that each clear the edge on
+              their own, apart from the single above.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <p className="border-t border-edge/70 px-3.5 py-2 text-[10px] leading-relaxed text-slate-600">
         The likeliest winner among bets that beat the house edge by at least 1.5 points,
