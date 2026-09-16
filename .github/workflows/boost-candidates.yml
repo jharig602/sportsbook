@@ -1,0 +1,42 @@
+name: boost-candidates
+
+# Rank one book's upcoming moneylines, singles and two-leg parlays, by what a profit
+# boost makes them worth. Read-only: prints public team names and prices, nothing from
+# the ledger. Inputs travel through the environment and are range-checked by the script,
+# never interpolated into a shell line.
+
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: "Book the boost is at"
+        default: "FanDuel"
+      stake:
+        description: "Maximum stake the boost allows"
+        default: "25"
+      boost:
+        description: "Boost size: 1 = 100% profit boost, 0.5 = 50%"
+        default: "1"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BOOST_BOOK: ${{ inputs.book }}
+      BOOST_STAKE: ${{ inputs.stake }}
+      BOOST_SIZE: ${{ inputs.boost }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci --prefix web
+      - name: Rank
+        run: |
+          cd web
+          npx tsx scripts/boost-candidates.ts
