@@ -4,11 +4,18 @@
  * Ranks every upcoming moneyline the book offers -- singles, and two-leg parlays across
  * different games -- by the boosted expected value of one maximum-size bet.
  *
- * The probability is the LOWER of two independent estimates: the other books' de-vigged
- * consensus, and the spread model. Proportional de-vig flatters underdogs (books load
- * their margin onto the longshot), and a boost multiplies whatever flattery goes in, so
- * the conservative reading is the honest one. A side with neither estimate is skipped
- * rather than priced off its own number, which would be circular.
+ * The probability is the LOWEST of every independent estimate available: the other
+ * books' de-vigged consensus and the spread model. Proportional de-vig flatters
+ * underdogs (books load their margin onto the longshot), and a boost multiplies
+ * whatever flattery goes in, so the conservative reading is the honest one. That
+ * includes a lone other book: one opinion is too thin to lean on by itself, but when it
+ * is the LOWER number, ignoring it would be choosing the flattering estimate -- which
+ * the first version of this did, and ranked a +400 at 24% that the only other book
+ * had at 19%.
+ *
+ * A side needs at least two other books quoting it to be ranked. With fewer, nothing can
+ * say whether the price is stale or soft, so those are listed apart rather than mixed
+ * into a ranking they would otherwise top.
  *
  * Everything the pricing touches is the app's own code -- quotesForGame, deVig,
  * winProbabilityFromSpread -- so this cannot disagree with the Shop page about a quote.
@@ -35,6 +42,8 @@ const BOOST = Number(process.env.BOOST_SIZE || 1);
 // How far ahead to look. Far enough for the weekend's slate, short enough that the
 // prices are ones the book is actually still quoting.
 const HORIZON_DAYS = 8;
+// Other books needed before a side is ranked at all.
+const MIN_OTHER_BOOKS = 2;
 
 if (!url) {
   console.error("DATABASE_URL is not set.");
@@ -102,6 +111,7 @@ interface Single {
   model: number | null;
   p: number;
   basis: string;
+  verified: boolean;
   plain: number;
   boosted: number;
 }
@@ -109,6 +119,16 @@ interface Single {
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 const pct = (n: number | null) => (n === null ? "  -  " : `${(n * 100).toFixed(1)}%`);
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
+
+function line(s: Single): string {
+  return (
+    `${s.game.league.toUpperCase().padEnd(5)} ${formatKickoff(s.game.commenceTime).padEnd(27)} ` +
+    `${`${s.team} ML`.padEnd(30)} vs ${s.opponent.padEnd(28)} ` +
+    `${signed(s.price).padStart(6)} -> log ${signed(boostedPrice(s.price, BOOST)).padStart(6)}  ` +
+    `wins ${pct(s.p)} (1 in ${(1 / s.p).toFixed(1)}) [mkt ${pct(s.market)} x${s.books}, model ${pct(s.model)}; ${s.basis}]  ` +
+    `unboosted ${money(s.plain)}  BOOSTED ${money(s.boosted)}`
+  );
+}
 
 async function main(): Promise<number> {
   const { Pool } = await import("pg");
@@ -151,26 +171,24 @@ async function main(): Promise<number> {
     for (const quote of mine) {
       const side = quote.side;
       const fairs = quotes
-        .filter((q) => q.book !== BOOK && q.side === side && q.oppositePrice !== null)
-        .map((q) => deVig(q.price, q.oppositePrice)?.a)
+        .filter((q) => q.book !== BOOK && q.side === side && q.oppositePrice != null)
+        .map((q) => deVig(q.price ?? null, q.oppositePrice ?? null)?.a)
         .filter((v): v is number => typeof v === "number");
       const market = median(fairs);
       const model = models[game.league] && homeSpread !== null
         ? winProbabilityFromSpread(models[game.league], homeSpread, side)
         : null;
 
-      // A single other book is one opinion, not a market.
-      const usableMarket = fairs.length >= 2 ? market : null;
-      const estimates = [usableMarket, model].filter((v): v is number => v !== null);
+      const estimates = [market, model].filter((v): v is number => v !== null);
       if (estimates.length === 0) {
         skippedNoEstimate += 1;
         continue;
       }
       const p = Math.min(...estimates);
       const basis =
-        usableMarket !== null && model !== null
-          ? p === model ? "model (lower)" : "market (lower)"
-          : usableMarket !== null ? "market only" : "model only";
+        estimates.length === 1
+          ? model !== null ? "model only" : "market only"
+          : p === model ? "model lower" : "market lower";
 
       singles.push({
         game, side,
@@ -178,6 +196,7 @@ async function main(): Promise<number> {
         opponent: (side === "home" ? game.awayTeam : game.homeTeam) ?? "?",
         price: quote.price as number,
         market, books: fairs.length, model, p, basis,
+        verified: fairs.length >= MIN_OTHER_BOOKS,
         plain: STAKE * boostedEv(p, quote.price as number, 0),
         boosted: STAKE * boostedEv(p, quote.price as number, BOOST),
       });
@@ -185,26 +204,21 @@ async function main(): Promise<number> {
   }
 
   singles.sort((a, b) => b.boosted - a.boosted);
+  const ranked = singles.filter((s) => s.verified);
+  const unchecked = singles.filter((s) => !s.verified);
 
-  console.log(`\n${BOOK}: ${gamesAtBook} upcoming games priced within ${HORIZON_DAYS} days; ` +
-    `${singles.length} sides with an independent estimate, ${skippedNoEstimate} without (skipped).`);
+  console.log(`\n${BOOK}: ${gamesAtBook} upcoming games priced within ${HORIZON_DAYS} days. ` +
+    `${ranked.length} sides checked against ${MIN_OTHER_BOOKS}+ other books, ` +
+    `${unchecked.length} not (listed apart), ${skippedNoEstimate} with no estimate at all (skipped).`);
   console.log(`Value of one $${STAKE} bet with a ${Math.round(BOOST * 100)}% profit boost. ` +
-    `p = lower of market consensus and spread model.\n`);
+    `p = lowest of every estimate available.\n`);
 
   console.log("SINGLES");
-  for (const s of singles.slice(0, 15)) {
-    console.log(
-      `${s.game.league.toUpperCase().padEnd(5)} ${formatKickoff(s.game.commenceTime).padEnd(16)} ` +
-      `${`${s.team} ML`.padEnd(30)} vs ${s.opponent.padEnd(28)} ` +
-      `${signed(s.price).padStart(6)} -> log ${signed(boostedPrice(s.price, BOOST)).padStart(6)}  ` +
-      `p ${pct(s.p)} [mkt ${pct(s.market)} x${s.books}, model ${pct(s.model)}; ${s.basis}]  ` +
-      `unboosted ${money(s.plain)}  BOOSTED ${money(s.boosted)}`,
-    );
-  }
+  for (const s of ranked.slice(0, 15)) console.log(line(s));
 
-  // Two legs on different games, treated as independent. Drawn from the best singles
-  // only, because a leg that is poor alone does not become good by being paired.
-  const pool = singles.slice(0, 20);
+  // Two legs on different games, treated as independent. Drawn from the best checked
+  // singles only, because a leg that is poor alone does not become good by being paired.
+  const pool = ranked.slice(0, 20);
   const pairs: Array<{ a: Single; b: Single; price: number; p: number; boosted: number }> = [];
   for (let i = 0; i < pool.length; i += 1) {
     for (let j = i + 1; j < pool.length; j += 1) {
@@ -218,16 +232,19 @@ async function main(): Promise<number> {
     }
   }
   pairs.sort((x, y) => y.boosted - x.boosted);
-  console.log("\nTWO-LEG PARLAYS (different games)");
+  console.log("\nTWO-LEG PARLAYS (different games, checked legs only)");
   for (const pair of pairs.slice(0, 6)) {
     console.log(
       `${`${pair.a.team} ML + ${pair.b.team} ML`.padEnd(60)} ` +
       `${signed(pair.price).padStart(6)} -> log ${signed(boostedPrice(pair.price, BOOST)).padStart(6)}  ` +
-      `p ${pct(pair.p)}  BOOSTED ${money(pair.boosted)}`,
+      `wins ${pct(pair.p)} (1 in ${(1 / pair.p).toFixed(0)})  BOOSTED ${money(pair.boosted)}`,
     );
   }
+
+  console.log(`\nNOT RANKED: fewer than ${MIN_OTHER_BOOKS} other books, so the price cannot be checked`);
+  for (const s of unchecked.slice(0, 5)) console.log(line(s));
   console.log("");
-  return singles.length > 0 ? 0 : 3;
+  return ranked.length > 0 ? 0 : 3;
 }
 
 main()
