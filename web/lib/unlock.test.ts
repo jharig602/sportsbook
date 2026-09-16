@@ -27,7 +27,7 @@ test("comparison rejects wrong, short, and missing values", () => {
 
 test("the dispatchers stay reachable without a cookie", () => {
   // GitHub Actions has no cookie and never will; those routes carry a bearer secret.
-  for (const p of ["/api/dispatch-promo", "/api/dispatch-survivor", "/api/dispatch-shop", "/api/dispatch-alerts"]) {
+  for (const p of ["/api/dispatch-daily", "/api/dispatch-survivor", "/api/dispatch-shop", "/api/dispatch-alerts"]) {
     assert.equal(isOpenPath(p), true, p);
   }
 });

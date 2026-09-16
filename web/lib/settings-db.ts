@@ -161,21 +161,20 @@ export async function recordSurvivorSent(
   );
 }
 
-export const PROMO_SENT_KEY = "promo_last_sent";
-
 /**
- * The Central date the daily promo reminder last went out, or null.
+ * The Central date the bet of the day last went out.
  *
- * Kept in app_settings rather than given a table: it is one string, rewritten once a
- * day. What it buys is that the reminder no longer has to be lucky. The dispatcher can
- * run on every collect tick and this is what stops it buzzing twice.
+ * A separate key from the old promotion reminder's on purpose: that one may already hold
+ * today's date, and reusing it would silently skip the first bet-of-the-day notification.
  */
-export async function promoSentOn(): Promise<string | null> {
+export const DAILY_SENT_KEY = "daily_bet_last_sent";
+
+export async function dailySentOn(): Promise<string | null> {
   if (!databaseUrl()) return null;
   try {
     const db = await getPool();
     const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [
-      PROMO_SENT_KEY,
+      DAILY_SENT_KEY,
     ]);
     const value = result.rows[0]?.value;
     return typeof value === "string" && value.length > 0 ? value : null;
@@ -185,12 +184,12 @@ export async function promoSentOn(): Promise<string | null> {
   }
 }
 
-export async function recordPromoSent(date: string): Promise<void> {
+export async function recordDailySent(date: string): Promise<void> {
   const db = await getPool();
   await db.query(
     `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-    [PROMO_SENT_KEY, date],
+    [DAILY_SENT_KEY, date],
   );
 }
 

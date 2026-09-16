@@ -169,20 +169,19 @@ jobs:
 
       # Raw response bodies are the only table that grows dangerously against Neon's
       # 0.5 GB free tier. Snapshots, alerts and grades are small and are kept forever.
-      # The FanDuel qualifying-bet promotion: each $5 stake earns a $50 bonus bet.
-      #
-      # Once a day, late morning Central, which leaves the whole day to place it.
-      # Unlike everything else here the bet is compulsory -- not placing it forfeits
-      # the bonus -- so the notification reports the CHEAPEST option rather than a
-      # good one, and says plainly when that is still a losing bet.
-      - name: Daily promo bet reminder
+      # The bet of the day: the likeliest winner among line-shopping edges that clear
+      # the house edge, at your books, never on a game you already hold, corrected by
+      # how that kind of pick has graded. Replaces the FanDuel $5/$50 promotion
+      # reminder, which has ended. Sent at most once a day, and only when there is a
+      # bet -- a notification that arrives regardless is one you stop reading.
+      - name: Bet of the day
         continue-on-error: true
         env:
           APP_URL: ${{ secrets.APP_URL }}
           DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
         run: |
           if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
-            echo 'promo reminders not configured'; exit 0
+            echo 'daily bet not configured'; exit 0
           fi
           # No hour check here any more, deliberately. This used to require a run to
           # land in a two-hour Central window, and over five days of real scheduled
@@ -195,7 +194,7 @@ jobs:
           # stops the reminder depending on WHEN a run happens and lets it depend
           # only on whether one happened at all.
           curl --fail --silent --show-error --max-time 60 -X POST \
-            "$APP_URL/api/dispatch-promo" \
+            "$APP_URL/api/dispatch-daily" \
             -H "Authorization: Bearer $DISPATCH_SECRET"
 
       # Survivor reminder, Saturday evening and Sunday morning Central.

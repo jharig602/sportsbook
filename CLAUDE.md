@@ -234,6 +234,26 @@ a college Saturday's game or a bet logged late could simply be missing.
 
 ---
 
+## Bet of the day
+
+The Shop page card and a once-a-day push (`/api/dispatch-daily`, only sent when there is
+a bet). Among line-shopping rows at your books that clear break-even by **1.5 points**
+(the shop-alert bar) after learning, it picks the **likeliest winner** — not the biggest
+return, which drifts to long prices where estimates are shakiest. It never picks a game
+with a standing bet in the viewer's ledger (`openEvents` uses `activeBets`, so voided and
+corrected rows do not block, and cashed-out tickets are finished). "No bet today" is
+shown, not hidden: it is the usual answer.
+
+**Learning** (`learnedShift`): for each market × league, the gap between how often graded
+shop picks won and how often they were predicted to, shrunk by `PRIOR_STRENGTH = 100`
+(`(hits - expected) / (n + 100)`), is added to future probabilities. Twenty lucky results
+barely move it; hundreds do. This makes predictions match outcomes more closely over
+time. It does **not** promise more wins per week, and nothing here should claim that.
+
+The FanDuel $5/$50 qualifying promotion ended and its code (card, plan, `promo.ts`,
+`dispatch-promo`) was removed; restore from git history if it recurs. `promo-window.ts`
+stays — it is the daily window the bet of the day uses.
+
 ## Promotions
 
 A **profit boost** doubles winnings, so a bet is worth `p(1 + 2b) - 1`, about
