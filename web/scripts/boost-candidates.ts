@@ -44,13 +44,21 @@ const BOOST = Number(process.env.BOOST_SIZE || 1);
 const HORIZON_DAYS = 8;
 // Other books needed before a side is ranked at all.
 const MIN_OTHER_BOOKS = 2;
+// Rows per list. The overall list is dominated by college underdogs, so each league also
+// gets its own -- otherwise an NFL option worth nearly as much never appears at all.
+const TOP = Number(process.env.BOOST_TOP || 15);
 
 if (!url) {
   console.error("DATABASE_URL is not set.");
   process.exit(2);
 }
-if (!/^[A-Za-z0-9 .'-]{2,40}$/.test(BOOK) || !(STAKE > 0 && STAKE <= 1000) || !(BOOST > 0 && BOOST <= 5)) {
-  console.error("Refused: BOOST_BOOK, BOOST_STAKE or BOOST_SIZE is out of range.");
+if (
+  !/^[A-Za-z0-9 .'-]{2,40}$/.test(BOOK) ||
+  !(STAKE > 0 && STAKE <= 1000) ||
+  !(BOOST > 0 && BOOST <= 5) ||
+  !(Number.isInteger(TOP) && TOP >= 1 && TOP <= 100)
+) {
+  console.error("Refused: BOOST_BOOK, BOOST_STAKE, BOOST_SIZE or BOOST_TOP is out of range.");
   process.exit(2);
 }
 
@@ -214,7 +222,14 @@ async function main(): Promise<number> {
     `p = lowest of every estimate available.\n`);
 
   console.log("SINGLES");
-  for (const s of ranked.slice(0, 15)) console.log(line(s));
+  for (const s of ranked.slice(0, TOP)) console.log(line(s));
+
+  for (const league of [...new Set(ranked.map((s) => s.game.league))].sort()) {
+    const inLeague = ranked.filter((s) => s.game.league === league && s.boosted > 0);
+    console.log(`
+BEST ${league.toUpperCase()} (${inLeague.length} sides worth something boosted)`);
+    for (const s of inLeague.slice(0, TOP)) console.log(line(s));
+  }
 
   // Two legs on different games, treated as independent. Drawn from the best checked
   // singles only, because a leg that is poor alone does not become good by being paired.

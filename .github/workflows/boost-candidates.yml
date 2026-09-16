@@ -17,6 +17,9 @@ on:
       boost:
         description: "Boost size: 1 = 100% profit boost, 0.5 = 50%"
         default: "1"
+      top:
+        description: "Rows per list"
+        default: "15"
 
 jobs:
   scan:
@@ -27,6 +30,7 @@ jobs:
       BOOST_BOOK: ${{ inputs.book }}
       BOOST_STAKE: ${{ inputs.stake }}
       BOOST_SIZE: ${{ inputs.boost }}
+      BOOST_TOP: ${{ inputs.top }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
