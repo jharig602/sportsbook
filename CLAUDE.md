@@ -112,6 +112,12 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
   three days later. Both failed with no code change behind them, which points at the
   wrong thing. **Any function that takes `now` gets it passed explicitly in tests**, and
   fixture dates are relative or paired with that `now`.
+- **Gating a commit on a pipeline's exit status.** Twice: once a red test run was pushed
+  because the chain's exit was read instead of the suite's, and once `tsc | grep` inside
+  `$(...)` printed "tsc exit 0" directly above a listed type error, pushed it, and broke
+  the Vercel build (`d857a29`). `tsx` runs scripts without typechecking, so a script can
+  work in Actions and still fail the deploy. **Redirect the tool to a file, take `$?`
+  from the tool itself, and gate on that** — or on the suite's own `fail 0` line.
 
 ---
 
@@ -227,6 +233,17 @@ a college Saturday's game or a bet logged late could simply be missing.
   says nothing, twenty say whether the decision is any good.
 
 ---
+
+## Promotions
+
+A **profit boost** doubles winnings, so a bet is worth `p(1 + 2b) - 1`, about
+`1 - q - 2h`: longer odds help, and the book's margin costs twice as much. Its best use
+is the longest price whose margin is still small, not the longest price. The workflow
+`boost-candidates` ranks one book's moneylines (singles, two-leg parlays) by boosted
+value, using the **lowest** of every independent estimate — de-vig flatters underdogs and
+a boost multiplies the flattery — and lists sides with fewer than two other books apart,
+unranked. **Log a boosted bet at the boosted price** (`boostedPrice`), or the ledger
+settles the win at half its real profit.
 
 ## Survivor
 
