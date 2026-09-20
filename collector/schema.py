@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 18
+ANALYTICS_SCHEMA_VERSION = 19
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -83,6 +83,38 @@ CREATE TABLE IF NOT EXISTS margin_models (
 -- What the model thought at the time is recorded alongside, so a bet can later be
 -- judged against the reasoning that produced it rather than against a model that has
 -- since been refitted.
+CREATE TABLE IF NOT EXISTS score_models (
+    -- How the FINAL SCORE scatters around what the market priced, per league.
+    --
+    -- margin_models already fits one half of this: the margin residual, `margin +
+    -- home_spread`. This adds the other half -- the total residual, `points - total` --
+    -- and the one number neither can hold alone: how the two move together.
+    --
+    -- That correlation is the whole point. A same-game parlay is two legs decided by one
+    -- scoreline, so multiplying their separate probabilities is wrong in a direction
+    -- that depends on the legs: "home wins AND the game goes over" is not the product of
+    -- its parts when favourites winning big also puts points on the board. With margin
+    -- and total jointly modelled, any leg that resolves off the final score -- moneyline,
+    -- spread, game total, team total -- has a joint probability rather than a guess.
+    --
+    -- Player props are not in here and cannot be: nothing in this database holds a
+    -- player line, so a parlay touching one is refused rather than estimated.
+    league VARCHAR PRIMARY KEY,
+    fitted_at TIMESTAMPTZ NOT NULL,
+    games INTEGER NOT NULL,
+    -- Residual total: actual points minus the closing total. Mean says whether the
+    -- market's totals are systematically off; it should sit near zero.
+    total_mean DOUBLE PRECISION NOT NULL,
+    total_sd DOUBLE PRECISION NOT NULL,
+    -- Residual margin, repeated here so the pair that produced the correlation is stored
+    -- together. It should agree with margin_models; if it ever does not, one of them was
+    -- fitted on a different set of games and the disagreement is the finding.
+    margin_mean DOUBLE PRECISION NOT NULL,
+    margin_sd DOUBLE PRECISION NOT NULL,
+    -- Pearson correlation of the two residuals, on the games where both exist.
+    correlation DOUBLE PRECISION NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bets (
     bet_id VARCHAR PRIMARY KEY,
     -- Whose ledger this row belongs to. See ANALYTICS_MIGRATIONS v14.

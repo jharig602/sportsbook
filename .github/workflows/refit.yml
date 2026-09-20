@@ -40,6 +40,12 @@ jobs:
       - name: Fit the margin model
         run: python collector/fit_margins.py --postgres
 
+      # The other half of the score, and the correlation between them. A same-game
+      # parlay is two legs decided by one scoreline, so this is what makes its joint
+      # probability a measurement rather than a product of separate guesses.
+      - name: Fit the joint score model
+        run: python collector/fit_scores.py --postgres
+
       - name: Report the dispersion by spread size
         run: |
           python -c "
