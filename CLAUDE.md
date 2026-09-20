@@ -88,6 +88,8 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
 | The margin and the total move together | **Barely.** Fitted on 7 seasons: r = **+0.002** in the NFL (2,020 games, a twentieth of an SE from zero) and **+0.095** in college (5,681 games, ~7 SE — real but small). Spread and game total in one NFL game are near-independent; any correlation markup a book charges on that pair is juice. |
 | A team total is just another leg | **No, and this is the one that matters.** Home points are `(total + margin)/2`, so a home team total correlates with the margin at **0.70 NFL / 0.73 college** *by construction*, whatever the fitted r is. Multiplying those legs is badly wrong. |
 | Games land over the closing total | **True and not enough.** Mean total residual +0.58 NFL / +0.61 college → 51.8% and 51.5% on the over. Break-even is 52.38%. Measured, real, no bet. |
+| A power rating from scores beats the closing line | **No.** Walk-forward on 7 seasons, `collector/ratings.py`. College: 50.9% over 4,586 games (ROI -2.8%), decisively short of 52.38%. NFL: 53.5% at 3+ points of disagreement over 897 games, ROI +2.2% -- but p=0.019 against a coin flip becomes **0.12** once the six thresholds that produced it are counted, and p=0.26 against the vig becomes 1.0. A hint, not a result. Do not build on it without new information. |
+| Fitted home-field advantage is a check on the data, not just an output | **Yes, and it caught one.** NFL came out at **1.67 points**, which is right. College came out at **6.54**, roughly double any credible figure, because barely-seen teams are shrunk toward average and play almost every game away -- the error lands in HFA. Excluding them moved it to 5.70 and lifted the college cover rate 0.8pp, so the college fit is still partly contaminated. A coefficient that is right on clean data and absurd on dirty data is pointing at the data. |
 | A market/league breakdown shows where the rule works | **Only with the search priced in.** Six cells of ~17 games contain a 70% cell one time in eight per cell; `selection.familyP` reports how often the *best of six* looks that good with no edge anywhere. |
 
 ---
@@ -351,6 +353,35 @@ receiving total is not a function of `D` and `S`.
 Team totals are stored as `market='total'` with a `team` (v20), because that is what they
 are. No feed prices them, so the automatic pick cannot find one — the builder prices them
 exactly once the price is typed in.
+
+---
+
+## Power ratings
+
+`collector/ratings.py`. Solves `margin = rating(home) - rating(away) + hfa` over every
+game at once; strength of schedule is not an adjustment, it is what solving
+simultaneously means. Ridge, capped margins, recency half-life, conjugate gradient in
+pure Python (no numpy).
+
+**Nothing reads it.** It is graded, and it did not clear the bar. See the findings table.
+The grader exists because a power rating always produces confident numbers -- it will
+rank 134 college teams to two decimals with nothing behind it.
+
+Rules if this is picked up again:
+
+- **Walk-forward or it is worthless.** A game is predicted only from games that finished
+  before its week. The test for that reruns with one game's margin set to 500 and asserts
+  its own prediction does not move; asserting the games were merely ordered proves
+  nothing, which is what the first version of that test did.
+- **Two bars.** 50% asks whether it knows anything. **52.38%** asks whether it is
+  bettable. Reporting only the first would have called this a working system.
+- **Correct for the looks.** Six thresholds is six draws; `family_p` is the honest number
+  and it is the one to quote.
+- **Do not tune to chase it.** The parameters in `DEFAULTS` were fixed before the first
+  run. The one change since came from a broken HFA coefficient, not a p-value, and both
+  specifications are still reported side by side.
+- The next real test is EPA per play from nflverse (free, no key) rather than margin.
+  That is new information; another pass over the same scores is not.
 
 ---
 
