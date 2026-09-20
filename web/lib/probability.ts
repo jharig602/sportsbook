@@ -115,7 +115,7 @@ export function normalCdf(z: number): number {
  * reading 57% instead of 50%. The body is scaled down to leave room for the tails
  * instead, so the three pieces sum to exactly 1.
  */
-function tails(model: MarginModel): { low: number; high: number; interior: number } {
+export function residualTails(model: MarginModel): { low: number; high: number; interior: number } {
   const high = 1 - normalCdf((model.hi + 0.25 - model.mean) / model.sd);
   const low = normalCdf((model.lo - 0.25 - model.mean) / model.sd);
   return { low, high, interior: Math.max(0, 1 - low - high) };
@@ -125,14 +125,24 @@ function tails(model: MarginModel): { low: number; high: number; interior: numbe
 export function residualAbove(model: MarginModel, threshold: number): number {
   if (model.sd <= 0) return NaN;
 
-  if (threshold >= model.hi) {
-    return Math.max(0, Math.min(1, 1 - normalCdf((threshold - model.mean) / model.sd)));
-  }
-  if (threshold < model.lo) {
-    return Math.max(0, Math.min(1, 1 - normalCdf((threshold - model.mean) / model.sd)));
+  const { high, interior } = residualTails(model);
+
+  // Outside the fitted range the normal takes over, cut a quarter-point above the
+  // threshold rather than at it.
+  //
+  // That quarter-point is not a rounding nicety. Every point on this grid owns the half
+  // it sits in the middle of, which is why the tails start at `hi + 0.25` rather than at
+  // `hi`. Cutting the tail at the threshold itself counted the sliver just above it in
+  // both the body and the tail, so the three pieces summed to a little over 1 and a deep
+  // alternate line read about 0.24 points too likely -- in the direction that flatters a
+  // long shot, which is the direction worth being careful about.
+  if (threshold >= model.hi || threshold < model.lo) {
+    return Math.max(
+      0,
+      Math.min(1, 1 - normalCdf((threshold + 0.25 - model.mean) / model.sd)),
+    );
   }
 
-  const { high, interior } = tails(model);
   const cutoff = threshold * 2; // pmf keys are half-points
   let inside = 0;
   for (const [key, mass] of Object.entries(model.pmf)) {
@@ -148,7 +158,7 @@ export function residualAt(model: MarginModel, value: number): number {
   if (!Number.isInteger(key)) return 0;
   // Scaled by the same interior factor as residualAbove, or the push mass and the
   // cover mass would be measured against different totals.
-  return (model.pmf[String(key)] ?? 0) * tails(model).interior;
+  return (model.pmf[String(key)] ?? 0) * residualTails(model).interior;
 }
 
 /**

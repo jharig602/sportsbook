@@ -13,6 +13,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { databaseUrl } from "./env";
+import type { ScoreModel } from "./joint-score";
 import type { MarginModel } from "./probability";
 import { collapseAlerts, normalizeRow } from "./rows";
 
@@ -79,6 +80,8 @@ export interface DataSource {
   results(): Promise<GameResult[]>;
   /** Fitted residual model per league; empty until fit_margins has run. */
   marginModels(): Promise<Record<string, MarginModel>>;
+  /** How margin and total scatter together; empty until fit_scores has run. */
+  scoreModels(): Promise<Record<string, ScoreModel>>;
   backend: "postgres" | "fixture";
 }
 
@@ -93,6 +96,7 @@ interface Snapshot {
   grades: Grade[];
   results: GameResult[];
   marginModels?: Record<string, MarginModel>;
+  scoreModels?: Record<string, ScoreModel>;
 }
 
 let cached: Snapshot | null = null;
@@ -126,6 +130,7 @@ async function snapshot(): Promise<Snapshot> {
       grades: [],
       results: [],
       marginModels: {},
+      scoreModels: {},
     };
   }
   return cached;
@@ -172,6 +177,7 @@ const fixtureSource: DataSource = {
   },
   results: async () => (await snapshot()).results,
   marginModels: async () => (await snapshot()).marginModels ?? {},
+  scoreModels: async () => (await snapshot()).scoreModels ?? {},
 };
 
 // --- postgres backend ----------------------------------------------------------
@@ -283,6 +289,10 @@ const RESULTS = `
 SELECT event_id, league, home_team, away_team, home_score, away_score,
        went_overtime, commence_time
   FROM game_results WHERE completed = TRUE`;
+
+const SCORE_MODELS = `
+SELECT league, games, total_mean, total_sd, margin_mean, margin_sd, correlation
+  FROM score_models`;
 
 const MARGIN_MODELS = `
 SELECT league, games, mean, sd, lo, hi, pmf_json, buckets_json
@@ -486,6 +496,32 @@ const postgresSource: DataSource = {
     }
     return models;
   }, ["line-tracker", "margin-models"], { revalidate: 3600, tags: ["margin-models"] }),
+  // Refitted on the same schedule as the margin model, and equally static between runs.
+  scoreModels: unstable_cache(async () => {
+    const rows = await query<{
+      league: string; games: number;
+      total_mean: number; total_sd: number;
+      margin_mean: number; margin_sd: number; correlation: number;
+    }>(SCORE_MODELS);
+    const models: Record<string, ScoreModel> = {};
+    for (const row of rows) {
+      // Postgres NUMERIC arrives as a string. Left as one, a correlation would compare
+      // and multiply as text and quietly produce nonsense rather than an error.
+      const model: ScoreModel = {
+        league: row.league,
+        games: Number(row.games),
+        totalMean: Number(row.total_mean),
+        totalSd: Number(row.total_sd),
+        marginMean: Number(row.margin_mean),
+        marginSd: Number(row.margin_sd),
+        correlation: Number(row.correlation),
+      };
+      if (Object.values(model).every((v) => typeof v === "string" || Number.isFinite(v))) {
+        models[row.league] = model;
+      }
+    }
+    return models;
+  }, ["line-tracker", "score-models"], { revalidate: 3600, tags: ["score-models"] }),
 };
 
 export function getData(): DataSource {
