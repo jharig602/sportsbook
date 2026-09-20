@@ -23,7 +23,14 @@ export interface StoredPool {
    */
   name?: string;
   used: string[];
-  /** How many entrants, including you. Decides what surviving is worth. */
+  /**
+   * Entrants STILL ALIVE, including you. Decides what surviving is worth.
+   *
+   * Not how many started. Someone already eliminated is nobody's rival: they cannot
+   * take the pool and they cannot take it from you, so counting them would plan against
+   * a field that is not there. Once `field` is recorded this is its total and is not
+   * separately editable -- two numbers that must agree should not both be typed.
+   */
   size: number;
   /** Losses you may take before elimination. 0 = out on the first. */
   lossesAllowed: number;
@@ -39,6 +46,15 @@ export interface StoredPool {
    * exist.
    */
   field?: number[];
+  /**
+   * How many entered at the start, if you have recorded it.
+   *
+   * Purely descriptive: the planner never reads it, because entrants who are out are
+   * not rivals. It is stored so the screen can show its own arithmetic -- 124 alive of
+   * 141 entered, 17 out -- which is the sum you would otherwise be doing on paper to
+   * check that the number in front of you means what you think it means.
+   */
+  entered?: number;
   /** Losses your own entry has taken. Absent means none. */
   myLosses?: number;
 }
@@ -169,6 +185,9 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
                 .slice(0, 6)
                 .map((n: unknown) => Math.min(100000, Math.max(0, Math.floor(Number(n) || 0)))),
             }
+          : {}),
+        ...(Number(p.entered) > 0
+          ? { entered: Math.min(100000, Math.max(1, Math.floor(Number(p.entered)))) }
           : {}),
         ...(Number(p.myLosses) > 0
           ? { myLosses: Math.min(5, Math.max(0, Math.floor(Number(p.myLosses)))) }

@@ -218,3 +218,44 @@ test("the mixed field stays close to the exact two-group answer, for both real p
     assert.ok(Math.abs(gap) < 0.05, `${name}: mixed ${mixed} vs exact ${exact} (${(gap * 100).toFixed(2)}%)`);
   }
 });
+
+// --- what "still alive" counts ---------------------------------------------------
+
+test("the size is who is left, not who started", () => {
+  // The real case that prompted this: 141 entered, 17 out, 40 unbeaten and 84 on one
+  // loss. 124 is the right number to plan against and the label said "Entrants", which
+  // made a correct figure look like lost people.
+  const [pool] = parsePools(
+    JSON.stringify([{ used: [], size: 141, lossesAllowed: 1, field: [40, 84], entered: 141 }]),
+  );
+  assert.equal(pool.size, 124, "size follows the field, which counts only the living");
+  assert.equal(pool.entered, 141);
+
+  const state = fieldState(pool);
+  assert.equal(state.entrants, 124);
+  assert.equal(state.rivals, 123, "you are one of the 124");
+  assert.deepEqual(state.rivalLosses, [39, 84], "you come out of your own bucket");
+});
+
+test("how many started is recorded but never planned against", () => {
+  // Someone eliminated cannot take the pool and cannot take it from you, so counting
+  // them would plan against a field that is not there.
+  const withEntered = parsePools(
+    JSON.stringify([{ used: [], size: 141, lossesAllowed: 1, field: [40, 84], entered: 141 }]),
+  )[0];
+  const without = parsePools(
+    JSON.stringify([{ used: [], size: 141, lossesAllowed: 1, field: [40, 84] }]),
+  )[0];
+  assert.deepEqual(fieldState(withEntered), fieldState(without));
+});
+
+test("a missing or nonsense start is simply not recorded", () => {
+  const [pool] = parsePools(
+    JSON.stringify([{ used: [], size: 10, lossesAllowed: 0, entered: 0 }]),
+  );
+  assert.equal(pool.entered, undefined);
+  const [negative] = parsePools(
+    JSON.stringify([{ used: [], size: 10, lossesAllowed: 0, entered: -5 }]),
+  );
+  assert.equal(negative.entered, undefined);
+});

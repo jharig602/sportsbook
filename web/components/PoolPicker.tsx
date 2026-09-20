@@ -51,7 +51,7 @@ export function PoolPicker({
     save(next);
   }
 
-  function setField(key: "size" | "lossesAllowed", value: number) {
+  function setField(key: "size" | "lossesAllowed" | "entered", value: number) {
     save(pools.map((p, i) => (i === index ? { ...p, [key]: value } : p)));
   }
 
@@ -138,10 +138,16 @@ export function PoolPicker({
           <div className="mt-2 grid grid-cols-2 gap-2">
             <label className="block">
               <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                Entrants
+                {state.recorded ? "Still alive" : "Entrants"}
               </span>
-              {/* With the field recorded, entrants is its total and not a separate number:
-                  two inputs that must agree should not both be editable. */}
+              {/* The label changes with the meaning, because the number does. Before any
+                  losses are recorded this is how many entered; afterwards it is the total
+                  of the field below, which counts only entrants still alive. It read
+                  "Entrants" in both states, so a pool of 141 that was down to 124 showed
+                  124 under a label promising 141 and looked like it had lost people.
+
+                  Not separately editable once the field is recorded: two numbers that
+                  must agree should not both be typed. */}
               <input
                 type="text"
                 inputMode="numeric"
@@ -206,6 +212,47 @@ export function PoolPicker({
                 </select>
               </label>
             </div>
+            {/* The screen's own arithmetic, so the numbers can be checked at a glance
+                rather than on paper. Eliminated entrants are shown precisely because they
+                are NOT in the figure above -- that is the whole point being explained. */}
+            {state.recorded ? (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">
+                <span className="font-medium text-slate-300">
+                  {state.entrants} still alive
+                </span>
+                {pool.entered && pool.entered >= state.entrants ? (
+                  <>
+                    {" "}
+                    of {pool.entered} entered &mdash; {pool.entered - state.entrants} out.
+                  </>
+                ) : (
+                  "."
+                )}{" "}
+                Entrants already eliminated are left out on purpose: they cannot take the
+                pool and cannot take it from you, so planning against them would mean
+                planning against a field that is not there.
+              </p>
+            ) : null}
+            <label className="mt-1.5 block">
+              <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                Started with (optional)
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                key={`entered-${pool.entered ?? "none"}`}
+                defaultValue={pool.entered ? String(pool.entered) : ""}
+                placeholder="141"
+                onBlur={(e) =>
+                  setField("entered", Number(e.target.value.replace(/[^0-9]/g, "")) || 0)
+                }
+                className="tabular mt-0.5 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100 outline-none focus:border-sky-600"
+              />
+              <span className="mt-0.5 block text-[10px] leading-snug text-slate-600">
+                Recorded so the counts can be checked against each other. The planner never
+                uses it.
+              </span>
+            </label>
             <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
               {state.recorded
                 ? `Planning against ${state.rivals} rival${state.rivals === 1 ? "" : "s"}: ${state.rivalLosses
