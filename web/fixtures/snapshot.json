@@ -37526,5 +37526,25 @@
    "went_overtime": false,
    "commence_time": "2026-01-20T00:30:00+00:00"
   }
- ]
+ ],
+ "scoreModels": {
+  "ncaaf": {
+   "league": "ncaaf",
+   "games": 5681,
+   "totalMean": 0.6051,
+   "totalSd": 15.9327,
+   "marginMean": 0.2771,
+   "marginSd": 15.4579,
+   "correlation": 0.09461
+  },
+  "nfl": {
+   "league": "nfl",
+   "games": 2020,
+   "totalMean": 0.5832,
+   "totalSd": 12.8785,
+   "marginMean": -0.3881,
+   "marginSd": 12.7001,
+   "correlation": 0.00169
+  }
+ }
 }

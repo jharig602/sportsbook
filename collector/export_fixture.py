@@ -65,6 +65,11 @@ MARGIN_MODELS = """
 SELECT league, games, mean, sd, lo, hi, pmf_json FROM margin_models
 """
 
+SCORE_MODELS = """
+SELECT league, games, total_mean, total_sd, margin_mean, margin_sd, correlation
+  FROM score_models
+"""
+
 RESULTS = """
 SELECT event_id, league, home_team, away_team, home_score, away_score,
        went_overtime, commence_time
@@ -150,6 +155,15 @@ def main(argv: list[str] | None = None) -> int:
                 "league": league, "games": games, "mean": mean, "sd": sd,
                 "lo": lo, "hi": hi, "pmf": json.loads(pmf_json),
             }
+        score_models = {}
+        for (league, games, total_mean, total_sd, margin_mean, margin_sd,
+             correlation) in database.fetchall(SCORE_MODELS):
+            score_models[league] = {
+                "league": league, "games": games,
+                "totalMean": float(total_mean), "totalSd": float(total_sd),
+                "marginMean": float(margin_mean), "marginSd": float(margin_sd),
+                "correlation": float(correlation),
+            }
     finally:
         database.close()
 
@@ -157,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         "generatedAt": datetime.now(UTC).isoformat(),
         "activeRuleVersion": active[0] if active else None,
         "marginModels": margin_models,
+        "scoreModels": score_models,
         "games": build_board(quotes),
         "history": build_history(history_rows),
         "alerts": alerts,

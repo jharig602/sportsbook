@@ -411,8 +411,8 @@ export function SameGameParlay({
                   className={`mt-1.5 text-[12px] ${ev > 0 ? "text-emerald-300" : "text-rose-300"}`}
                 >
                   {ev > 0 ? "+" : ""}
-                  {(ev * 100).toFixed(1)}% per dollar at that price
-                  {bonus ? " of bonus face" : ""}.
+                  {(ev * 100).toFixed(1)}% per dollar {bonus ? "of bonus face " : ""}at that
+                  price.
                   {ev <= 0 ? " Below fair — the book is keeping the difference." : ""}
                 </p>
               ) : null}
