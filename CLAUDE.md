@@ -85,6 +85,9 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
 | Survivor: maximise survival | **Wrong objective.** The pool pays the last entrant standing; a 13-entry pool wipes out entirely ~44% of seasons. |
 | Blowouts should be filtered because they are unpredictable | Right action, **wrong reason**. They are predictable; the sample is too thin to have fitted the residual *shape*, and nobody bets those lines. |
 | Rivals already carrying a loss can be modelled as one mixed field | **Yes, measured.** Each rival drawn independently from the recorded split, against the exact two-group integral: +0.24% on a 141-entry pool (89 unbeaten / 51 on a last life), +1.66% on an 11-entry one (8 / 2). Stable at 1,500 and 12,000 seasons, so it is the approximation and not noise. |
+| The margin and the total move together | **Barely.** Fitted on 7 seasons: r = **+0.002** in the NFL (2,020 games, a twentieth of an SE from zero) and **+0.095** in college (5,681 games, ~7 SE — real but small). Spread and game total in one NFL game are near-independent; any correlation markup a book charges on that pair is juice. |
+| A team total is just another leg | **No, and this is the one that matters.** Home points are `(total + margin)/2`, so a home team total correlates with the margin at **0.70 NFL / 0.73 college** *by construction*, whatever the fitted r is. Multiplying those legs is badly wrong. |
+| Games land over the closing total | **True and not enough.** Mean total residual +0.58 NFL / +0.61 college → 51.8% and 51.5% on the over. Break-even is 52.38%. Measured, real, no bet. |
 | A market/league breakdown shows where the rule works | **Only with the search priced in.** Six cells of ~17 games contain a 70% cell one time in eight per cell; `selection.familyP` reports how often the *best of six* looks that good with no edge anywhere. |
 
 ---
@@ -204,7 +207,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **18**.
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **20**.
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -308,6 +311,48 @@ value, using the **lowest** of every independent estimate — de-vig flatters un
 a boost multiplies the flattery — and lists sides with fewer than two other books apart,
 unranked. **Log a boosted bet at the boosted price** (`boostedPrice`), or the ledger
 settles the win at half its real profit.
+
+## Same-game parlays
+
+One final score, asked several questions. `joint-score.ts` prices them; `sgp.ts` turns
+that into a price and ranks candidates.
+
+**Never multiply the legs.** Every market here resolves off two numbers — the margin `D`
+and the total `S` — so each leg is a half-plane `aD·D + aS·S > c` and a parlay is where
+they overlap. Team totals are not a third thing: home points are `(S + D)/2`.
+
+The margin keeps its **empirical** pmf (NFL margins lump on 3 and 7; a normal smooths
+that away exactly where a leg sits on a key number). The total is normal from
+`score_models`, which is an assumption and is labelled as one. They are joined by a
+Gaussian copula at the measured correlation.
+
+`jointProbability` walks the margin grid: for a fixed margin every leg is either already
+settled or a plain bound on the total. Exact for this model, not simulated, same answer
+every time.
+
+**The product is a price to beat, not an edge.** No feed here holds a book's same-game
+price, so the honest claim is "fair at +420, go and look" — checkable on the slip in five
+seconds, and unable to be wrong in the quiet way an invented edge is. `markupBudget` is
+how far the book may mark a ticket down from the product of its legs' prices before it
+stops paying, and that is the ranking statistic.
+
+**Do not rank by price.** A bonus bet converts at `1 − 1/d`, so "longest price" sorts a
+deep alternate line to the top every time — and its price is long *because* it almost
+never wins. Length breaks ties among tickets that already pay. A test pins this.
+
+Pushes are valued as the stake back, not as a loss, and only counted when a leg can
+actually land on its number: the pmf pools whole-number and half-point lines onto one
+half-point grid, so a game priced at −3 shows mass on residuals its margin cannot
+produce. Counting that as a push would invent a refund.
+
+**Player props are refused, not estimated.** Nothing here holds a player line and a
+receiving total is not a function of `D` and `S`.
+
+Team totals are stored as `market='total'` with a `team` (v20), because that is what they
+are. No feed prices them, so the automatic pick cannot find one — the builder prices them
+exactly once the price is typed in.
+
+---
 
 ## Survivor
 
