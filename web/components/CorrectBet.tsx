@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { mirrorSide } from "@/lib/correct";
 import type { Bet } from "@/lib/settle";
 
 /**
@@ -18,9 +19,18 @@ import type { Bet } from "@/lib/settle";
  * has stopped being a ledger — the whole value of this table is that it records what was
  * actually staked, including the times it was recorded badly.
  *
- * Only the fields that are plausibly mistyped are offered. The game, market and side are
- * not editable here: getting those wrong is not a typo, it is a different bet, and it
- * should be entered as one.
+ * The SIDE is editable, and it is the field most worth being able to fix. On the board
+ * the two sides of a market are adjacent buttons, so picking the wrong one is the
+ * easiest mistake to make and the worst to leave standing: the ledger reports a win
+ * where there was a loss, and every rate computed from it inherits that.
+ *
+ * Flipping a spread's side flips its line with it. Home -3.5 becomes away +3.5, because
+ * that is the same wager seen from the other end. Changing the side alone would store
+ * "away -3.5" -- a bet nobody was offered, which grades cleanly against the wrong
+ * question and looks entirely normal on screen.
+ *
+ * The game and the market stay fixed. Those are not typos, they are a different bet, and
+ * a different bet should be entered as one.
  *
  * Cashing out rides the same path, because it is the same kind of event: something that
  * happened to a ticket after it was written, recorded as a new row rather than by
@@ -33,6 +43,8 @@ export function CorrectBet({ bet }: { bet: Bet }) {
   const [price, setPrice] = useState(String(bet.price));
   const [stake, setStake] = useState(String(bet.stake));
   const [line, setLine] = useState(bet.line === null ? "" : String(bet.line));
+  const [side, setSide] = useState<string>(bet.side);
+  const [team, setTeam] = useState<string>(bet.team ?? "");
   const [bonus, setBonus] = useState(bet.bonus === true);
   const [cashout, setCashout] = useState(
     bet.cashout === undefined || bet.cashout === null ? "" : String(bet.cashout),
@@ -55,7 +67,8 @@ export function CorrectBet({ bet }: { bet: Bet }) {
           away_team: bet.away_team,
           commence_time: bet.commence_time,
           market: bet.market,
-          side: bet.side,
+          side,
+          team: team === "" ? null : team,
           line: bet.market === "moneyline" ? null : Number(line),
           price: Number(price),
           stake: Number(stake),
@@ -81,6 +94,30 @@ export function CorrectBet({ bet }: { bet: Bet }) {
       setBusy(false);
     }
   }
+
+  /**
+   * Switch sides, carrying the line across.
+   *
+   * A spread belongs to the side that took it: the same bet is home -3.5 or away +3.5,
+   * never away -3.5. Totals and moneylines have no such mirror -- over 45.5 and under
+   * 45.5 are the same number -- so only the spread's line moves.
+   */
+  function chooseSide(next: string) {
+    const mirrored = mirrorSide(bet.market, line === "" ? null : Number(line), side, next);
+    setSide(mirrored.side);
+    setLine(mirrored.line === null ? "" : String(mirrored.line));
+  }
+
+  const sides =
+    bet.market === "total"
+      ? [
+          { value: "over", label: "Over" },
+          { value: "under", label: "Under" },
+        ]
+      : [
+          { value: "home", label: bet.home_team ?? "Home" },
+          { value: "away", label: bet.away_team ?? "Away" },
+        ];
 
   const submit = () =>
     send(cashout.trim() === "" ? {} : { cashout: Number(cashout) });
@@ -109,7 +146,62 @@ export function CorrectBet({ bet }: { bet: Bet }) {
         Edit this bet
       </p>
 
-      <div className="mt-1.5 grid grid-cols-3 gap-2">
+      <label className="mt-1.5 block">
+        <span className={caption}>Side</span>
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          {sides.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => chooseSide(option.value)}
+              className={`truncate rounded border px-2 py-1 text-[12px] ${
+                side === option.value
+                  ? "border-amber-500/60 bg-amber-500/15 text-amber-200"
+                  : "border-edge bg-ink text-slate-300"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {side !== bet.side ? (
+          <span className="mt-1 block text-[10px] leading-snug text-amber-300/90">
+            Switching sides{bet.market === "spread" ? " and flipping the line with it" : ""}.
+            The original row stays in the ledger, marked as superseded.
+          </span>
+        ) : null}
+      </label>
+
+      {/*
+        A team total's team is the same mistake in a different place: the line and the
+        side can both be right while the points belong to the other team.
+      */}
+      {bet.market === "total" && bet.team ? (
+        <label className="mt-2 block">
+          <span className={caption}>Whose points</span>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            {[
+              { value: "home", label: bet.home_team ?? "Home" },
+              { value: "away", label: bet.away_team ?? "Away" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setTeam(option.value)}
+                className={`truncate rounded border px-2 py-1 text-[12px] ${
+                  team === option.value
+                    ? "border-amber-500/60 bg-amber-500/15 text-amber-200"
+                    : "border-edge bg-ink text-slate-300"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </label>
+      ) : null}
+
+      <div className="mt-2 grid grid-cols-3 gap-2">
         <label className="block">
           <span className={caption}>Price</span>
           <input
