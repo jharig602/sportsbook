@@ -204,7 +204,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **17**.
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **18**.
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -269,6 +269,34 @@ time. It does **not** promise more wins per week, and nothing here should claim 
 The FanDuel $5/$50 qualifying promotion ended and its code (card, plan, `promo.ts`,
 `dispatch-promo`) was removed; restore from git history if it recurs. `promo-window.ts`
 stays — it is the daily window the bet of the day uses.
+
+## Promo tracker
+
+`/promos` (schema v18: `promos`, `promo_uses`). A calculator and a calendar, never a
+handicapper: every function in `promo-ev.ts` takes terms and a price and returns money,
+and the optimiser's output is an odds range and a stake. Naming a side would be a claim
+the promo structure cannot support.
+
+**What actually costs money is a token expiring unused**, so `expires_at` is the only
+required term and the dashboard sorts on it. `status` is available/used and never
+"expired" — expiry is the timestamp against the clock, and a stored copy of a derived
+fact drifts from what it came from.
+
+Terms are typed in. They sit behind a login with no public feed, and scraping a book
+where you hold an account risks the account.
+
+Five types, each with its own formula and optimal play (stake the cap and take the
+longest qualifying price for stake-back; max stake, longest odds, FEW legs for a profit
+boost). `boostCoversHold(b) = b/(1+b)` is why: a 50% boost only overcomes 33% hold, and
+`parlayHold` compounds past that quickly. De-vig offers multiplicative and Shin (solved
+by bisection, not a remembered closed form); when a promo's sign flips between them it
+has no verdict worth acting on. One price plus an assumed hold is marked `estimated`.
+
+**Two places the source spec contradicted itself**, both pinned by tests: its "+6.7% on
++200" for a 50% boost needs the true chance to be 80% of implied (a ~25% held market) —
+at a fair +200 the same formula gives +33%; and its parlay-hold examples imply 4.1%,
+7.2% and 5.8% per leg respectively, so per-leg hold is a parameter defaulting to the
+4.5% measured here.
 
 ## Promotions
 

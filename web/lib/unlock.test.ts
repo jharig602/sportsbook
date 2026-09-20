@@ -78,6 +78,15 @@ test("a viewer sees the market, and keeps their own ledger", () => {
   assert.equal(viewerAllowed("/survivor"), false, "survivor must stay private");
 });
 
+test("promos are personal, so a guest keeps their own", () => {
+  assert.equal(viewerAllowed("/promos"), true);
+  assert.equal(viewerAllowed("/api/promos"), true);
+  assert.equal(viewerAllowed("/api/promos/use"), true);
+  // And the allowlist is still not a prefix game.
+  assert.equal(viewerAllowed("/api/promosx"), false);
+  assert.equal(viewerAllowed("/promoscode"), false);
+});
+
 test("survivor is closed to viewers as strategy, not privacy", () => {
   // The objective is P(last entrant standing), and its value comes from NOT holding
   // the same ticket as the field. Showing a rival the pick converts a differentiated

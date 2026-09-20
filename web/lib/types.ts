@@ -106,6 +106,56 @@ export interface ShopGrade {
   book: string | null;
 }
 
+/**
+ * A promotional offer, as entered by hand from the book's own wording.
+ *
+ * `status` is available or used and never "expired": expiry is `expires_at` against the
+ * clock, and a stored copy of a derived fact drifts from what it came from.
+ */
+export interface Promo {
+  promo_id: string;
+  book: string;
+  type: "stake_back" | "profit_boost" | "odds_boost" | "bonus_bet" | "deposit_match";
+  title: string;
+  claimed_at: string | null;
+  expires_at: string;
+  cap_refund: number | null;
+  max_stake: number | null;
+  boost_pct: number | null;
+  bonus_face: number | null;
+  boosted_price: number | null;
+  base_price: number | null;
+  deposit_bonus: number | null;
+  rollover_multiple: number | null;
+  min_odds_american: number | null;
+  min_legs: number | null;
+  eligible_markets: string[];
+  eligible_from: string | null;
+  eligible_to: string | null;
+  excluded: string[];
+  stackable: boolean;
+  status: "available" | "used";
+  created_at: string;
+}
+
+/** What was done with a promo, and what came back. */
+export interface PromoUse {
+  use_id: string;
+  promo_id: string;
+  placed_at: string;
+  stake: number;
+  odds_american: number;
+  legs: number;
+  bet_id: string | null;
+  fair_prob: number | null;
+  ev_at_placement: number | null;
+  settled_at: string | null;
+  result: "win" | "loss" | "push" | "void" | null;
+  /** Cash and bonus are kept apart: a bonus bet that wins pays winnings only. */
+  returned_cash: number | null;
+  returned_bonus: number | null;
+}
+
 export interface GameResult {
   event_id: string;
   league: League;

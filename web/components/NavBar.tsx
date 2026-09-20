@@ -64,7 +64,18 @@ const TABS: Tab[] = [
       </>
     ),
   },
-  {
+    {
+    href: "/promos",
+    label: "Promos",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+        {/* A ticket: the thing that expires if nobody looks at it. */}
+        <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h15A1.5 1.5 0 0 1 21 8.5v2a2 2 0 0 0 0 3.8v2a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16.3v-2a2 2 0 0 0 0-3.8v-2Z" />
+        <path d="M14 7v11" strokeDasharray="2 2" />
+      </svg>
+    ),
+  },
+{
     href: "/record",
     label: "Record",
     icon: (

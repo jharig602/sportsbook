@@ -93,7 +93,7 @@ export type Role = "owner" | "viewer" | null;
  * stays behind the owner passcode however many people use the rest of the app.
  */
 const VIEWER_PAGES = [
-  "/", "/shop", "/record", "/movers", "/edges", "/about", "/game", "/bets",
+  "/", "/shop", "/record", "/movers", "/edges", "/about", "/game", "/bets", "/promos",
 ];
 
 /**
@@ -102,7 +102,7 @@ const VIEWER_PAGES = [
  * page that does not load, which they will report. A forgotten entry on a blocklist
  * means a stranger writing to the consensus, which nobody would ever notice.
  */
-const VIEWER_APIS = ["/api/bets", "/api/ledger"];
+const VIEWER_APIS = ["/api/bets", "/api/ledger", "/api/promos"];
 
 export function viewerAllowed(pathname: string): boolean {
   if (pathname.startsWith("/api/")) {
