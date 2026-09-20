@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 17
+ANALYTICS_SCHEMA_VERSION = 18
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -382,6 +382,88 @@ CREATE TABLE IF NOT EXISTS shop_grades (
 );
 
 CREATE INDEX IF NOT EXISTS shop_picks_event ON shop_picks (event_id);
+
+CREATE TABLE IF NOT EXISTS promos (
+    -- A promotional offer, as the book worded it, entered by hand.
+    --
+    -- Entered rather than scraped on purpose. Promo terms sit behind a login and are
+    -- rendered in the book's own app; scraping an account you hold risks that account,
+    -- and there is no public feed. Thirty seconds of typing a few times a week is the
+    -- cheaper trade.
+    --
+    -- The money this table saves is not in picking better. It is in a token expiring
+    -- unused and a bonus-bet refund lapsing in the account -- which is why `expires_at`
+    -- is the only required term and why the dashboard sorts by it.
+    promo_id VARCHAR PRIMARY KEY,
+    owner_id VARCHAR NOT NULL DEFAULT 'owner',
+    book VARCHAR NOT NULL,
+    type VARCHAR NOT NULL,
+    title VARCHAR NOT NULL,
+    claimed_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL,
+    -- Terms. Which ones matter depends on the type; the rest stay null rather than
+    -- being defaulted, because a wrong default here silently changes what a promo is
+    -- worth and reads exactly like a right one.
+    cap_refund DOUBLE PRECISION,        -- stake_back: most that comes back
+    max_stake DOUBLE PRECISION,         -- profit_boost, odds_boost
+    boost_pct DOUBLE PRECISION,         -- profit_boost: 0.5 is a 50% boost
+    bonus_face DOUBLE PRECISION,        -- bonus_bet: face value of the token
+    boosted_price BIGINT,               -- odds_boost: the enhanced American price
+    base_price BIGINT,                  -- odds_boost: what it pays elsewhere
+    deposit_bonus DOUBLE PRECISION,     -- deposit_match
+    rollover_multiple DOUBLE PRECISION, -- deposit_match: 10 means 10x the bonus
+    min_odds_american BIGINT,
+    min_legs INTEGER,
+    eligible_markets VARCHAR,           -- JSON array of free-text tags
+    eligible_from TIMESTAMPTZ,
+    eligible_to TIMESTAMPTZ,
+    excluded VARCHAR,                   -- JSON array: "bonus funds", "cashed out bets"
+    -- Books rarely let two promos touch one bet. Assumed false; set only when the terms
+    -- actually say otherwise.
+    stackable BOOLEAN NOT NULL DEFAULT FALSE,
+    -- available or used. Deliberately NOT 'expired': that is `expires_at` compared with
+    -- now, and a stored copy of a derived fact drifts out of step with the thing it was
+    -- derived from. See the same reasoning behind deriving bet outcomes from scores.
+    status VARCHAR NOT NULL DEFAULT 'available',
+    created_at TIMESTAMPTZ NOT NULL,
+    CHECK (type IN ('stake_back', 'profit_boost', 'odds_boost', 'bonus_bet', 'deposit_match')),
+    CHECK (status IN ('available', 'used'))
+);
+
+CREATE TABLE IF NOT EXISTS promo_uses (
+    -- What was actually done with a promo, and what came back.
+    --
+    -- `ev_at_placement` and `fair_prob` are stored as they stood when the bet was
+    -- struck. Recomputing them later would mark our own homework: the point of keeping
+    -- them is to compare summed expectations against realised returns, which is the
+    -- only honest check on the bonus-conversion assumption every one of these formulas
+    -- leans on.
+    --
+    -- Cash and bonus are returned separately because they are not the same money: a $50
+    -- bonus bet that wins pays cash winnings and keeps the stake, and totalling them
+    -- would overstate what landed in the account.
+    use_id VARCHAR PRIMARY KEY,
+    promo_id VARCHAR NOT NULL,
+    owner_id VARCHAR NOT NULL DEFAULT 'owner',
+    placed_at TIMESTAMPTZ NOT NULL,
+    stake DOUBLE PRECISION NOT NULL,
+    odds_american BIGINT NOT NULL,
+    legs INTEGER NOT NULL DEFAULT 1,
+    -- The ledger row this promo bet was logged as, when it was.
+    bet_id VARCHAR,
+    fair_prob DOUBLE PRECISION,
+    ev_at_placement DOUBLE PRECISION,
+    settled_at TIMESTAMPTZ,
+    result VARCHAR,
+    returned_cash DOUBLE PRECISION,
+    returned_bonus DOUBLE PRECISION,
+    CHECK (result IS NULL OR result IN ('win', 'loss', 'push', 'void')),
+    CHECK (stake > 0),
+    CHECK (odds_american <= -100 OR odds_american >= 100)
+);
+
+CREATE INDEX IF NOT EXISTS promos_expiry ON promos (owner_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS promo_uses_promo ON promo_uses (promo_id);
 
 CREATE TABLE IF NOT EXISTS ledger_transfers (
     -- A short-lived code that moves one anonymous ledger to a second device.
