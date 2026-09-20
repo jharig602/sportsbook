@@ -10,19 +10,29 @@ import { buildBoardShop } from "./board-shop";
 import { openEvents, pickDailyBet, type DailyPick } from "./daily-bet";
 import { getData } from "./data";
 import { getMaxSpread, getMyBooks } from "./settings-db";
+import { bestSameGameParlays, sgpGamesFromBoard, type SgpPick } from "./sgp";
 import { collapseByOutcome } from "./shop-record";
 
 export interface DailyBetView extends DailyPick {
   /** Graded line-shopping picks the learning drew on, across every market. */
   gradedTotal: number;
   myBooks: string[];
+  /**
+   * The same-game ticket with the most room in it, or null.
+   *
+   * Carries a fair price rather than an edge, because no feed here holds a book's
+   * same-game price. It is a number to check the slip against, not a claim about one.
+   */
+  sameGame: SgpPick | null;
 }
 
 export async function dailyBet(ownerId: string): Promise<DailyBetView> {
   const data = getData();
-  const [games, models, lines, ledger, results, grades, myBooks, maxSpread] = await Promise.all([
+  const [games, models, scores, lines, ledger, results, grades, myBooks, maxSpread] =
+    await Promise.all([
     data.games(),
     data.marginModels(),
+    data.scoreModels(),
     allBookLines(),
     listBets(ownerId).catch(() => []),
     data.results().catch(() => []),
@@ -41,5 +51,16 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
     grades: collapseByOutcome(grades),
     maxSpread,
   });
-  return { ...pick, gradedTotal: grades.length, myBooks };
+  // Built from the same board and excluded from the same games, so the day's three
+  // suggestions never collide with each other or with a bet already standing.
+  const taken = openEvents(ledger, settled);
+  if (pick.pick) taken.add(pick.pick.row.eventId);
+  for (const leg of pick.parlay?.legs ?? []) taken.add(leg.row.eventId);
+  const sameGame =
+    bestSameGameParlays(sgpGamesFromBoard(shop.rows, { books: myBooks }), models, scores, {
+      exclude: taken,
+      limit: 1,
+    })[0] ?? null;
+
+  return { ...pick, gradedTotal: grades.length, myBooks, sameGame };
 }

@@ -43,6 +43,7 @@
  * its own. That is a gap in the data, not in the model, and it is worth saying out loud
  * rather than quietly ranking a worse ticket first.
  */
+import type { BoardEdge } from "./board-shop";
 import { type GameLines, type ScoreLeg, type ScoreModel, jointProbability, independentProduct } from "./joint-score";
 import { toAmerican } from "./parlay";
 import type { MarginModel } from "./probability";
@@ -273,4 +274,80 @@ function opposed(legs: PricedLeg[]): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Turn the shopped board into games a ticket can be built from.
+ *
+ * Only games with both a posted spread and a posted total qualify. A same-game parlay is
+ * priced off one scoreline, and half a scoreline prices nothing — a game missing either
+ * number is skipped rather than filled in from a league average, which would invent the
+ * very quantity the ticket turns on.
+ *
+ * Where several books price the same leg, the best price wins. That is not cherry-picking:
+ * it is the price actually available to someone who holds accounts at those books, which
+ * is the only price that decides anything.
+ */
+export function sgpGamesFromBoard(
+  rows: BoardEdge[],
+  options: { books?: string[] } = {},
+): SgpGame[] {
+  const allowed = options.books && options.books.length > 0 ? new Set(options.books) : null;
+  const byEvent = new Map<string, BoardEdge[]>();
+  for (const row of rows) {
+    if (allowed && !allowed.has(row.book)) continue;
+    const list = byEvent.get(row.eventId);
+    if (list) list.push(row);
+    else byEvent.set(row.eventId, [row]);
+  }
+
+  const games: SgpGame[] = [];
+  for (const [eventId, group] of byEvent) {
+    const homeSpread = group.find((r) => r.gameSpread !== null)?.gameSpread ?? null;
+    const totalLine = group.find((r) => r.market === "total" && r.line !== null)?.line ?? null;
+    if (homeSpread === null || totalLine === null) continue;
+
+    // Best price per leg, keyed on the line too: two books on different numbers are
+    // different bets, and collapsing them would quote one book's price at another's line.
+    const best = new Map<string, PricedLeg>();
+    for (const row of group) {
+      if (row.price === null || Math.abs(row.price) < 100) continue;
+      const leg = legFor(row.market, row.side, row.line);
+      if (leg === null) continue;
+      const key = `${row.market}|${row.side}|${row.line ?? ""}`;
+      const current = best.get(key);
+      if (current && decimalFrom(current.price) >= decimalFrom(row.price)) continue;
+      best.set(key, {
+        leg,
+        price: row.price,
+        market: row.market,
+        side: row.side,
+        line: row.line,
+        label: `${labelFor(row)}`,
+        edgePoints: row.edgePoints,
+      });
+    }
+    if (best.size < 2) continue;
+
+    const first = group[0];
+    games.push({
+      eventId,
+      league: first.league,
+      homeTeam: first.homeTeam,
+      awayTeam: first.awayTeam,
+      commenceTime: first.commenceTime,
+      lines: { homeSpread, total: totalLine },
+      legs: [...best.values()],
+    });
+  }
+  return games;
+}
+
+function labelFor(row: BoardEdge): string {
+  if (row.market === "total") {
+    return `${row.side === "over" ? "Over" : "Under"} ${row.line}`;
+  }
+  const team = row.side === "home" ? row.homeTeam : row.awayTeam;
+  if (row.market === "moneyline") return `${team} ML`;
+  return `${team} ${row.line !== null && row.line > 0 ? "+" : ""}${row.line}`;
 }

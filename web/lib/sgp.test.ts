@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { BoardEdge } from "./board-shop.ts";
 import type { ScoreModel } from "./joint-score.ts";
 import type { MarginModel } from "./probability.ts";
 import {
@@ -18,6 +19,7 @@ import {
   legFor,
   priceSameGame,
   sgpEv,
+  sgpGamesFromBoard,
 } from "./sgp.ts";
 
 function margin(): MarginModel {
@@ -243,4 +245,89 @@ test("a moneyline leg needs no line and a spread leg does", () => {
   assert.deepEqual(legFor("moneyline", "home", null), { market: "moneyline", side: "home" });
   assert.equal(legFor("spread", "home", null), null);
   assert.equal(legFor("total", "over", null), null);
+});
+
+// --- building candidates off the board ------------------------------------------
+
+function boardRow(over: Partial<BoardEdge> = {}): BoardEdge {
+  return {
+    book: "FanDuel",
+    market: "spread",
+    side: "home",
+    line: -3.5,
+    price: -110,
+    consensusLine: null,
+    consensusProbability: null,
+    advantagePoints: null,
+    fairProbability: null,
+    breakEven: null,
+    expectedRoi: null,
+    edgePoints: null,
+    eventId: "g1",
+    gameSpread: -3.5,
+    league: "nfl",
+    homeTeam: "Home",
+    awayTeam: "Away",
+    commenceTime: "2026-09-21T17:00:00Z",
+    homeTeamId: null,
+    awayTeamId: null,
+    ...overrides(over),
+  } as BoardEdge;
+}
+
+function overrides(o: Partial<BoardEdge>): Partial<BoardEdge> {
+  return o;
+}
+
+test("a game without both numbers is skipped, not filled in", () => {
+  // A ticket is priced off one scoreline. Half a scoreline prices nothing, and a league
+  // average in place of the missing half would invent the quantity the ticket turns on.
+  const noTotal = sgpGamesFromBoard([
+    boardRow({ market: "spread", side: "home" }),
+    boardRow({ market: "moneyline", side: "home", line: null, price: -160 }),
+  ]);
+  assert.deepEqual(noTotal, []);
+
+  const noSpread = sgpGamesFromBoard([
+    boardRow({ market: "total", side: "over", line: 45.5, gameSpread: null }),
+    boardRow({ market: "total", side: "under", line: 45.5, gameSpread: null }),
+  ]);
+  assert.deepEqual(noSpread, []);
+});
+
+test("the best price for a leg wins, across books", () => {
+  const games = sgpGamesFromBoard([
+    boardRow({ book: "FanDuel", market: "spread", side: "home", price: -115 }),
+    boardRow({ book: "DraftKings", market: "spread", side: "home", price: -105 }),
+    boardRow({ market: "total", side: "over", line: 45.5, price: -110 }),
+  ]);
+  assert.equal(games.length, 1);
+  const spread = games[0].legs.find((l) => l.market === "spread")!;
+  assert.equal(spread.price, -105, "the price actually available is the one that decides");
+});
+
+test("two books on different numbers stay different bets", () => {
+  // Collapsing them would quote one book's price at the other's line, which is a bet
+  // nobody is offering.
+  const games = sgpGamesFromBoard([
+    boardRow({ book: "FanDuel", market: "spread", side: "home", line: -3.5 }),
+    boardRow({ book: "DraftKings", market: "spread", side: "home", line: -3 }),
+    boardRow({ market: "total", side: "over", line: 45.5 }),
+  ]);
+  const lines = games[0].legs
+    .filter((l) => l.market === "spread")
+    .map((l) => l.line as number)
+    .sort((a, b) => a - b);
+  assert.deepEqual(lines, [-3.5, -3]);
+});
+
+test("only my books are considered when I say which I hold", () => {
+  const rows = [
+    boardRow({ book: "Caesars", market: "spread", side: "home" }),
+    boardRow({ book: "Caesars", market: "total", side: "over", line: 45.5 }),
+  ];
+  assert.deepEqual(sgpGamesFromBoard(rows, { books: ["FanDuel"] }), []);
+  assert.equal(sgpGamesFromBoard(rows, { books: ["Caesars"] }).length, 1);
+  // No list means no filter, rather than no books.
+  assert.equal(sgpGamesFromBoard(rows, { books: [] }).length, 1);
 });

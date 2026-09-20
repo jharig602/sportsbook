@@ -173,6 +173,47 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
         </div>
       ) : null}
 
+      {/*
+        The same-game ticket, which is a different KIND of suggestion from the two above
+        and is labelled so. Those carry an expected return because both sides of the
+        comparison are known. This carries a price to check, because no feed here holds a
+        book's same-game price -- it has to be read off the slip. Showing a percentage
+        next to it would be inventing the half of the sum that is missing.
+      */}
+      {view.sameGame ? (
+        <div className="border-t border-edge/70 px-3.5 py-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">
+            Same-game parlay of the day
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {view.sameGame.legs.map((leg) => (
+              <li
+                key={`${leg.market}-${leg.side}-${leg.line}`}
+                className="flex items-baseline gap-2 text-[13px] text-slate-200"
+              >
+                <span className="min-w-0 truncate">{leg.label}</span>
+                <span className="tabular shrink-0 text-slate-500">{signed(leg.price)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="tabular mt-1 text-[12px] text-slate-300">
+            Fair at{" "}
+            <span className="font-semibold text-slate-100">
+              {signed(view.sameGame.quote.fairAmerican ?? 0)}
+            </span>{" "}
+            &middot; lands {pct(view.sameGame.quote.win)} &middot; a bonus bet converts at{" "}
+            {pct(view.sameGame.bonusConversion ?? 0)}
+          </p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">
+            {view.sameGame.game.awayTeam} @ {view.sameGame.game.homeTeam}. From separate
+            games these legs would pay {signed(view.sameGame.independentAmerican)}; the book
+            will offer less for one scoreline, and anything better than{" "}
+            {signed(view.sameGame.quote.fairAmerican ?? 0)} is worth taking. Good for a
+            bonus bet, where only the profit ever comes back.
+          </p>
+        </div>
+      ) : null}
+
       <p className="border-t border-edge/70 px-3.5 py-2 text-[10px] leading-relaxed text-slate-600">
         The likeliest winner among bets that beat the house edge by at least 1.5 points,
         at {view.myBooks.length > 0 ? "your books" : "any book (choose yours below)"}, never on a
