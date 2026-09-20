@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { BoardEdge } from "./board-shop.ts";
-import { buildParlay, oneInHowMany, typicalParlayRoi } from "./parlay.ts";
+import { buildParlay, oneInHowMany, sameGameProblem, typicalParlayRoi } from "./parlay.ts";
 
 function leg(over: Partial<BoardEdge> = {}): BoardEdge {
   return {
@@ -106,4 +106,62 @@ test("how often it pays is reported separately from what it is worth", () => {
   assert.ok(Math.abs(oneInHowMany(p) - 1 / p) < 1e-9);
   assert.ok(oneInHowMany(p) > 4);
   assert.equal(oneInHowMany(0), Infinity);
+});
+
+// --- same-game tickets ----------------------------------------------------------
+
+test("legs from one game are allowed onto a ticket", () => {
+  // Refused for a while on the grounds that grading would multiply them. It does not:
+  // settleParlay uses the book's stored combined price and whether every leg won.
+  assert.equal(
+    sameGameProblem([
+      { event_id: "g1", market: "spread", side: "home", line: -3.5 },
+      { event_id: "g1", market: "total", side: "over", line: 45.5 },
+    ]),
+    null,
+  );
+});
+
+test("the same leg twice is a typing mistake", () => {
+  const problem = sameGameProblem([
+    { event_id: "g1", market: "spread", side: "home", line: -3.5 },
+    { event_id: "g1", market: "spread", side: "home", line: -3.5 },
+  ]);
+  assert.match(problem ?? "", /twice/);
+});
+
+test("opposite sides of one number cannot both win", () => {
+  assert.ok(
+    sameGameProblem([
+      { event_id: "g1", market: "total", side: "over", line: 45.5 },
+      { event_id: "g1", market: "total", side: "under", line: 45.5 },
+    ]),
+  );
+  assert.ok(
+    sameGameProblem([
+      { event_id: "g1", market: "moneyline", side: "home", line: null },
+      { event_id: "g1", market: "moneyline", side: "away", line: null },
+    ]),
+  );
+});
+
+test("opposite sides of different numbers are a middle, not a contradiction", () => {
+  // Over 44.5 and under 47.5 both land on a 46-point game. Unusual to log, but real.
+  assert.equal(
+    sameGameProblem([
+      { event_id: "g1", market: "total", side: "over", line: 44.5 },
+      { event_id: "g1", market: "total", side: "under", line: 47.5 },
+    ]),
+    null,
+  );
+});
+
+test("opposite sides in different games are just a parlay", () => {
+  assert.equal(
+    sameGameProblem([
+      { event_id: "g1", market: "total", side: "over", line: 45.5 },
+      { event_id: "g2", market: "total", side: "under", line: 45.5 },
+    ]),
+    null,
+  );
 });

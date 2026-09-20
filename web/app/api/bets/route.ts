@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { sameGameProblem } from "@/lib/parlay";
 import { listBets, saveBet, saveParlay } from "@/lib/bets-db";
 import { currentSession } from "@/lib/session";
 import type { Bet } from "@/lib/settle";
@@ -52,13 +53,18 @@ export async function POST(request: Request) {
     if (!Number.isFinite(parlayPrice) || Math.abs(parlayPrice) < 100) {
       problems.push("The combined price must be American odds of at least +100 or -100.");
     }
-    const events = new Set(legs.map((l) => String(l.event_id ?? "")));
-    if (events.size !== legs.length) {
-      // Two legs on one game are correlated, and the book prices that ticket with its
-      // own adjustment. Grading it by multiplying would be wrong in a way nothing here
-      // could detect afterwards.
-      problems.push("Two legs are on the same game; that is a same-game parlay and is priced differently.");
-    }
+    // Same-game legs are accepted. The ticket settles off the book's own combined price
+    // and whether every leg won, so correlation never enters the grading -- only the
+    // pricing, which is the builder's job. What is refused is a ticket that cannot win.
+    const contradiction = sameGameProblem(
+      legs.map((l) => ({
+        event_id: String(l.event_id ?? ""),
+        market: String(l.market ?? ""),
+        side: String(l.side ?? ""),
+        line: l.line === null || l.line === "" ? null : Number(l.line),
+      })),
+    );
+    if (contradiction) problems.push(contradiction);
     for (const [i, leg] of legs.entries()) {
       const market = String(leg.market ?? "");
       const side = String(leg.side ?? "");

@@ -24,11 +24,13 @@ import type { BoardEdge } from "./board-shop";
  *
  * Two limits that decide whether the formula applies at all:
  *
- * 1. INDEPENDENCE. Legs from the same game are correlated — a team covering and the
- *    game going over move together — and the product is then simply wrong. Books know
- *    this and price same-game parlays with their own correlation adjustment, which is
- *    not a multiplication of the leg prices. So same-game legs are refused rather than
- *    mispriced.
+ * 1. INDEPENDENCE. Legs from the same game are correlated — a team covering and its own
+ *    team total going over move together — and the product is then simply wrong. Books
+ *    know this and price same-game parlays with their own adjustment, which is not a
+ *    multiplication of the leg prices. So the functions in THIS file apply only to legs
+ *    from different games; `buildParlay` reports any repeated game in `correlatedGames`
+ *    rather than pretending the number holds. Same-game tickets are priced in
+ *    `joint-score.ts`, off one scoreline, and may be logged like any other.
  * 2. The book must actually pay the product. Cross-game parlays at the major books do
  *    multiply true decimal odds; some round the price down, which quietly takes a slice
  *    the maths here will not see.
@@ -58,7 +60,8 @@ function decimalOdds(price: number): number {
   return price > 0 ? 1 + price / 100 : 1 + 100 / -price;
 }
 
-function toAmerican(decimal: number): number {
+/** Decimal odds back to the American price a book would print. */
+export function toAmerican(decimal: number): number {
   if (decimal <= 1) return 0;
   const profit = decimal - 1;
   return profit >= 1 ? Math.round(profit * 100) : -Math.round(100 / profit);
@@ -128,4 +131,57 @@ export function typicalParlayRoi(legCount: number, holdPerLeg = 0.045): number {
  */
 export function oneInHowMany(winProbability: number): number {
   return winProbability > 0 ? 1 / winProbability : Infinity;
+}
+
+/** One leg as the ledger stores it, which is all the contradiction check needs. */
+export interface TicketLeg {
+  event_id: string;
+  market: string;
+  side: string;
+  line: number | null;
+}
+
+/**
+ * Why these legs cannot be one ticket, if they cannot.
+ *
+ * Same-game legs are allowed. They were refused here for a while on the grounds that
+ * "grading it by multiplying would be wrong", which was wrong about this code:
+ * `settleParlay` grades off the book's own stored combined price and the requirement
+ * that every leg won, and never multiplies anything. Correlation changes what a ticket
+ * is WORTH, not how it settles, so it belongs in the builder and not in the gate.
+ *
+ * What is still worth refusing is a ticket that cannot win: the same leg twice, or two
+ * legs that directly oppose each other. Those are typing mistakes, and a book would
+ * never have printed the price being logged.
+ *
+ * Only the syntactic contradictions are caught here, because this runs without a model.
+ * A ticket can be impossible in subtler ways -- laying -7 and taking the other side's
+ * moneyline -- and the builder shows those as a flat 0%, which is where a question that
+ * needs the fitted distribution belongs.
+ */
+export function sameGameProblem(legs: TicketLeg[]): string | null {
+  const seen = new Set<string>();
+  for (const leg of legs) {
+    const key = `${leg.event_id}|${leg.market}|${leg.side}|${leg.line ?? ""}`;
+    if (seen.has(key)) return "The same leg is on the ticket twice.";
+    seen.add(key);
+  }
+
+  const OPPOSITE: Record<string, string> = {
+    home: "away", away: "home", over: "under", under: "over",
+  };
+  for (let i = 0; i < legs.length; i += 1) {
+    for (let j = i + 1; j < legs.length; j += 1) {
+      const a = legs[i];
+      const b = legs[j];
+      if (a.event_id !== b.event_id || a.market !== b.market) continue;
+      if (OPPOSITE[a.side] !== b.side) continue;
+      // Opposite sides of the SAME number cannot both win. Opposite sides of different
+      // numbers can -- a middle -- so the line has to match before this refuses.
+      if ((a.line ?? null) === (b.line ?? null)) {
+        return "Two legs are opposite sides of the same market; that ticket cannot win.";
+      }
+    }
+  }
+  return null;
 }
