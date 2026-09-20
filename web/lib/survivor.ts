@@ -137,12 +137,45 @@ export function candidatesFor(
   return out.sort((a, b) => b.winProbability - a.winProbability);
 }
 
-export function buildWeeks(games: SeasonGame[], model: MarginModel | null): Week[] {
-  return groupIntoWeeks(games).map((block, index) => ({
-    week: index + 1,
-    startsAt: block[0]?.commenceTime ?? "",
-    candidates: candidatesFor(block, model),
-  }));
+/**
+ * Weeks of the season, numbered as the season numbers them.
+ *
+ * `seasonGames` returns UPCOMING fixtures only -- a survivor pick is about weeks you
+ * have not played -- so counting the blocks it returns numbers the first remaining week
+ * as 1, every week, all season. In week 3 the page said "week 1", and because a pin and
+ * a reminder are both keyed on that number, everything downstream inherited it.
+ *
+ * So the number is counted from the season OPENER, which does not move, rather than from
+ * whatever the feed still has. Both ends snap to the same Tuesday anchor, so the gap is
+ * always a whole number of weeks and no rounding is involved.
+ *
+ * Without an opener it falls back to counting blocks. That is the old behaviour and it
+ * is wrong once a week has been played, so it is a last resort rather than a default:
+ * the fixture backend has no season table at all, and a page that renders a wrong week
+ * number is still better than one that does not render.
+ */
+export function buildWeeks(
+  games: SeasonGame[],
+  model: MarginModel | null,
+  seasonOpener?: string | null,
+): Week[] {
+  const openerAnchor =
+    seasonOpener && !Number.isNaN(new Date(seasonOpener).getTime())
+      ? weekAnchor(seasonOpener)
+      : null;
+
+  return groupIntoWeeks(games).map((block, index) => {
+    const startsAt = block[0]?.commenceTime ?? "";
+    let week = index + 1;
+    if (openerAnchor && startsAt) {
+      const days =
+        (Date.parse(`${weekAnchor(startsAt)}T00:00:00Z`) -
+          Date.parse(`${openerAnchor}T00:00:00Z`)) /
+        86400000;
+      if (Number.isFinite(days)) week = Math.max(1, Math.round(days / 7) + 1);
+    }
+    return { week, startsAt, candidates: candidatesFor(block, model) };
+  });
 }
 
 /**

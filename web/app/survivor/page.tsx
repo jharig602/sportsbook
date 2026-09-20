@@ -20,7 +20,7 @@ import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { parsePins } from "@/lib/pins";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
-import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
+import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
 import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
 
@@ -117,12 +117,14 @@ export default async function SurvivorPage({
   const { weeks: requested, pool: poolParam, pin: pinParam } = await searchParams;
   const data = getData();
   const postgres = data.backend === "postgres";
-  const [models, games, board, quotes, myBooks] = await Promise.all([
+  const [models, games, board, quotes, myBooks, opener] = await Promise.all([
     data.marginModels(),
     postgres ? seasonGames("nfl") : Promise.resolve([]),
     data.games(),
     postgres ? allBookLines() : Promise.resolve(new Map()),
     postgres ? getMyBooks() : Promise.resolve([] as string[]),
+    // Week numbers count from the opener, not from whatever fixtures remain.
+    postgres ? seasonOpener("nfl") : Promise.resolve(null),
   ]);
   // The real NFL week, not the planner's index: the collector files pick shares under
   // the season week, and asking for 1 every week reads September's crowd in November.
@@ -146,7 +148,7 @@ export default async function SurvivorPage({
     );
   }
 
-  const weeks = buildWeeks(games, models.nfl ?? null);
+  const weeks = buildWeeks(games, models.nfl ?? null, opener);
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
 
   // The whole season by default. Capping it was a judgement about how much a
@@ -630,6 +632,26 @@ export default async function SurvivorPage({
               </p>
             ))}
           </div>
+
+          {/*
+            Stated because the effect is visible and the cause was not: entries are kept
+            off each other's team for the current week, so changing one pool's pick moves
+            another's, and which entry wins a contested team depends only on the order the
+            pools are stored in. Unexplained, that reads as the page changing your other
+            entry by itself.
+          */}
+          {poolEntry?.keptOff?.length ? (
+            <p className="mt-2 rounded-lg bg-raised/50 px-2.5 py-2 text-[11px] leading-relaxed text-slate-400">
+              <span className="font-medium text-slate-300">
+                Kept off {poolEntry.keptOff.join(", ")} this week.
+              </span>{" "}
+              {pools.length > 1 ? "Another of your entries" : "Another entry"} has{" "}
+              {poolEntry.keptOff.length === 1 ? "that team" : "those teams"}, and two
+              entries on one team is a single bet paid for twice. Only this week is
+              reserved &mdash; the rest of the season is planned freely, because
+              re-planning next week undoes any cost.
+            </p>
+          ) : null}
 
           <p className="mt-2.5 text-[12px] leading-relaxed text-slate-400">
             {!havePopularity ? (

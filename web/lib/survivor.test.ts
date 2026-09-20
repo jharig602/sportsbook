@@ -511,3 +511,67 @@ test("with no pins the planner behaves exactly as it did before", () => {
     buildPlan(weeks, 2).picks.map((p) => p.pick?.team),
   );
 });
+
+// --- week numbers ---------------------------------------------------------------
+
+test("weeks are numbered from the season opener, not from what is left", () => {
+  // The bug this replaces: seasonGames returns upcoming fixtures only, so counting the
+  // blocks it returns labelled the first remaining week as 1 every week of the season.
+  // In week 3 the page said "week 1", and a pin keyed on that number went to the wrong
+  // week.
+  const opener = "2026-09-10T00:20:00Z"; // a Thursday
+  const remaining: SeasonGame[] = [
+    {
+      feedEventId: "w3",
+      commenceTime: "2026-09-24T00:20:00Z", // two weeks later
+      homeTeam: "Home", awayTeam: "Away", homeSpread: -3.5, books: 3,
+    },
+    {
+      feedEventId: "w4",
+      commenceTime: "2026-10-01T00:20:00Z",
+      homeTeam: "Other", awayTeam: "Rival", homeSpread: -7, books: 3,
+    },
+  ];
+  const weeks = buildWeeks(remaining, null, opener);
+  assert.deepEqual(weeks.map((w) => w.week), [3, 4]);
+});
+
+test("a bye in the feed does not renumber the weeks after it", () => {
+  const opener = "2026-09-10T00:20:00Z";
+  const games: SeasonGame[] = [
+    {
+      feedEventId: "w2", commenceTime: "2026-09-17T00:20:00Z",
+      homeTeam: "A", awayTeam: "B", homeSpread: -3, books: 2,
+    },
+    {
+      // Nothing in week 3; the next block is week 4 and must say so.
+      feedEventId: "w4", commenceTime: "2026-10-01T00:20:00Z",
+      homeTeam: "C", awayTeam: "D", homeSpread: -3, books: 2,
+    },
+  ];
+  assert.deepEqual(buildWeeks(games, null, opener).map((w) => w.week), [2, 4]);
+});
+
+test("the opener's own week is week one", () => {
+  const opener = "2026-09-10T00:20:00Z";
+  const games: SeasonGame[] = [
+    {
+      feedEventId: "w1", commenceTime: "2026-09-13T17:00:00Z", // Sunday of week 1
+      homeTeam: "A", awayTeam: "B", homeSpread: -3, books: 2,
+    },
+  ];
+  assert.equal(buildWeeks(games, null, opener)[0].week, 1);
+});
+
+test("with no opener it counts blocks, which is the old behaviour and a last resort", () => {
+  const games: SeasonGame[] = [
+    {
+      feedEventId: "x", commenceTime: "2026-09-24T00:20:00Z",
+      homeTeam: "A", awayTeam: "B", homeSpread: -3, books: 2,
+    },
+  ];
+  // The fixture backend has no season table. A wrong week number still renders; a crash
+  // does not.
+  assert.equal(buildWeeks(games, null, null)[0].week, 1);
+  assert.equal(buildWeeks(games, null, "not a date")[0].week, 1);
+});

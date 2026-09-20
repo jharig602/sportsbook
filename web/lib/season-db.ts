@@ -74,25 +74,36 @@ export async function seasonGames(league = "nfl"): Promise<SeasonGame[]> {
  * Note it is deliberately NOT the planner's week index. The planner numbers from the
  * next unplayed week, so its week 1 is week 7 of the season in November.
  */
-export async function currentNflWeek(league = "nfl"): Promise<number> {
-  if (!databaseUrl()) return 1;
+/**
+ * The season's first kickoff, which is what every week number counts from.
+ *
+ * No time filter: the opener does not move, and anything derived from "the earliest
+ * fixture still to come" would renumber the season every week -- which is exactly the
+ * bug this exists to remove.
+ */
+export async function seasonOpener(league = "nfl"): Promise<string | null> {
+  if (!databaseUrl()) return null;
   try {
     const db = await getPool();
-    // No time filter: the earliest fixture of the SEASON, which does not move.
     const result = await db.query(
       "SELECT MIN(commence_time) AS opener FROM season_games WHERE league = $1",
       [league],
     );
     const opener = result.rows[0]?.opener;
-    if (!opener) return 1;
+    if (!opener) return null;
     const first = opener instanceof Date ? opener : new Date(String(opener));
-    if (Number.isNaN(first.getTime())) return 1;
-    const days = (Date.now() - first.getTime()) / 86400000;
-    return days > 0 ? Math.max(1, Math.floor(days / 7) + 1) : 1;
+    return Number.isNaN(first.getTime()) ? null : first.toISOString();
   } catch (error) {
-    if ((error as { code?: string })?.code === "42P01") return 1;
+    if ((error as { code?: string })?.code === "42P01") return null;
     throw error;
   }
+}
+
+export async function currentNflWeek(league = "nfl"): Promise<number> {
+  const opener = await seasonOpener(league);
+  if (opener === null) return 1;
+  const days = (Date.now() - new Date(opener).getTime()) / 86400000;
+  return days > 0 ? Math.max(1, Math.floor(days / 7) + 1) : 1;
 }
 
 export async function pickPopularity(week: number, league = "nfl"): Promise<Record<string, number>> {

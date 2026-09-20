@@ -641,6 +641,15 @@ export interface PoolWinPlan {
    */
   insteadOf: Candidate | null;
   /**
+   * Teams this entry could not use this week because an earlier entry took them.
+   *
+   * Reported because the constraint is otherwise invisible and its effects are not:
+   * changing one entry's pick silently moves another's, and which entry wins a
+   * contested team depends only on the order the pools happen to be stored in. A plan
+   * that changes for a reason the page never states reads as a bug, and did.
+   */
+  keptOff: string[];
+  /**
    * How crowded the field has to be for the top pick to beat the safest one. Null when
    * the order holds across every crowding rate, so the call does not depend on it.
    */
@@ -682,6 +691,9 @@ export function buildPoolWinPlans(
 ): PoolWinPlan[] {
   const reservedThisWeek = new Set<string>();
   const out: PoolWinPlan[] = [];
+
+  const openerCandidates = weeks.find((w) => w.candidates.length > 0)?.candidates ?? [];
+  const thisWeekTeams = new Set(openerCandidates.map((c) => c.team));
 
   for (const pool of pools) {
     const used = new Set(pool.used);
@@ -745,6 +757,11 @@ export function buildPoolWinPlans(
       poolWin: top?.poolWin ?? 0,
       insteadOf:
         top && safest && safest.candidate.team !== top.candidate.team ? safest.candidate : null,
+      // Only the teams that were actually playable for this entry: a team it had already
+      // spent was never available, and naming it would explain the wrong thing.
+      keptOff: [...reservedThisWeek].filter(
+        (team) => !used.has(team) && thisWeekTeams.has(team),
+      ),
     });
 
     if (top) reservedThisWeek.add(top.candidate.team);

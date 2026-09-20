@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+
+/** One week with two priced games, so two entries must split them. */
+function twoTeamWeek(): Week[] {
+  return [
+    {
+      week: 1,
+      startsAt: "2026-09-13T17:00:00Z",
+      candidates: [
+        { team: "Alpha", opponent: "Bravo", home: true, commenceTime: "2026-09-13T17:00:00Z", winProbability: 0.86, spread: -10, eventId: "g1" },
+        { team: "Charlie", opponent: "Delta", home: true, commenceTime: "2026-09-13T17:00:00Z", winProbability: 0.8, spread: -7, eventId: "g2" },
+      ] as never,
+    },
+  ];
+}
+
 import { survival } from "./pool-odds.ts";
 import {
   buildPoolWinPlans,
@@ -597,4 +612,56 @@ test("a crowded field pushes the season off the crowd's teams", () => {
     share(crowded) <= share(quiet),
     `crowded shared ${share(crowded)} weeks, quiet shared ${share(quiet)}`,
   );
+});
+
+// --- entries kept off each other -------------------------------------------------
+
+test("a contested team is reported, not silently taken", () => {
+  // The effect was visible and the cause was not: changing one entry's pick moves
+  // another's, and which entry wins depends only on the order the pools are stored in.
+  const weeks = twoTeamWeek();
+  const plans = buildPoolWinPlans(
+    weeks,
+    [
+      { used: [], size: 141, lossesAllowed: 1 },
+      { used: [], size: 11, lossesAllowed: 1 },
+    ],
+    { crowding: 0 },
+  );
+  const first = plans[0].plan.picks[0]?.pick?.team;
+  assert.ok(first, "the first entry should have a pick");
+  // The first entry took it, so the second must be told it was kept off.
+  assert.deepEqual(plans[1].keptOff, [first]);
+  assert.deepEqual(plans[0].keptOff, [], "nothing was reserved before the first entry");
+  assert.notEqual(plans[1].plan.picks[0]?.pick?.team, first);
+});
+
+test("a team already spent is not reported as kept off", () => {
+  // It was never available to that entry, so naming it would explain the wrong thing.
+  const weeks = twoTeamWeek();
+  const plans = buildPoolWinPlans(
+    weeks,
+    [
+      { used: [], size: 20, lossesAllowed: 0 },
+      { used: [], size: 20, lossesAllowed: 0 },
+    ],
+    { crowding: 0 },
+  );
+  const taken = plans[0].plan.picks[0]!.pick!.team;
+  const withSpent = buildPoolWinPlans(
+    weeks,
+    [
+      { used: [], size: 20, lossesAllowed: 0 },
+      { used: [taken], size: 20, lossesAllowed: 0 },
+    ],
+    { crowding: 0 },
+  );
+  assert.deepEqual(withSpent[1].keptOff, []);
+});
+
+test("a single entry is never kept off anything", () => {
+  const plans = buildPoolWinPlans(twoTeamWeek(), [{ used: [], size: 20, lossesAllowed: 0 }], {
+    crowding: 0,
+  });
+  assert.deepEqual(plans[0].keptOff, []);
 });
