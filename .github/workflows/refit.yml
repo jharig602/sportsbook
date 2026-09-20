@@ -46,6 +46,12 @@ jobs:
       - name: Fit the joint score model
         run: python collector/fit_scores.py --postgres
 
+      # Not a fit that anything reads yet: it grades a power rating out of sample against
+      # the closing line, which is the only thing that decides whether the rating is worth
+      # building on. Runs here because it needs the same seven seasons.
+      - name: Grade the power rating against the close
+        run: python collector/ratings.py --postgres
+
       - name: Report the dispersion by spread size
         run: |
           python -c "
