@@ -10,6 +10,19 @@ import type { Bet } from "@/lib/settle";
 export const dynamic = "force-dynamic";
 
 const MARKETS = new Set(["spread", "total", "moneyline"]);
+
+/**
+ * Whose points a total is about, or null for the game's.
+ *
+ * Returns `undefined` when the value makes no sense, which the caller reports -- a
+ * silently dropped team would store a team total as a game total and grade it against
+ * the wrong number entirely, with nothing on screen to show it had happened.
+ */
+function readTeam(raw: unknown, market: string): "home" | "away" | null | undefined {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (market !== "total") return undefined;
+  return raw === "home" || raw === "away" ? raw : undefined;
+}
 const SIDES = new Set(["home", "away", "over", "under"]);
 
 /**
@@ -77,6 +90,9 @@ export async function POST(request: Request) {
       if (market !== "moneyline" && (line === null || !Number.isFinite(line))) {
         problems.push(`Leg ${i + 1}: a spread or total needs a line.`);
       }
+      if (readTeam(leg.team, market) === undefined) {
+        problems.push(`Leg ${i + 1}: a team total must name home or away.`);
+      }
     }
     if (problems.length > 0) {
       return NextResponse.json({ error: problems.join(" ") }, { status: 400 });
@@ -94,6 +110,7 @@ export async function POST(request: Request) {
       commence_time: (leg.commence_time as string) ?? null,
       market: String(leg.market) as Bet["market"],
       side: String(leg.side) as Bet["side"],
+      team: readTeam(leg.team, String(leg.market)) ?? null,
       line: leg.market === "moneyline" ? null : Number(leg.line),
       price: Number(leg.price),
       // Repeated on every leg; the tally counts it once per ticket.
@@ -168,6 +185,8 @@ export async function POST(request: Request) {
   if (market !== "total" && side !== "home" && side !== "away") {
     problems.push("A spread or moneyline is bet on home or away.");
   }
+  const team = readTeam(body.team, market);
+  if (team === undefined) problems.push("A team total must name home or away.");
 
   // A correction must name a bet that exists IN THIS LEDGER. Accepting an unknown id
   // would write a row that supersedes nothing, leaving BOTH versions standing and the
@@ -222,6 +241,7 @@ export async function POST(request: Request) {
     commence_time: (body.commence_time as string) ?? null,
     market: market as Bet["market"],
     side: side as Bet["side"],
+    team: team ?? null,
     line: market === "moneyline" ? null : line,
     price,
     stake,

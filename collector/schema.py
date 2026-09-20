@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 19
+ANALYTICS_SCHEMA_VERSION = 20
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -144,10 +144,13 @@ CREATE TABLE IF NOT EXISTS bets (
     parlay_price BIGINT,
     -- Cash paid to end the ticket early. See ANALYTICS_MIGRATIONS v15.
     cashout DOUBLE PRECISION,
+    -- Which team's points a 'total' row is about. See ANALYTICS_MIGRATIONS v20.
+    team VARCHAR,
     CHECK (stake > 0),
     CHECK (price <= -100 OR price >= 100),
     CHECK (market IN ('spread', 'total', 'moneyline')),
-    CHECK (side IN ('home', 'away', 'over', 'under'))
+    CHECK (side IN ('home', 'away', 'over', 'under')),
+    CHECK (team IS NULL OR team IN ('home', 'away'))
 );
 
 CREATE TABLE IF NOT EXISTS book_lines (
@@ -597,6 +600,23 @@ ANALYTICS_MIGRATIONS = [
     # took" says whether these decisions are any good, which is not something intuition
     # can answer.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS cashout DOUBLE PRECISION",
+    # v20: which team's points, when a total is one team's rather than the game's.
+    #
+    # A team total is stored as market 'total' with a team, not as a market of its own.
+    # That is not a dodge around the CHECK constraint -- though it does avoid needing to
+    # alter one, which neither engine here does portably. It is what a team total IS: a
+    # line on points scored, asked of one side instead of both. Grading reads the same
+    # score; only which numbers get added changes.
+    #
+    # NULL means the game's total, which is what every row written before this meant and
+    # the only thing they could have meant, so nothing needs backfilling.
+    #
+    # This exists for same-game parlays. A team total and its own side's spread are the
+    # most correlated pair a book offers -- 0.70 in the NFL, measured -- and pricing that
+    # pair is the whole reason joint-score.ts exists. Leaving team totals unloggable
+    # would have meant a builder that prices the best ticket on the board and a ledger
+    # that cannot record it.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS team VARCHAR",
     # v17: whether a shop pick was seen live or reconstructed from stored history.
     #
     # The replay runs the real rule over real book_lines at their real timestamps, so

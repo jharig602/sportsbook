@@ -22,6 +22,15 @@ export interface Bet {
   commence_time: string | null;
   market: Market;
   side: Side;
+  /**
+   * Whose points a `total` row is about. Null is the game's total.
+   *
+   * A team total is not a separate market here: it is a line on points scored, asked of
+   * one side rather than both, and it grades off the same score. Only which numbers get
+   * added changes. Set on nothing written before team totals existed, which is correct
+   * -- those were all game totals.
+   */
+  team?: "home" | "away" | null;
   line: number | null;
   price: number;
   stake: number;
@@ -135,8 +144,17 @@ export function didWin(bet: Bet, score: Score): boolean | null {
   }
 
   if (bet.market === "total") {
-    if (total === bet.line) return null;
-    return bet.side === "over" ? total > bet.line : total < bet.line;
+    // A team total is a total with a team on it: the same line, asked of one side's
+    // points instead of both. Null means the game, which is what every row written
+    // before team totals existed meant.
+    const points =
+      bet.team === "home"
+        ? score.home_score
+        : bet.team === "away"
+          ? score.away_score
+          : total;
+    if (points === bet.line) return null;
+    return bet.side === "over" ? points > bet.line : points < bet.line;
   }
 
   return null;

@@ -560,3 +560,45 @@ test("a cashed parlay is one ticket, not one per leg", () => {
   assert.equal(totals.profit, 55, "cash received less the one stake");
   assert.equal(totals.staked, 20, "not 40");
 });
+
+// --- team totals ----------------------------------------------------------------
+
+test("a team total grades on that team's points, not the game's", () => {
+  // 31-17: the game goes over 45.5, the home team goes over 24.5, the away team does
+  // not. A team total read as a game total would call all three the same way.
+  const score = { home_score: 31, away_score: 17 };
+  assert.equal(
+    didWin(bet({ market: "total", side: "over", line: 45.5, team: null }), score),
+    true,
+  );
+  assert.equal(
+    didWin(bet({ market: "total", side: "over", line: 24.5, team: "home" }), score),
+    true,
+  );
+  assert.equal(
+    didWin(bet({ market: "total", side: "over", line: 24.5, team: "away" }), score),
+    false,
+  );
+});
+
+test("a team total lands on its number and pushes", () => {
+  assert.equal(
+    didWin(bet({ market: "total", side: "over", line: 24, team: "home" }), {
+      home_score: 24,
+      away_score: 17,
+    }),
+    null,
+  );
+});
+
+test("a total with no team is still the game's, as every old row is", () => {
+  // Nothing written before team totals existed carries a team, and all of it meant the
+  // game. A default that guessed otherwise would silently regrade the whole season.
+  assert.equal(
+    didWin(bet({ market: "total", side: "under", line: 45.5 }), {
+      home_score: 20,
+      away_score: 17,
+    }),
+    true,
+  );
+});

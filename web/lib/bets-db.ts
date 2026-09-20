@@ -45,7 +45,7 @@ const COLUMNS = [
   "owner_id", "bet_id", "placed_at", "league", "event_id", "home_team", "away_team",
   "commence_time", "market", "side", "line", "price", "stake", "book",
   "model_probability", "market_probability", "rule_version_id", "note", "bonus",
-  "supersedes", "voided", "parlay_id", "parlay_price", "cashout",
+  "supersedes", "voided", "parlay_id", "parlay_price", "cashout", "team",
 ];
 
 /**

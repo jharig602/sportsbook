@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BookLineForm } from "@/components/BookLineForm";
+import { SameGameParlay } from "@/components/SameGameParlay";
 import { LineShop } from "@/components/LineShop";
 import { Probability } from "@/components/Probability";
 import { TeamLogo } from "@/components/TeamLogo";
@@ -187,12 +188,13 @@ export default async function GamePage({
 }) {
   const { eventId } = await params;
   const data = getData();
-  const [games, allAlerts, results, history, models, stored] = await Promise.all([
+  const [games, allAlerts, results, history, models, scores, stored] = await Promise.all([
     data.games(),
     data.alerts(),
     data.results(),
     data.history(eventId),
     data.marginModels(),
+    data.scoreModels(),
     // Second opinions, if any have been recorded. The fixture backend has no
     // database behind it, so it simply has none rather than failing.
     data.backend === "postgres" ? bookLinesFor(eventId) : Promise.resolve([]),
@@ -225,6 +227,24 @@ export default async function GamePage({
   // DraftKings comes from the board rather than from a stored row, so a hand-typed
   // second book has something to compare against on the very first save.
   const shopRows = shopAll(quotesForGame(game, stored), model);
+
+  // The two numbers every same-game leg is drawn from. Both are required: a ticket is
+  // priced off one scoreline, and half a scoreline prices nothing.
+  const totalLine = game?.total?.over?.line ?? game?.total?.under?.line ?? null;
+  const sgpLines =
+    homeSpread !== null && totalLine !== null
+      ? { homeSpread, total: totalLine }
+      : null;
+  const sgpBoard = game
+    ? (["spread", "total", "moneyline"] as const).flatMap((m) =>
+        Object.entries(game[m] ?? {}).map(([side, quote]) => ({
+          market: m,
+          side: side as "home" | "away" | "over" | "under",
+          line: quote?.line ?? null,
+          price: quote?.price ?? null,
+        })),
+      )
+    : [];
 
   return (
     <>
@@ -392,6 +412,18 @@ export default async function GamePage({
       {game ? (
         <section className="mt-2 space-y-2">
           <LineShop rows={shopRows} homeTeam={homeTeam} awayTeam={awayTeam} eventId={game.eventId} />
+          <SameGameParlay
+            eventId={game.eventId}
+            league={league}
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+            commenceTime={game.commenceTime}
+            lines={sgpLines}
+            board={sgpBoard}
+            margin={model}
+            score={scores[league] ?? null}
+            book={shopRows[0]?.book ?? "FanDuel"}
+          />
           <Card className="px-3.5 py-3">
             <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               Add another book
