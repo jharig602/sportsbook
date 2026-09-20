@@ -68,7 +68,28 @@ UTC = timezone.utc
 #:                season carries half the weight of this one -- rosters turn over.
 #: ``min_games``  Games that must already be fitted before the rating is allowed to have
 #:                an opinion about anything.
-DEFAULTS = {"ridge": 10.0, "cap": 28.0, "half_life": 365.0, "min_games": 200}
+#: ``min_team_games`` Prior appearances a team needs before its games join the fit.
+DEFAULTS = {"ridge": 10.0, "cap": 28.0, "half_life": 365.0, "min_games": 200,
+            "min_team_games": 0}
+
+#: The same, with teams that barely appear excluded from the fit.
+#:
+#: Not a search for a better answer. The first run measured college home-field advantage
+#: at **6.54 points**, roughly double any credible estimate, while the NFL came out at
+#: **1.67** -- which is right. A parameter that is correct on clean data and absurd on
+#: dirty data is pointing at the data.
+#:
+#: The cause is structural. College results include teams that appear a handful of times,
+#: and those games are almost always played at the bigger school. The ridge pulls a team
+#: with three games hard toward the league average, making it look far better than it is;
+#: the margin it actually lost by has to go somewhere, and the only term left to absorb it
+#: is home-field advantage. So HFA silently becomes "how much better the home team usually
+#: is", and every prediction inherits that.
+#:
+#: Excluding teams the rating has barely seen is the fix, and it is a fix to the
+#: specification rather than to the result -- it was chosen from a broken coefficient, not
+#: from a p-value. Both specifications are reported.
+RATED_ONLY = {**DEFAULTS, "min_team_games": 10}
 
 #: What a -110 bet must win to break even. Not 50%: the vig is the whole difference
 #: between "knows something" and "is worth betting".
@@ -259,6 +280,7 @@ def walk_forward(
     on it would report something spectacular and describe nothing.
     """
     min_games = int(options.pop("min_games", DEFAULTS["min_games"]))
+    min_team_games = int(options.pop("min_team_games", DEFAULTS["min_team_games"]))
     ordered = sorted(games, key=lambda g: g.kickoff)
 
     weeks: list[tuple[tuple[int, int], list[Game]]] = []
@@ -274,7 +296,7 @@ def walk_forward(
     for _, week_games in weeks:
         if len(history) >= min_games:
             asof = min(g.kickoff for g in week_games)
-            model = fit_ratings(history, asof=asof, **options)
+            model = fit_ratings(eligible(history, min_team_games), asof=asof, **options)
             if model is not None:
                 for game in week_games:
                     spread = lines.get(game.event_id)
@@ -290,6 +312,26 @@ def walk_forward(
                     ))
         history.extend(week_games)
     return predictions
+
+
+def eligible(history: Sequence[Game], min_team_games: int) -> list[Game]:
+    """Games between teams the rating has actually seen enough of.
+
+    A team that appears three times cannot be rated, and pretending otherwise does not
+    merely produce one bad rating -- it pushes the error into home-field advantage, which
+    then biases every prediction in the league. Dropping the game is the honest option;
+    the alternative is a rating that quietly means something else.
+    """
+    if min_team_games <= 0:
+        return list(history)
+    seen: dict[str, int] = {}
+    for game in history:
+        seen[game.home] = seen.get(game.home, 0) + 1
+        seen[game.away] = seen.get(game.away, 0) + 1
+    return [
+        g for g in history
+        if seen.get(g.home, 0) >= min_team_games and seen.get(g.away, 0) >= min_team_games
+    ]
 
 
 def binomial_tail(hits: int, n: int, p: float) -> float:
@@ -414,23 +456,36 @@ def main(argv: list[str] | None = None) -> int:
         summary: dict[str, Any] = {"type": "rating_grade", "break_even": round(BREAK_EVEN, 4),
                                    "defaults": DEFAULTS, "leagues": {}}
         for league, games in sorted(by_league.items()):
-            predictions = walk_forward(games, lines, **DEFAULTS)
-            if not predictions:
-                LOG.warning("%s: nothing predictable out of sample.", league)
+            runs: dict[str, Any] = {}
+            for name, options in (("all_games", DEFAULTS), ("rated_only", RATED_ONLY)):
+                predictions = walk_forward(games, lines, **options)
+                if not predictions:
+                    LOG.warning("%s/%s: nothing predictable out of sample.", league, name)
+                    continue
+                cells = grade(predictions, THRESHOLDS)
+                fit_options = {k: v for k, v in options.items() if k != "min_games"}
+                min_team = int(fit_options.pop("min_team_games", 0))
+                final = fit_ratings(
+                    eligible(games, min_team),
+                    asof=max(g.kickoff for g in games),
+                    **fit_options,
+                )
+                top = sorted(final.ratings.items(), key=lambda kv: -kv[1])[:5] if final else []
+                runs[name] = {
+                    "predicted": len(predictions),
+                    "teams_rated": len(final.ratings) if final else 0,
+                    "hfa_points": round(final.hfa, 3) if final else None,
+                    "cells": [vars(c) for c in cells],
+                    # Six thresholds are six looks at one dataset; the winner's own
+                    # p-value would be the best of six reported as though it were the only.
+                    "family_p": round(family_p(cells), 5),
+                    "family_p_knows": round(
+                        min(1.0, min(c.p_knows for c in cells) * len(cells)), 5),
+                    "top5": [{"team": t, "rating": round(r, 2)} for t, r in top],
+                }
+            if not runs:
                 continue
-            cells = grade(predictions, THRESHOLDS)
-            final = fit_ratings(games, asof=max(g.kickoff for g in games), **{
-                k: v for k, v in DEFAULTS.items() if k != "min_games"
-            })
-            top = sorted(final.ratings.items(), key=lambda kv: -kv[1])[:5] if final else []
-            summary["leagues"][league] = {
-                "games": len(games),
-                "predicted": len(predictions),
-                "hfa_points": round(final.hfa, 3) if final else None,
-                "cells": [vars(c) for c in cells],
-                "family_p": round(family_p(cells), 5),
-                "top5": [{"team": t, "rating": round(r, 2)} for t, r in top],
-            }
+            summary["leagues"][league] = {"games": len(games), "runs": runs}
         print(json.dumps(summary))
         return 0 if summary["leagues"] else 3
     finally:

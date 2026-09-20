@@ -259,3 +259,28 @@ def test_the_best_of_several_thresholds_is_corrected_for_having_looked():
 
 def test_no_cells_means_no_claim():
     assert family_p([]) == 1.0
+
+
+# --- who is rateable -------------------------------------------------------------
+
+def test_teams_the_rating_has_barely_seen_are_dropped_from_the_fit():
+    """Not cosmetic: a barely-seen team pushes its error into home-field advantage.
+
+    The first run measured college HFA at 6.54 points against the NFL's 1.67. The ridge
+    pulls a team with three games toward the league average, and the margin it really
+    lost by has to land somewhere -- the only term left is HFA, which then biases every
+    prediction in the league.
+    """
+    from ratings import eligible
+
+    history = [game("A", "B", 3, d) for d in range(12)]
+    history += [game("A", "Cupcake", 49, 20)]
+    kept = eligible(history, min_team_games=10)
+    assert all("Cupcake" not in (g.home, g.away) for g in kept)
+    assert len(kept) == 12
+
+
+def test_no_minimum_means_no_filter():
+    history = [game("A", "Cupcake", 49, 0)]
+    from ratings import eligible
+    assert eligible(history, min_team_games=0) == history
