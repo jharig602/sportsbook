@@ -91,6 +91,25 @@ DEFAULTS = {"ridge": 10.0, "cap": 28.0, "half_life": 365.0, "min_games": 200,
 #: from a p-value. Both specifications are reported.
 RATED_ONLY = {**DEFAULTS, "min_team_games": 10}
 
+#: How hard a team's own home field is pulled toward the league's.
+#:
+#: Chosen from the arithmetic rather than tuned. A team plays about 45 home games in seven
+#: seasons, and game margins scatter with a standard deviation near 15 points. If real
+#: home-field differences between teams have a spread of roughly 1.5 points, the shrinkage
+#: that minimises error is sigma^2 / tau^2 = 225 / 2.25 = 100.
+#:
+#: At that setting a team with 45 home games keeps under a third of its measured
+#: deviation, which is the entire point. Forty-odd games is thin evidence for a
+#: team-specific effect, and without heavy shrinkage the fit hands back a confident list
+#: of "best home fields" assembled mostly from noise -- the same failure the league-wide
+#: rating was built to avoid.
+HFA_RIDGE = 100.0
+
+#: The hypothesis: college home field is large AND uneven, and a market pricing something
+#: near a league average would then misprice the extremes. Note this is a THIRD
+#: specification, so the family correction below now covers eighteen looks, not six.
+PER_TEAM_HFA = {**RATED_ONLY, "hfa_ridge": HFA_RIDGE}
+
 #: What a -110 bet must win to break even. Not 50%: the vig is the whole difference
 #: between "knows something" and "is worth betting".
 BREAK_EVEN = 110 / 210
@@ -124,6 +143,17 @@ class Ratings:
     hfa: float
     games: int
     iterations: int
+    #: Each team's home edge ABOVE the league figure, already shrunk. Empty when the
+    #: model fitted one home-field number for everybody.
+    hfa_deviation: dict[str, float] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.hfa_deviation is None:
+            self.hfa_deviation = {}
+
+    def home_edge(self, team: str) -> float:
+        """What this team's own home field is worth, league figure included."""
+        return self.hfa + self.hfa_deviation.get(team, 0.0)
 
     def predicted_spread(self, home: str, away: str) -> float | None:
         """The home handicap this rating implies, in the market's convention.
@@ -135,7 +165,7 @@ class Ratings:
         """
         if home not in self.ratings or away not in self.ratings:
             return None
-        return -(self.ratings[home] - self.ratings[away] + self.hfa)
+        return -(self.ratings[home] - self.ratings[away] + self.home_edge(home))
 
 
 def fit_ratings(
@@ -145,6 +175,7 @@ def fit_ratings(
     ridge: float = DEFAULTS["ridge"],
     cap: float | None = DEFAULTS["cap"],
     half_life: float | None = DEFAULTS["half_life"],
+    hfa_ridge: float | None = None,
     tolerance: float = 1e-9,
     max_iterations: int = 500,
 ) -> Ratings | None:
@@ -164,8 +195,25 @@ def fit_ratings(
     if not teams:
         return None
     index = {team: i for i, team in enumerate(teams)}
-    n = len(teams) + 1  # the last unknown is home-field advantage
-    hfa = n - 1
+    team_count = len(teams)
+    # With per-team home field, each team gets its OWN home-field unknown and none of them
+    # is penalised. That is the whole trick, and two wrong versions came before it.
+    #
+    # Penalising the deviations while fitting jointly makes the solver pay for a home edge
+    # out of the team's RATING, because a rating also raises the home margin and costs a
+    # hundred times less -- and a rating inflated by home field then overrates the team on
+    # the road, where it is not true. Fitting a single league number first and reading the
+    # residuals afterwards fails the same way, one stage earlier: with only one home-field
+    # number to go round, half of a team's extra home edge lands in its rating before the
+    # residuals are ever looked at.
+    #
+    # Unpenalised, the decomposition is exactly identified -- home and away games are
+    # observed separately, so "good" and "good at home" are distinguishable -- and the
+    # shrinkage is applied to the answer rather than to the fit.
+    per_team = hfa_ridge is not None
+    hfa = team_count  # the league-wide home-field unknown, when there is only one
+    home_base = team_count
+    n = team_count + (team_count if per_team else 1)
 
     rows: list[tuple[int, int, float, float]] = []
     for game in games:
@@ -184,13 +232,14 @@ def fit_ratings(
     def multiply(vector: list[float]) -> list[float]:
         out = [0.0] * n
         for home_i, away_i, _, weight in rows:
-            scaled = weight * (vector[home_i] - vector[away_i] + vector[hfa])
+            home_term = home_base + home_i if per_team else hfa
+            scaled = weight * (vector[home_i] - vector[away_i] + vector[home_term])
             out[home_i] += scaled
             out[away_i] -= scaled
-            out[hfa] += scaled
+            out[home_term] += scaled
         # The ridge penalises ratings only. Penalising home-field advantage would pull a
         # quantity we actually want measured toward zero for no reason.
-        for i in range(n - 1):
+        for i in range(team_count):
             out[i] += ridge * vector[i]
         return out
 
@@ -198,7 +247,7 @@ def fit_ratings(
     for home_i, away_i, margin, weight in rows:
         target[home_i] += weight * margin
         target[away_i] -= weight * margin
-        target[hfa] += weight * margin
+        target[home_base + home_i if per_team else hfa] += weight * margin
 
     solution = [0.0] * n
     residual = list(target)
@@ -222,11 +271,42 @@ def fit_ratings(
             direction[i] = residual[i] + beta * direction[i]
         rs_old = rs_new
 
+    if not per_team:
+        return Ratings(
+            ratings={team: solution[i] for team, i in index.items()},
+            hfa=solution[hfa],
+            games=len(games),
+            iterations=iterations,
+        )
+
+    # Home games behind each team's own number, for the shrinkage.
+    played: dict[int, float] = {}
+    for home_i, _, _, weight in rows:
+        played[home_i] = played.get(home_i, 0.0) + weight
+    total = sum(played.values())
+    if total <= 0:
+        return None
+
+    # The league figure is the weighted mean of the fitted home edges, so a team's
+    # deviation is measured against what home field is worth to everybody else rather
+    # than against zero.
+    league = sum(solution[home_base + i] * played.get(i, 0.0) for i in index.values()) / total
+
+    # Shrunk toward the league, by how much evidence each team has. A team with few home
+    # games lands ON the league figure, which is the honest default -- not on zero, and
+    # not on its own handful of games.
+    deviation = {}
+    for team, i in index.items():
+        games_at_home = played.get(i, 0.0)
+        raw = solution[home_base + i] - league
+        deviation[team] = raw * (games_at_home / (games_at_home + hfa_ridge))
+
     return Ratings(
         ratings={team: solution[i] for team, i in index.items()},
-        hfa=solution[hfa],
+        hfa=league,
         games=len(games),
         iterations=iterations,
+        hfa_deviation=deviation,
     )
 
 
@@ -457,7 +537,11 @@ def main(argv: list[str] | None = None) -> int:
                                    "defaults": DEFAULTS, "leagues": {}}
         for league, games in sorted(by_league.items()):
             runs: dict[str, Any] = {}
-            for name, options in (("all_games", DEFAULTS), ("rated_only", RATED_ONLY)):
+            for name, options in (
+                ("all_games", DEFAULTS),
+                ("rated_only", RATED_ONLY),
+                ("per_team_hfa", PER_TEAM_HFA),
+            ):
                 predictions = walk_forward(games, lines, **options)
                 if not predictions:
                     LOG.warning("%s/%s: nothing predictable out of sample.", league, name)
@@ -471,6 +555,16 @@ def main(argv: list[str] | None = None) -> int:
                     **fit_options,
                 )
                 top = sorted(final.ratings.items(), key=lambda kv: -kv[1])[:5] if final else []
+                # The home fields this specification actually found, biggest and smallest.
+                # Reported so the claim is checkable against football rather than taken on
+                # the strength of a p-value.
+                home_fields = []
+                if final and final.hfa_deviation:
+                    ranked = sorted(final.hfa_deviation.items(), key=lambda kv: -kv[1])
+                    home_fields = [
+                        {"team": t, "home_edge": round(final.home_edge(t), 2)}
+                        for t, _ in ranked[:5] + ranked[-3:]
+                    ]
                 runs[name] = {
                     "predicted": len(predictions),
                     "teams_rated": len(final.ratings) if final else 0,
@@ -482,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
                     "family_p_knows": round(
                         min(1.0, min(c.p_knows for c in cells) * len(cells)), 5),
                     "top5": [{"team": t, "rating": round(r, 2)} for t, r in top],
+                    "home_fields": home_fields,
                 }
             if not runs:
                 continue

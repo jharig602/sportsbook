@@ -284,3 +284,100 @@ def test_no_minimum_means_no_filter():
     history = [game("A", "Cupcake", 49, 0)]
     from ratings import eligible
     assert eligible(history, min_team_games=0) == history
+
+
+# --- home field, per team --------------------------------------------------------
+
+def test_a_team_with_a_real_home_edge_keeps_some_of_it():
+    """Fortress plays every home game 8 points better than its road form.
+
+    Eight teams, not three: with a small field one team's big home edge drags the LEAGUE
+    figure up with it, leaving nothing to measure the deviation against. That is a real
+    property of the model rather than a flaw -- the deviation is defined relative to the
+    league -- but it makes a three-team test measure the wrong thing.
+
+    Expected size, worked out in advance rather than read off the answer: true deviations
+    are +8 for Fortress and 0 for seven others, so the league figure absorbs the mean of
+    +1 and the centred deviations are +7 and -1. At 105 home games each the shrinkage
+    keeps 105/(105+100) = 51%, so Fortress should sit about 4 points above the rest.
+    """
+    from ratings import HFA_RIDGE
+
+    teams = ["Fortress"] + [f"T{i}" for i in range(7)]
+    games: list[Game] = []
+    day = 0
+    for _ in range(15):
+        for home in teams:
+            for away in teams:
+                if home == away:
+                    continue
+                margin = 2.0 + (8.0 if home == "Fortress" else 0.0)
+                games.append(game(home, away, margin, day))
+                day += 1
+
+    model = fit_ratings(games, ridge=1.0, cap=None, half_life=None, hfa_ridge=HFA_RIDGE)
+    others = [model.home_edge(t) for t in teams if t != "Fortress"]
+    assert model.home_edge("Fortress") > max(others) + 2.5, (
+        f"Fortress {model.home_edge('Fortress'):.2f} vs best other {max(others):.2f}"
+    )
+    # And the effect belongs to home field, not to the team being good: on neutral ground
+    # Fortress is nobody special, so its RATING must stay near the others'.
+    spread = max(model.ratings.values()) - min(model.ratings.values())
+    assert spread < 2.0, f"the home edge leaked into the ratings: spread {spread:.2f}"
+
+
+def test_a_thin_record_is_pulled_back_to_the_league_figure():
+    """The whole reason for the shrinkage.
+
+    Two home games at +20 is not a fortress, it is two games. Without the penalty the fit
+    would report it as the best home field in the league and mean nothing by it.
+    """
+    from ratings import HFA_RIDGE
+
+    games: list[Game] = []
+    day = 0
+    for _ in range(40):
+        games.append(game("A", "B", 3.0, day)); day += 1
+        games.append(game("B", "A", 3.0, day)); day += 1
+    # Newcomer wins its two home games by 20, and is otherwise unknown.
+    games.append(game("Newcomer", "A", 20.0, day)); day += 1
+    games.append(game("Newcomer", "B", 20.0, day)); day += 1
+
+    model = fit_ratings(games, ridge=1.0, cap=None, half_life=None, hfa_ridge=HFA_RIDGE)
+    # It must not come out anywhere near +20 above the league figure.
+    assert model.hfa_deviation["Newcomer"] < 3.0, model.hfa_deviation["Newcomer"]
+
+
+def test_shrinkage_strength_does_what_it_says():
+    from ratings import HFA_RIDGE
+
+    games: list[Game] = []
+    day = 0
+    for _ in range(30):
+        games.append(game("Loud", "Quiet", 10.0, day)); day += 1
+        games.append(game("Quiet", "Loud", 0.0, day)); day += 1
+    gentle = fit_ratings(games, ridge=1.0, cap=None, half_life=None, hfa_ridge=1.0)
+    heavy = fit_ratings(games, ridge=1.0, cap=None, half_life=None, hfa_ridge=HFA_RIDGE * 10)
+    assert abs(heavy.hfa_deviation["Loud"]) < abs(gentle.hfa_deviation["Loud"])
+
+
+def test_one_home_field_for_everybody_unless_asked_otherwise():
+    # The default must stay the league-wide fit, so nothing silently gains parameters.
+    model = fit_ratings(round_robin({"A": 3.0, "B": -3.0}, hfa=2.0), ridge=0.0,
+                        cap=None, half_life=None)
+    assert model.hfa_deviation == {}
+    assert model.home_edge("A") == model.hfa
+
+
+def test_a_per_team_fit_still_recovers_the_league_figure():
+    # With no team differing from any other, the deviations should be ~0 and the league
+    # number should be what it always was.
+    from ratings import HFA_RIDGE
+
+    model = fit_ratings(
+        round_robin({"A": 4.0, "B": -4.0, "C": 0.0}, hfa=3.0, rounds=8),
+        ridge=0.0, cap=None, half_life=None, hfa_ridge=HFA_RIDGE,
+    )
+    assert model.hfa == pytest.approx(3.0, abs=0.3)
+    for team in ("A", "B", "C"):
+        assert abs(model.hfa_deviation[team]) < 0.3
