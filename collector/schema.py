@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 20
+ANALYTICS_SCHEMA_VERSION = 21
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -415,6 +415,61 @@ CREATE TABLE IF NOT EXISTS shop_grades (
     result_covered BOOLEAN,
     result_push BOOLEAN NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS line_census (
+    -- EVERY priced line the shop can compare, not only the ones that clear the vig.
+    --
+    -- `shop_picks` records what the rule said to bet. That is the right record of the
+    -- rule and the wrong sample for calibrating it: rows are written the first moment an
+    -- edge turns positive, which is exactly the moment the noise in the estimate is
+    -- largest. A sample selected on "measured edge is big" will underperform its own
+    -- estimate no matter how good the underlying rule is, and there is no way to tell
+    -- from inside that sample how much of the shortfall is selection and how much is the
+    -- rule being wrong.
+    --
+    -- This table removes the selection by recording the negative lines too. With the
+    -- whole range in hand the question becomes answerable: does a +3 point edge beat a
+    -- +1 point edge, and does a -2 point edge lose as badly as it should? That is a
+    -- calibration curve rather than a single number, and it is what tells the app how far
+    -- to discount its own estimates before betting.
+    --
+    -- Deliberately a separate table. Folding a census into shop_picks would mix two
+    -- sampling schemes -- one selected on outcome, one not -- in a table that is read as
+    -- a track record, and nothing downstream could tell them apart.
+    --
+    -- Captured at FIRST SIGHT, like a pick, because that is when a bet would actually be
+    -- placed. Grading the closing number instead would answer a different question than
+    -- the one the picker asks.
+    --
+    -- No result column: the verdict is derived from `game_results` at read time, so a
+    -- corrected score corrects the calibration by itself and there is no stored grade to
+    -- drift.
+    census_id VARCHAR PRIMARY KEY,
+    observed_at TIMESTAMPTZ NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    commence_time TIMESTAMPTZ,
+    home_team VARCHAR, away_team VARCHAR,
+    book VARCHAR NOT NULL,
+    market VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    line DOUBLE PRECISION,
+    price BIGINT NOT NULL,
+    consensus_line DOUBLE PRECISION,
+    consensus_probability DOUBLE PRECISION,
+    fair_probability DOUBLE PRECISION NOT NULL,
+    break_even DOUBLE PRECISION,
+    expected_roi DOUBLE PRECISION,
+    edge_points DOUBLE PRECISION,
+    books_compared INTEGER NOT NULL,
+    thin_consensus BOOLEAN NOT NULL,
+    rule_version_id VARCHAR NOT NULL,
+    CHECK (market IN ('spread', 'total', 'moneyline')),
+    CHECK (side IN ('home', 'away', 'over', 'under')),
+    CHECK (fair_probability > 0 AND fair_probability < 1)
+);
+
+CREATE INDEX IF NOT EXISTS line_census_event ON line_census (event_id);
 
 CREATE INDEX IF NOT EXISTS shop_picks_event ON shop_picks (event_id);
 
