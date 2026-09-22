@@ -10,12 +10,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { BoardEdge } from "./board-shop.ts";
-import type { ScoreModel } from "./joint-score.ts";
+import { type ScoreLeg, type ScoreModel, jointProbability } from "./joint-score.ts";
 import type { MarginModel } from "./probability.ts";
 import {
   type PricedLeg,
   type SgpGame,
   bestSameGameParlays,
+  everyLegEarnsItsPlace,
   legFor,
   priceSameGame,
   sgpEv,
@@ -330,4 +331,106 @@ test("only my books are considered when I say which I hold", () => {
   assert.equal(sgpGamesFromBoard(rows, { books: ["Caesars"] }).length, 1);
   // No list means no filter, rather than no books.
   assert.equal(sgpGamesFromBoard(rows, { books: [] }).length, 1);
+});
+
+// --- the Titans ticket, which reached the top of the page ------------------------
+
+test("a ticket whose legs imply each other is refused", () => {
+  // Tennessee Titans ML + Titans +6 + Titans +6.5, ranked first by the old statistic.
+  // Winning outright covers both spreads, so the three legs are one bet written three
+  // times -- and the book charges for three.
+  const legs: ScoreLeg[] = [
+    { market: "moneyline", side: "away" },
+    { market: "spread", side: "away", line: 6 },
+    { market: "spread", side: "away", line: 6.5 },
+  ];
+  const lines = { homeSpread: -6, total: 44.5 };
+  const joint = jointProbability(margin(), score(), lines, legs)!;
+  const mlOnly = jointProbability(margin(), score(), lines, [legs[0]])!;
+  assert.ok(
+    Math.abs(joint.win - mlOnly.win) < 1e-9,
+    "the ticket is exactly the moneyline; if this drifts the premise is gone",
+  );
+  assert.equal(everyLegEarnsItsPlace(margin(), score(), lines, legs), false);
+});
+
+test("legs that each change the ticket are kept", () => {
+  assert.equal(
+    everyLegEarnsItsPlace(margin(), score(), LINES, [
+      { market: "spread", side: "home", line: -3.5 },
+      { market: "total", side: "over", line: 45.5 },
+    ]),
+    true,
+  );
+});
+
+test("a near-duplicate is refused too, not just an exact one", () => {
+  // +6 and +7 on one side differ by a fraction of a percent and cost a whole leg's
+  // markup for it.
+  assert.equal(
+    everyLegEarnsItsPlace(margin(), score(), { homeSpread: -6.5, total: 44.5 }, [
+      { market: "spread", side: "away", line: 6 },
+      { market: "spread", side: "away", line: 7 },
+    ]),
+    false,
+  );
+});
+
+test("the reference line comes from the legs, not from a separate snapshot", () => {
+  // The bug behind the 40%: legs said +6 while the board said about -3, so the game was
+  // centred three points from where it was actually priced and a 31% ticket read 40%.
+  const rows = [
+    boardRow({ market: "spread", side: "away", line: 6, gameSpread: -3 }),
+    boardRow({ market: "spread", side: "home", line: -6, gameSpread: -3 }),
+    boardRow({ market: "total", side: "over", line: 44.5, gameSpread: -3 }),
+    boardRow({ market: "total", side: "under", line: 44.5, gameSpread: -3 }),
+  ];
+  const [built] = sgpGamesFromBoard(rows);
+  assert.equal(built.lines.homeSpread, -6, "the legs' own number, not the stale board's");
+  assert.equal(built.lines.total, 44.5);
+});
+
+test("an away spread is read as the home handicap it is", () => {
+  const [built] = sgpGamesFromBoard([
+    boardRow({ market: "spread", side: "away", line: 7, gameSpread: null }),
+    boardRow({ market: "total", side: "over", line: 44.5, gameSpread: null }),
+  ]);
+  // Away +7 is the same game as home -7. Reading it literally would flip the favourite.
+  assert.equal(built.lines.homeSpread, -7);
+});
+
+test("a leg that does not beat its own price keeps the ticket off the page", () => {
+  const board = game([
+    { ...priced("spread", "home", -3.5, -110), edgePoints: 2.5 },
+    { ...priced("total", "over", 45.5, -110), edgePoints: 0.2 },
+  ]);
+  assert.deepEqual(
+    bestSameGameParlays([board], MARGINS, SCORES, { minEdgePoints: 1.5, maxLegs: 2 }),
+    [],
+  );
+  assert.equal(
+    bestSameGameParlays([board], MARGINS, SCORES, { minEdgePoints: 0, maxLegs: 2 }).length,
+    1,
+  );
+});
+
+test("tickets are ranked by their legs' measured edge, not by the correlation gap", () => {
+  // The old statistic ranked on how far the book could mark the ticket down from the
+  // product of its legs -- a gap that is widest exactly when the legs are most
+  // redundant, so it sorted the least informative ticket to the top.
+  const weak = game([
+    { ...priced("spread", "home", -3.5, -110), edgePoints: 1.6 },
+    { ...priced("total", "over", 45.5, -110), edgePoints: 1.6 },
+  ]);
+  const strong: SgpGame = {
+    ...game([
+      { ...priced("spread", "home", -3.5, -110), edgePoints: 4.0 },
+      { ...priced("total", "over", 45.5, -110), edgePoints: 3.5 },
+    ]),
+    eventId: "g2",
+  };
+  const picks = bestSameGameParlays([weak, strong], MARGINS, SCORES, {
+    minEdgePoints: 1.5, maxLegs: 2, limit: 5,
+  });
+  assert.equal(picks[0].game.eventId, "g2");
 });

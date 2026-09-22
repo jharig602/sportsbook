@@ -180,6 +180,19 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
         book's same-game price -- it has to be read off the slip. Showing a percentage
         next to it would be inventing the half of the sum that is missing.
       */}
+      {candidate && !view.sameGame ? (
+        <div className="border-t border-edge/70 px-3.5 py-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">
+            Same-game parlay of the day
+          </p>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-slate-400">
+            None today: it needs two legs on one game that each clear the edge on their
+            own, and that are not the same bet twice &mdash; a moneyline already contains
+            every spread its side would cover.
+          </p>
+        </div>
+      ) : null}
+
       {view.sameGame ? (
         <div className="border-t border-edge/70 px-3.5 py-2.5">
           <p className="text-[10px] uppercase tracking-wide text-slate-500">

@@ -10,6 +10,7 @@ import { buildBoardShop } from "./board-shop";
 import { openEvents, pickDailyBet, type DailyPick } from "./daily-bet";
 import { getData } from "./data";
 import { getMaxSpread, getMyBooks } from "./settings-db";
+import { MIN_ALERT_EDGE_POINTS } from "./shop-alerts";
 import { bestSameGameParlays, sgpGamesFromBoard, type SgpPick } from "./sgp";
 import { collapseByOutcome } from "./shop-record";
 
@@ -60,6 +61,9 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
     bestSameGameParlays(sgpGamesFromBoard(shop.rows, { books: myBooks }), models, scores, {
       exclude: taken,
       limit: 1,
+      // The same bar the single uses, applied leg by leg. Nothing qualifying is the
+      // usual answer, and saying so beats offering a ticket with no edge in it.
+      minEdgePoints: MIN_ALERT_EDGE_POINTS,
     })[0] ?? null;
 
   return { ...pick, gradedTotal: grades.length, myBooks, sameGame };

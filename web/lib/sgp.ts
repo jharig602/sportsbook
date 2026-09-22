@@ -185,6 +185,42 @@ function combinations<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * A leg that changes the ticket's chance by less than this is not on it.
+ *
+ * Measured by removing the leg and repricing: if the ticket is just as likely without it,
+ * the leg adds no chance of winning and can only shorten the price. Three legs reading
+ * "Titans ML, Titans +6, Titans +6.5" are one bet written out three times -- winning
+ * outright covers both spreads -- and the book charges for three.
+ *
+ * A relative bar rather than exact equality, because near-duplicates are the same trap:
+ * +6 and +7 on one side differ by a fraction of a percent and cost a leg's worth of
+ * markup for it.
+ */
+const MIN_LEG_CONTRIBUTION = 0.02;
+
+/** Whether every leg materially changes the ticket. */
+export function everyLegEarnsItsPlace(
+  margin: MarginModel,
+  score: ScoreModel,
+  lines: GameLines,
+  legs: ScoreLeg[],
+): boolean {
+  if (legs.length < 2) return true;
+  const whole = jointProbability(margin, score, lines, legs);
+  if (whole === null || whole.win <= 0) return false;
+  for (let i = 0; i < legs.length; i += 1) {
+    const without = jointProbability(
+      margin, score, lines, legs.filter((_, j) => j !== i),
+    );
+    if (without === null) return false;
+    // Dropping a leg can only raise the chance. If it barely does, the leg was carrying
+    // nothing.
+    if (without.win <= whole.win * (1 + MIN_LEG_CONTRIBUTION)) return false;
+  }
+  return true;
+}
+
 export interface SgpOptions {
   minLegs?: number;
   maxLegs?: number;
@@ -193,6 +229,13 @@ export interface SgpOptions {
   exclude?: Set<string>;
   /** Rank for a bonus bet, which wants length, rather than for cash. */
   bonus?: boolean;
+  /**
+   * Points of measured cross-book edge each leg must clear on its own.
+   *
+   * The same bar the single bet of the day uses, applied leg by leg, because a ticket's
+   * edge comes from its legs. Nothing qualifying is the usual answer and the honest one.
+   */
+  minEdgePoints?: number;
 }
 
 /**
@@ -216,6 +259,7 @@ export function bestSameGameParlays(
   options: SgpOptions = {},
 ): SgpPick[] {
   const minLegs = Math.max(2, options.minLegs ?? 2);
+  const minEdge = options.minEdgePoints ?? 0;
   const maxLegs = Math.max(minLegs, options.maxLegs ?? 3);
   const picks: SgpPick[] = [];
 
@@ -230,8 +274,17 @@ export function bestSameGameParlays(
         // Two sides of one market cannot both land; the model would say 0% and the
         // ticket would sort last anyway, but skipping is cheaper and clearer.
         if (opposed(combo)) continue;
+        // Every leg must beat its own price. A ticket's edge comes from its legs, and
+        // one that does not clear the vig on its own drags the whole ticket down however
+        // the correlation prices out.
+        if (minEdge > 0 && !combo.every((l) => (l.edgePoints ?? -Infinity) >= minEdge)) {
+          continue;
+        }
 
-        const quote = priceSameGame(margin, score, game.lines, combo.map((l) => l.leg));
+        const legs = combo.map((l) => l.leg);
+        if (!everyLegEarnsItsPlace(margin, score, game.lines, legs)) continue;
+
+        const quote = priceSameGame(margin, score, game.lines, legs);
         if (quote === null || quote.fairDecimal === null || quote.win <= 0) continue;
 
         let independentDecimal = 1;
@@ -250,13 +303,36 @@ export function bestSameGameParlays(
     }
   }
 
+  // Ranked on the legs' own measured edge, NOT on markup budget.
+  //
+  // Markup budget -- how far the book could mark the ticket down from the product of its
+  // legs' prices -- looked like the right statistic and was exactly backwards. That gap
+  // is widest when the legs are most redundant, because redundancy is what makes the
+  // product overstate. So it hunted for the ticket carrying the least information and
+  // put it first, which is how "Titans ML + Titans +6 + Titans +6.5" reached the top of
+  // the page: one bet, written three times, with an apparent 373% of room in it.
+  //
+  // There is no honest ranking by expected value here, because no feed holds the book's
+  // same-game price and EV cannot be computed without it. What IS measured is each leg's
+  // edge against the other books, and a ticket's edge comes from its legs. So that is
+  // what ranks them, and the fair price is reported for checking against the slip.
+  const edgeOf = (pick: SgpPick) =>
+    pick.legs.reduce((sum, leg) => sum + (leg.edgePoints ?? 0), 0);
+
   picks.sort((a, b) => {
-    if (b.markupBudget !== a.markupBudget) return b.markupBudget - a.markupBudget;
-    // Among tickets that pay equally, a bonus bet prefers the longer one, because only
-    // the profit is ever returned. Cash prefers the shorter one, which wins more often.
+    const gap = edgeOf(b) - edgeOf(a);
+    if (Math.abs(gap) > 1e-9) return gap;
+
     const aFair = a.quote.fairDecimal ?? 0;
     const bFair = b.quote.fairDecimal ?? 0;
-    return options.bonus ? bFair - aFair : aFair - bFair;
+    // A bonus bet prefers the longer price, because only the profit ever comes back --
+    // but ONLY between tickets that already pay. With no measured edge on either, both
+    // are just prices, and preferring the longer one sorts the deep alternate line to
+    // the top every time: its price is long precisely because it almost never wins.
+    // So length breaks ties among winners and is never itself a reason to take a ticket.
+    const bothEarn = edgeOf(a) > 0 && edgeOf(b) > 0;
+    if (options.bonus && bothEarn) return bFair - aFair;
+    return aFair - bFair;
   });
 
   return picks.slice(0, options.limit ?? 5);
@@ -303,8 +379,21 @@ export function sgpGamesFromBoard(
 
   const games: SgpGame[] = [];
   for (const [eventId, group] of byEvent) {
-    const homeSpread = group.find((r) => r.gameSpread !== null)?.gameSpread ?? null;
-    const totalLine = group.find((r) => r.market === "total" && r.line !== null)?.line ?? null;
+    // The reference line comes from the SAME rows the legs do.
+    //
+    // It used to come from `gameSpread`, which is the board's snapshot, while the legs
+    // come from the books being shopped. When those two drift apart the game is centred
+    // on the wrong number and every leg is converted against it: a ticket whose legs said
+    // +6 was priced against a board reading about -3, and the model called a 30% ticket
+    // 40% and a fair +225 "+146". Nothing looked wrong, because both halves were
+    // internally consistent -- they just were not the same game.
+    //
+    // Taking the median of the rows in hand makes the reference agree with the legs by
+    // construction, which is the only way this cannot come back.
+    const homeSpread = medianHomeSpread(group);
+    const totalLine = median(
+      group.filter((r) => r.market === "total" && r.line !== null).map((r) => r.line as number),
+    );
     if (homeSpread === null || totalLine === null) continue;
 
     // Best price per leg, keyed on the line too: two books on different numbers are
@@ -341,6 +430,26 @@ export function sgpGamesFromBoard(
     });
   }
   return games;
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** Every spread row read as the home handicap, then taken at the median. */
+function medianHomeSpread(rows: BoardEdge[]): number | null {
+  const lines: number[] = [];
+  for (const row of rows) {
+    if (row.market !== "spread" || row.line === null) continue;
+    // A spread belongs to the side that took it, so the away row is the same number
+    // seen from the other end.
+    if (row.side === "home") lines.push(row.line);
+    else if (row.side === "away") lines.push(-row.line);
+  }
+  return median(lines);
 }
 
 function labelFor(row: BoardEdge): string {
