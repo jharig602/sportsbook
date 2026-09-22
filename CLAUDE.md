@@ -90,6 +90,7 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
 | Games land over the closing total | **True and not enough.** Mean total residual +0.58 NFL / +0.61 college → 51.8% and 51.5% on the over. Break-even is 52.38%. Measured, real, no bet. |
 | A power rating from scores beats the closing line | **No.** Walk-forward on 7 seasons, `collector/ratings.py`. College: 50.9% over 4,586 games (ROI -2.8%), decisively short of 52.38%. NFL: 53.5% at 3+ points of disagreement over 897 games, ROI +2.2% -- but p=0.019 against a coin flip becomes **0.12** once the six thresholds that produced it are counted, and p=0.26 against the vig becomes 1.0. A hint, not a result. Do not build on it without new information. |
 | Fitted home-field advantage is a check on the data, not just an output | **Yes, and it caught one.** NFL came out at **1.67 points**, which is right. College came out at **6.54**, roughly double any credible figure, because barely-seen teams are shrunk toward average and play almost every game away -- the error lands in HFA. Excluding them moved it to 5.70 and lifted the college cover rate 0.8pp, so the college fit is still partly contaminated. A coefficient that is right on clean data and absurd on dirty data is pointing at the data. |
+| Home field is uneven, so the market misprices the extremes | **No, and the model has good face validity anyway.** Per-team home field, fitted unpenalised and shrunk toward the league: NFL's strongest are **Denver +2.3, Kansas City +2.3, Buffalo +2.2** and weakest Atlanta/Carolina +1.2 — altitude, crowd noise and weather, found from margins alone. College's strongest include **Boise State +6.5**. But the whole NFL spans 1.1 points, and against a flat home field per-team made the NFL **worse** (53.51% → 51.74% at 3+ points) and college better by **+0.78pp, which is under one standard error**. Family p against the vig: 1.0 in both. Home field is real, uneven, and correctly priced. |
 | A market/league breakdown shows where the rule works | **Only with the search priced in.** Six cells of ~17 games contain a 70% cell one time in eight per cell; `selection.familyP` reports how often the *best of six* looks that good with no edge anywhere. |
 
 ---
@@ -429,6 +430,16 @@ Rules if this is picked up again:
 - **Do not tune to chase it.** The parameters in `DEFAULTS` were fixed before the first
   run. The one change since came from a broken HFA coefficient, not a p-value, and both
   specifications are still reported side by side.
+- **Per-team home field is done and did not work.** See the findings table. Fitting it
+  taught one thing worth keeping: fit the per-team home edge **unpenalised** and shrink the
+  answer, never penalise it inside the fit. Home and away games are observed separately so
+  the decomposition is exactly identified, but if the deviation is penalised while the
+  rating is not, the solver pays for a home edge out of the RATING — which then travels,
+  and overrates the team on the road. Measured on a synthetic fortress: 2.4 to 3.9 points
+  of rating it had not earned. Fitting a single league number first and reading residuals
+  afterwards fails the same way one stage earlier.
+- Specifications are looks too. Three specs × six thresholds is **eighteen**, and the
+  NFL's best cell at p=0.029 raw corrects to 0.52.
 - The next real test is EPA per play from nflverse (free, no key) rather than margin.
   That is new information; another pass over the same scores is not.
 
