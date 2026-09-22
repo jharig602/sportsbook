@@ -5,6 +5,8 @@
  * never recommend different bets from the same board.
  */
 import { listBets } from "./bets-db";
+import { listCensus } from "./census";
+import { calibrate, collapseCensus, gradeCensus, type EdgeCalibration } from "./edge-calibration";
 import { allBookLines } from "./book-lines";
 import { buildBoardShop } from "./board-shop";
 import { openEvents, pickDailyBet, type DailyPick } from "./daily-bet";
@@ -19,6 +21,12 @@ export interface DailyBetView extends DailyPick {
   gradedTotal: number;
   myBooks: string[];
   /**
+   * How much of a measured edge has actually turned up, or null while there is too
+   * little censused to say. Shown so the discount being applied is visible rather than
+   * silently folded into every number on the page.
+   */
+  calibration: EdgeCalibration | null;
+  /**
    * The same-game ticket with the most room in it, or null.
    *
    * Carries a fair price rather than an edge, because no feed here holds a book's
@@ -29,7 +37,7 @@ export interface DailyBetView extends DailyPick {
 
 export async function dailyBet(ownerId: string): Promise<DailyBetView> {
   const data = getData();
-  const [games, models, scores, lines, ledger, results, grades, myBooks, maxSpread] =
+  const [games, models, scores, lines, ledger, results, grades, myBooks, maxSpread, census] =
     await Promise.all([
     data.games(),
     data.marginModels(),
@@ -40,10 +48,22 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
     data.shopGrades().catch(() => []),
     getMyBooks().catch(() => [] as string[]),
     getMaxSpread(),
+    // Every line the board could compare, bet or not. The negative rows are what make
+    // the positive ones readable -- see census.ts.
+    listCensus().catch(() => []),
   ]);
 
   const shop = buildBoardShop(games, lines, models);
   const settled = new Set(results.map((r) => r.event_id));
+
+  // One result per number rather than per book, or nine quotes on one game would shrink
+  // the error bar around a sample that never grew.
+  const scoreByEvent = new Map(
+    results.map((r) => [r.event_id, { home_score: r.home_score, away_score: r.away_score }]),
+  );
+  const calibration = census.length > 0
+    ? calibrate(collapseCensus(gradeCensus(census, scoreByEvent)))
+    : null;
   const pick = pickDailyBet(shop.rows, {
     myBooks,
     open: openEvents(ledger, settled),
@@ -51,6 +71,9 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
     // not five, and learning from the raw rows would let it count five times.
     grades: collapseByOutcome(grades),
     maxSpread,
+    // A no-op until the slope clears its own error bar. An unproven discount is a guess,
+    // and guessing here would invent the quantity being measured.
+    calibration,
   });
   // Built from the same board and excluded from the same games, so the day's three
   // suggestions never collide with each other or with a bet already standing.
@@ -66,5 +89,5 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
       minEdgePoints: MIN_ALERT_EDGE_POINTS,
     })[0] ?? null;
 
-  return { ...pick, gradedTotal: grades.length, myBooks, sameGame };
+  return { ...pick, gradedTotal: grades.length, myBooks, sameGame, calibration };
 }

@@ -209,7 +209,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **20**.
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **21**.
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -334,13 +334,28 @@ every time.
 
 **The product is a price to beat, not an edge.** No feed here holds a book's same-game
 price, so the honest claim is "fair at +420, go and look" — checkable on the slip in five
-seconds, and unable to be wrong in the quiet way an invented edge is. `markupBudget` is
-how far the book may mark a ticket down from the product of its legs' prices before it
-stops paying, and that is the ranking statistic.
+seconds, and unable to be wrong in the quiet way an invented edge is. There is therefore
+**no honest ranking by expected value**, and two attempts at one have already failed:
 
-**Do not rank by price.** A bonus bet converts at `1 − 1/d`, so "longest price" sorts a
-deep alternate line to the top every time — and its price is long *because* it almost
-never wins. Length breaks ties among tickets that already pay. A test pins this.
+- **`markupBudget` ranked redundancy first.** How far the book could mark a ticket down
+  from the product of its legs is widest exactly when the legs are most redundant,
+  because redundancy is what makes the product overstate. It put "Titans ML + Titans +6
+  + Titans +6.5" at the top of the live page with an apparent 373% of room — one bet
+  written three times, since winning outright covers every spread that side would cover.
+- **Price ranks lotteries first.** A bonus bet converts at `1 − 1/d`, so "longest price"
+  sorts a deep alternate line to the top, and its price is long *because* it almost never
+  wins. Length breaks ties among tickets that **already pay** and is never itself a
+  reason. A test pins this, and caught a regression that reintroduced it.
+
+Ranking is on the legs' own **measured cross-book edge**, each leg held to the same 1.5
+points the single uses. Redundant legs are refused by removing each and repricing: if the
+ticket is as likely without it, the leg adds no chance and only shortens the price.
+
+**The reference line comes from the same rows the legs do.** It used to come from the
+board snapshot while legs came from the shopped books; when those drift the game is
+centred on a number nobody priced. Legs reading +6 against a board reading ~−3 turned a
+31% ticket into 40% and a fair +225 into +146, and nothing looked wrong because both
+halves were internally consistent — they were just not the same game.
 
 Pushes are valued as the stake back, not as a loss, and only counted when a leg can
 actually land on its number: the pmf pools whole-number and half-point lines onto one
@@ -353,6 +368,40 @@ receiving total is not a function of `D` and `S`.
 Team totals are stored as `market='total'` with a `team` (v20), because that is what they
 are. No feed prices them, so the automatic pick cannot find one — the builder prices them
 exactly once the price is typed in.
+
+---
+
+## The line census
+
+`line_census` (v21) records **every** priced line the board can compare, bet or not.
+`shop_picks` records only what the rule said to bet, written the first moment an edge
+turns positive — which selects for the estimate being noisy-high. Such a sample
+underperforms its own estimate even when the rule is sound, and nothing inside it can
+separate the selection from the rule being wrong.
+
+`edge-calibration.ts` fits `realised excess = slope × predicted excess`, through the
+origin, on the collapsed census (one result per number, never per book). The slope is how
+much of a measured edge actually turns up:
+
+- **1** — edges are as advertised.
+- **0.4** — bet only where the measured edge is 2.5× the bar.
+- **0, within error** — the measured edge predicts nothing. Stop betting it; do not
+  retune until it looks better.
+
+`calibratedEdgePoints` applies it to the **edge**, not the bar — same arithmetic, read
+the honest way round. It is a **no-op** until the slope clears 2 standard errors, never
+inflates an edge above its measured value however good a stretch looks, and treats a
+negative slope as *no information* rather than as a reason to bet the other side: a rule
+that is backwards is one to stop using, and inverting it would stake money on the sign of
+a statistic that has not cleared its own error bar.
+
+**This does not find an edge.** It measures how far to trust the edges already found,
+which raises returns by betting *less*. If there is no signal it establishes that far
+sooner than the picks could, because the sample is the whole board.
+
+Not to be confused with `calibration.ts`, which asks a different question — did the things
+called 55% come in at 55% — on picks only, with bands and a Brier score, for the Record
+page.
 
 ---
 

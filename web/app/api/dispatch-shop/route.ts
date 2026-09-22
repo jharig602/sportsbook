@@ -6,6 +6,7 @@ import { getData } from "@/lib/data";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { getMyBooks, notifiedOffers, recordNotified } from "@/lib/settings-db";
 import { selectAlerts, shopNotification } from "@/lib/shop-alerts";
+import { recordLineCensus } from "@/lib/census";
 import { activeRuleVersion, recordShopPicks } from "@/lib/shop-picks";
 
 export const dynamic = "force-dynamic";
@@ -76,10 +77,22 @@ export async function POST(request: Request) {
       ? await recordShopPicks(shop.positive, ruleVersion).catch(() => null)
       : null;
 
+    // And every line it could compare at all, including the ones it says not to bet.
+    //
+    // The picks above are written the first moment an edge turns positive, which selects
+    // for the estimate being noisy-high -- such a sample underperforms its own estimate
+    // even when the rule is sound, and from inside it there is no way to tell how much of
+    // the shortfall is the selection. The census has no such filter, so the negative rows
+    // are what make the positive ones interpretable.
+    const censused = ruleVersion
+      ? await recordLineCensus(shop.rows, ruleVersion).catch(() => null)
+      : null;
+
     // Only now does anything depend on push being configured.
     if (!publicKey || !privateKey) {
       return NextResponse.json(
-        { sent: 0, recorded: recorded?.written ?? 0, note: "VAPID keys are not configured." },
+        { sent: 0, recorded: recorded?.written ?? 0, censused: censused?.written ?? 0,
+          note: "VAPID keys are not configured." },
         { status: 200 },
       );
     }
@@ -92,6 +105,7 @@ export async function POST(request: Request) {
         candidates: 0,
         books: myBooks.length,
         recorded: recorded?.written ?? 0,
+        censused: censused?.written ?? 0,
         positive: shop.positive.length,
       });
     }

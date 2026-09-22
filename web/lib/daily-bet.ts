@@ -38,6 +38,7 @@
 import type { BoardEdge } from "./board-shop";
 import { isBlowout } from "./blowout";
 import { expectedRoi } from "./shop";
+import { type EdgeCalibration, calibratedEdgePoints } from "./edge-calibration";
 import { parlayPrice, profitPerDollar } from "./profit-boost";
 import { MIN_ALERT_EDGE_POINTS } from "./shop-alerts";
 import { activeBets, type Bet } from "./settle";
@@ -193,6 +194,16 @@ export function pickDailyBet(
     maxSpread: number;
     minEdgePoints?: number;
     prior?: number;
+    /**
+     * How much of a measured edge has actually turned up, from the line census.
+     *
+     * Applied to the edge rather than to the bar, which is the same arithmetic read the
+     * honest way round: at a measured half-delivery, a claimed 3 points becomes 1.5 and
+     * lands exactly on the threshold. Null until enough of the board has been graded,
+     * and then a no-op until the slope clears its own error bar -- an unproven discount
+     * is a guess, and guessing here would invent the quantity being measured.
+     */
+    calibration?: EdgeCalibration | null;
   },
 ): DailyPick {
   const minEdge = options.minEdgePoints ?? MIN_ALERT_EDGE_POINTS;
@@ -225,7 +236,8 @@ export function pickDailyBet(
 
     const adjustment = adjustmentFor(row.market, row.league);
     const p = Math.min(0.99, Math.max(0.01, row.fairProbability + adjustment.shift));
-    const edgePoints = (p - row.breakEven) * 100;
+    const measuredEdge = (p - row.breakEven) * 100;
+    const edgePoints = calibratedEdgePoints(measuredEdge, options.calibration ?? null);
     const roi = expectedRoi(p, row.price);
     if (edgePoints >= minEdge && roi > 0) {
       qualifying.push({ row, p, edgePoints, roi, adjustment });
