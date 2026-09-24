@@ -96,3 +96,42 @@ export function serializeFavourites(teams: string[]): string {
 export function themeFor(favourites: string[]): TeamTheme | null {
   return favourites.length === 1 ? teamTheme(favourites[0]) : null;
 }
+
+/** Just enough of a bet to tell which team it backs. */
+export interface SidedBet {
+  market: string;
+  side: string;
+  homeTeam: string | null;
+  awayTeam: string | null;
+}
+
+function sameTeam(a: string | null | undefined, b: string): boolean {
+  return !!a && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * The team of yours this bet is against, or null.
+ *
+ * A bet is against your team when it backs their opponent: the other side's spread or
+ * moneyline. The app then never suggests it. A fan who would rather not root against
+ * their own team has made a decision before the app ever opens, and the app has nothing
+ * to weigh against it. The cost is measured rather than assumed to be zero: passing on
+ * the Jets at +265 against the Lions was worth about a dollar of boost value. That is
+ * rarely more, because the edges here are small, and it is a price worth paying to
+ * enjoy the game.
+ *
+ * Totals are never against anybody. An over or an under picks no side, and treating an
+ * under as rooting against your offence would stretch "against" past what it means.
+ *
+ * With both teams in your list, every side bet on the game is against one of them, so
+ * the whole game's sides are skipped. That follows from the rule rather than being a
+ * special case.
+ */
+export function betsAgainst(bet: SidedBet, favourites: string[]): string | null {
+  if (favourites.length === 0) return null;
+  if (bet.market !== "spread" && bet.market !== "moneyline") return null;
+  const opponent =
+    bet.side === "home" ? bet.awayTeam : bet.side === "away" ? bet.homeTeam : null;
+  if (!opponent) return null;
+  return favourites.find((team) => sameTeam(opponent, team)) ?? null;
+}

@@ -11,7 +11,7 @@ import { allBookLines } from "./book-lines";
 import { buildBoardShop } from "./board-shop";
 import { openEvents, pickDailyBet, type DailyPick } from "./daily-bet";
 import { getData } from "./data";
-import { getMaxSpread, getMyBooks } from "./settings-db";
+import { getFavourites, getMaxSpread, getMyBooks } from "./settings-db";
 import { MIN_ALERT_EDGE_POINTS } from "./shop-alerts";
 import { bestSameGameParlays, sgpGamesFromBoard, type SgpPick } from "./sgp";
 import { collapseByOutcome } from "./shop-record";
@@ -37,7 +37,7 @@ export interface DailyBetView extends DailyPick {
 
 export async function dailyBet(ownerId: string): Promise<DailyBetView> {
   const data = getData();
-  const [games, models, scores, lines, ledger, results, grades, myBooks, maxSpread, census] =
+  const [games, models, scores, lines, ledger, results, grades, myBooks, maxSpread, census, favourites] =
     await Promise.all([
     data.games(),
     data.marginModels(),
@@ -51,6 +51,7 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
     // Every line the board could compare, bet or not. The negative rows are what make
     // the positive ones readable -- see census.ts.
     listCensus().catch(() => []),
+    getFavourites().catch(() => [] as string[]),
   ]);
 
   const shop = buildBoardShop(games, lines, models);
@@ -74,6 +75,7 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
     // A no-op until the slope clears its own error bar. An unproven discount is a guess,
     // and guessing here would invent the quantity being measured.
     calibration,
+    favourites,
   });
   // Built from the same board and excluded from the same games, so the day's three
   // suggestions never collide with each other or with a bet already standing.
@@ -81,7 +83,7 @@ export async function dailyBet(ownerId: string): Promise<DailyBetView> {
   if (pick.pick) taken.add(pick.pick.row.eventId);
   for (const leg of pick.parlay?.legs ?? []) taken.add(leg.row.eventId);
   const sameGame =
-    bestSameGameParlays(sgpGamesFromBoard(shop.rows, { books: myBooks }), models, scores, {
+    bestSameGameParlays(sgpGamesFromBoard(shop.rows, { books: myBooks, favourites }), models, scores, {
       exclude: taken,
       limit: 1,
       // The same bar the single uses, applied leg by leg. Nothing qualifying is the

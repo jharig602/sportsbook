@@ -434,3 +434,34 @@ test("tickets are ranked by their legs' measured edge, not by the correlation ga
   });
   assert.equal(picks[0].game.eventId, "g2");
 });
+
+// --- never against your own team -------------------------------------------------
+
+test("a same-game leg against your team never joins a ticket", () => {
+  const rows = [
+    boardRow({ market: "spread", side: "home", line: -3.5 }),
+    boardRow({ market: "spread", side: "away", line: 3.5 }),
+    boardRow({ market: "moneyline", side: "away", line: null, price: 150 }),
+    boardRow({ market: "total", side: "over", line: 44.5 }),
+  ];
+  const [built] = sgpGamesFromBoard(rows, { favourites: ["Home"] });
+  const sides = built.legs.map((leg) => `${leg.market}:${leg.side}`);
+  assert.ok(!sides.includes("spread:away"), sides.join(", "));
+  assert.ok(!sides.includes("moneyline:away"), sides.join(", "));
+  // Backing them and the total are untouched.
+  assert.ok(sides.includes("spread:home"));
+  assert.ok(sides.includes("total:over"));
+});
+
+test("skipping a side does not move the line the game is priced at", () => {
+  // What the game is priced at does not depend on which side you would bet, so the
+  // reference must come from every row, including the skipped ones.
+  const rows = [
+    boardRow({ market: "spread", side: "home", line: -7 }),
+    boardRow({ market: "spread", side: "away", line: 7 }),
+    boardRow({ market: "total", side: "over", line: 44.5 }),
+  ];
+  const [withRule] = sgpGamesFromBoard(rows, { favourites: ["Home"] });
+  const [without] = sgpGamesFromBoard(rows);
+  assert.equal(withRule.lines.homeSpread, without.lines.homeSpread);
+});

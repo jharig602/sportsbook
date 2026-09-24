@@ -82,7 +82,9 @@ export function FavouriteTeams({ selected }: { selected: string[] }) {
             This does not decide whether to bet them &mdash; you already have. It shows
             every way to back them this week ranked by what each costs, because a
             moneyline on a favourite and a spread at a book hanging a different number
-            are not equally good.{" "}
+            are not equally good. The bet of the day, the parlay and the same-game parlay
+            also never suggest betting against them &mdash; totals are still fair game, since
+            an over or an under picks no side.{" "}
             {selected.length === 1
               ? "One team also colours the app."
               : "Pick exactly one to colour the app; two teams have no single colour."}

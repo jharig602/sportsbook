@@ -39,6 +39,7 @@ import type { BoardEdge } from "./board-shop";
 import { isBlowout } from "./blowout";
 import { expectedRoi } from "./shop";
 import { type EdgeCalibration, calibratedEdgePoints } from "./edge-calibration";
+import { betsAgainst } from "./favourites";
 import { parlayPrice, profitPerDollar } from "./profit-boost";
 import { MIN_ALERT_EDGE_POINTS } from "./shop-alerts";
 import { activeBets, type Bet } from "./settle";
@@ -178,6 +179,8 @@ export interface DailyPick {
   considered: number;
   /** Rows dropped because you already have money on that game. */
   skippedOpen: number;
+  /** Rows dropped because they back the other side against one of your teams. */
+  skippedFavourite: number;
   /** Rows that cleared the bar after learning. */
   qualifying: number;
   /** Why there is no pick, when there is none. */
@@ -204,6 +207,8 @@ export function pickDailyBet(
      * is a guess, and guessing here would invent the quantity being measured.
      */
     calibration?: EdgeCalibration | null;
+    /** Your teams. A bet backing their opponent is never suggested. */
+    favourites?: string[];
   },
 ): DailyPick {
   const minEdge = options.minEdgePoints ?? MIN_ALERT_EDGE_POINTS;
@@ -220,6 +225,7 @@ export function pickDailyBet(
 
   let considered = 0;
   let skippedOpen = 0;
+  let skippedFavourite = 0;
   const qualifying: DailyCandidate[] = [];
 
   for (const row of rows) {
@@ -231,6 +237,12 @@ export function pickDailyBet(
     considered += 1;
     if (options.open.has(row.eventId)) {
       skippedOpen += 1;
+      continue;
+    }
+    // Counted and reported, like every other filter here: a bet the app quietly
+    // declined to mention is indistinguishable from one it never saw.
+    if (betsAgainst(row, options.favourites ?? [])) {
+      skippedFavourite += 1;
       continue;
     }
 
@@ -254,11 +266,28 @@ export function pickDailyBet(
       reason = "Nothing is priced at your books yet.";
     } else if (considered === skippedOpen) {
       reason = "Every priced game at your books is one you already have money on.";
+    } else if (considered === skippedFavourite) {
+      reason = "Every priced bet at your books today is against one of your teams.";
+    } else if (considered === skippedOpen + skippedFavourite) {
+      // Said precisely rather than merged: "you already hold these" and "these are
+      // against your team" are different reasons, and a message covering both would
+      // tell you neither.
+      reason =
+        "Every priced bet at your books is on a game you already hold or against one of " +
+        "your teams.";
     } else {
       reason =
         `Nothing at your books clears the house edge by ${minEdge} points today. ` +
         "That is the usual answer, and the right one to act on.";
     }
   }
-  return { pick, parlay, considered, skippedOpen, qualifying: qualifying.length, reason };
+  return {
+    pick,
+    parlay,
+    considered,
+    skippedOpen,
+    skippedFavourite,
+    qualifying: qualifying.length,
+    reason,
+  };
 }

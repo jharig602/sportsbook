@@ -286,3 +286,49 @@ test("bestParlay on its own refuses a pair that loses money at the rounded price
   ];
   assert.equal(bestParlay(thin, new Set()), null);
 });
+
+// --- never against your own team -------------------------------------------------
+
+test("a bet against your team is never the pick, and it says how many it skipped", () => {
+  // The fixture's home side is the Lions. The Bills side is the one against them.
+  const result = pickDailyBet(
+    [
+      edge({ eventId: "E1", side: "away", line: 3, fairProbability: 0.7 }),
+      edge({ eventId: "E2", side: "home", fairProbability: 0.56 }),
+    ],
+    { ...base, favourites: ["Detroit Lions"] },
+  );
+  assert.equal(result.pick?.row.eventId, "E2", "the likelier bet was against the Lions");
+  assert.equal(result.skippedFavourite, 1);
+});
+
+test("backing your own team is still allowed", () => {
+  const result = pickDailyBet(
+    [edge({ side: "home", fairProbability: 0.58 })],
+    { ...base, favourites: ["Detroit Lions"] },
+  );
+  assert.ok(result.pick);
+  assert.equal(result.skippedFavourite, 0);
+});
+
+test("when everything left is against your team, the reason says so", () => {
+  const result = pickDailyBet(
+    [edge({ side: "away", line: 3, fairProbability: 0.7 })],
+    { ...base, favourites: ["Detroit Lions"] },
+  );
+  assert.equal(result.pick, null);
+  assert.match(result.reason!, /against one of your teams/);
+});
+
+test("the parlay of the day inherits the rule, because it draws on the same bets", () => {
+  const result = pickDailyBet(
+    [
+      edge({ eventId: "A", side: "away", line: 3, fairProbability: 0.62 }),
+      edge({ eventId: "B", homeTeam: "Green Bay Packers", awayTeam: "Chicago Bears", fairProbability: 0.6 }),
+      edge({ eventId: "C", homeTeam: "Dallas Cowboys", awayTeam: "New York Giants", fairProbability: 0.59 }),
+    ],
+    { ...base, favourites: ["Detroit Lions"] },
+  );
+  const parlayGames = (result.parlay?.legs ?? []).map((leg) => leg.row.eventId);
+  assert.ok(!parlayGames.includes("A"), `a leg bet against the Lions: ${parlayGames}`);
+});

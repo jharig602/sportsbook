@@ -89,6 +89,11 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
                   {view.skippedOpen > 0
                     ? ` Skipped ${view.skippedOpen} price${view.skippedOpen === 1 ? "" : "s"} on games you already have money on.`
                     : ""}
+                  {view.skippedFavourite > 0
+                    ? ` Skipped ${view.skippedFavourite} against your team${
+                        view.skippedFavourite === 1 ? "" : "s"
+                      }.`
+                    : ""}
                 </p>
 
                 <Link
@@ -111,8 +116,16 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
       ) : (
         <p className="px-3.5 py-2.5 text-[13px] leading-relaxed text-slate-400">
           {view.reason}
-          {view.skippedOpen > 0 && view.considered !== view.skippedOpen
+          {view.skippedOpen > 0 && view.considered !== view.skippedOpen + view.skippedFavourite
             ? ` (${view.skippedOpen} price${view.skippedOpen === 1 ? "" : "s"} skipped on games you already hold.)`
+            : ""}
+          {/* Said out loud, like every filter here. A bet the app declined to mention
+              without saying so is indistinguishable from one it never saw. */}
+          {view.skippedFavourite > 0 &&
+          view.considered !== view.skippedOpen + view.skippedFavourite
+            ? ` (${view.skippedFavourite} skipped against your team${
+                view.skippedFavourite === 1 ? "" : "s"
+              }.)`
             : ""}
         </p>
       )}

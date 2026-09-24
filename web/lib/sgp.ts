@@ -44,6 +44,7 @@
  * rather than quietly ranking a worse ticket first.
  */
 import type { BoardEdge } from "./board-shop";
+import { betsAgainst } from "./favourites";
 import { type GameLines, type ScoreLeg, type ScoreModel, jointProbability, independentProduct } from "./joint-score";
 import { toAmerican } from "./parlay";
 import type { MarginModel } from "./probability";
@@ -366,7 +367,7 @@ function opposed(legs: PricedLeg[]): boolean {
  */
 export function sgpGamesFromBoard(
   rows: BoardEdge[],
-  options: { books?: string[] } = {},
+  options: { books?: string[]; favourites?: string[] } = {},
 ): SgpGame[] {
   const allowed = options.books && options.books.length > 0 ? new Set(options.books) : null;
   const byEvent = new Map<string, BoardEdge[]>();
@@ -401,6 +402,10 @@ export function sgpGamesFromBoard(
     const best = new Map<string, PricedLeg>();
     for (const row of group) {
       if (row.price === null || Math.abs(row.price) < 100) continue;
+      // A leg backing the other side against one of your teams never joins a ticket.
+      // The reference line above still uses every row, because what the game is priced
+      // at does not depend on which side you would bet.
+      if (betsAgainst(row, options.favourites ?? [])) continue;
       const leg = legFor(row.market, row.side, row.line);
       if (leg === null) continue;
       const key = `${row.market}|${row.side}|${row.line ?? ""}`;

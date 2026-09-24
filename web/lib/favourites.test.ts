@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseFavourites, serializeFavourites, teamTheme, themedTeams, themeFor } from "./favourites.ts";
+import {
+  betsAgainst,
+  parseFavourites,
+  serializeFavourites,
+  teamTheme,
+  themedTeams,
+  themeFor,
+} from "./favourites.ts";
 
 test("the theme applies only to exactly one favourite", () => {
   // Two teams have no single colour, and picking the first would be arbitrary in a way
@@ -56,4 +63,59 @@ test("a hostile or empty payload yields no favourites rather than throwing", () 
 test("the list cannot grow without bound", () => {
   const many = serializeFavourites(Array.from({ length: 40 }, (_, i) => `Team ${i}`));
   assert.ok(parseFavourites(many).length <= 8);
+});
+
+// --- never against your own team -------------------------------------------------
+
+const JETS_AT_LIONS = { homeTeam: "Detroit Lions", awayTeam: "New York Jets" };
+
+test("the other side's spread and moneyline are against your team", () => {
+  const lions = ["Detroit Lions"];
+  assert.equal(
+    betsAgainst({ ...JETS_AT_LIONS, market: "moneyline", side: "away" }, lions),
+    "Detroit Lions",
+  );
+  assert.equal(
+    betsAgainst({ ...JETS_AT_LIONS, market: "spread", side: "away" }, lions),
+    "Detroit Lions",
+  );
+});
+
+test("backing your own team is not against it", () => {
+  const lions = ["Detroit Lions"];
+  assert.equal(betsAgainst({ ...JETS_AT_LIONS, market: "moneyline", side: "home" }, lions), null);
+  assert.equal(betsAgainst({ ...JETS_AT_LIONS, market: "spread", side: "home" }, lions), null);
+});
+
+test("a total picks no side, so it is never against anybody", () => {
+  const lions = ["Detroit Lions"];
+  assert.equal(betsAgainst({ ...JETS_AT_LIONS, market: "total", side: "over" }, lions), null);
+  assert.equal(betsAgainst({ ...JETS_AT_LIONS, market: "total", side: "under" }, lions), null);
+});
+
+test("a game your team is not in is left alone", () => {
+  assert.equal(
+    betsAgainst(
+      { homeTeam: "Buffalo Bills", awayTeam: "New York Jets", market: "moneyline", side: "away" },
+      ["Detroit Lions"],
+    ),
+    null,
+  );
+});
+
+test("with no teams chosen nothing is filtered", () => {
+  assert.equal(betsAgainst({ ...JETS_AT_LIONS, market: "moneyline", side: "away" }, []), null);
+});
+
+test("with both teams chosen, every side bet on the game is against one of them", () => {
+  const both = ["Detroit Lions", "New York Jets"];
+  assert.ok(betsAgainst({ ...JETS_AT_LIONS, market: "moneyline", side: "home" }, both));
+  assert.ok(betsAgainst({ ...JETS_AT_LIONS, market: "moneyline", side: "away" }, both));
+});
+
+test("names are matched without caring about case or stray spaces", () => {
+  assert.equal(
+    betsAgainst({ ...JETS_AT_LIONS, market: "moneyline", side: "away" }, [" detroit lions "]),
+    " detroit lions ",
+  );
 });

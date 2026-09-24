@@ -259,6 +259,15 @@ with a standing bet in the viewer's ledger (`openEvents` uses `activeBets`, so v
 corrected rows do not block, and cashed-out tickets are finished). "No bet today" is
 shown, not hidden: it is the usual answer.
 
+**Never against your team.** A bet backing the opponent of a team in My teams is
+skipped by the single, the parlay and the same-game parlay (`betsAgainst` in
+`favourites.ts`), and the card counts what it skipped — a bet the app declined to mention
+without saying so is indistinguishable from one it never saw. Totals are never "against"
+anybody: an over or under picks no side. The SGP's reference line still uses every row,
+because what a game is priced at does not depend on which side you would bet. Cost,
+measured when it was asked for: passing the Jets at +265 against the Lions gave up about
+a dollar of boost value.
+
 The **parlay of the day** (`bestParlay`) uses the same qualifying bets, two at a time:
 different games, one book, never the single's game (so taking both never stacks two
 tickets on one result), likeliest pair first, priced at the combined price **rounded
