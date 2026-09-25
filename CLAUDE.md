@@ -299,7 +299,10 @@ remembering what they sent (GitHub delivers runs at arbitrary minutes):
   pushed the whole season), held midnight–8 AM Central, and one summary when more than
   three land at once. Cash-outs are not announced; voided and corrected rows are gone
   before it looks.
-- **Line-shopping alerts** — edges at your books over the alert bar. The repeat check
+- **Line-shopping alerts** — **switched off** by the owner (2026-09-25) with `?notify=0` in
+  `collect.yml`. The endpoint still runs every cycle, because it is the only writer of
+  the line census and shop picks; dropping the step would have silently stopped the
+  Record page and the calibration. When on: edges at your books over the bar. The repeat check
   compares **edge in points**; for a while the dispatcher stored the expected *return*
   (~0.04) in its place and every alert re-sent every run. `notificationRecord` is now the
   only writer, and a test feeds what it records straight back into the check.

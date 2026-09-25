@@ -152,7 +152,11 @@ jobs:
       # that is how we learn whether they predict anything. They just no longer buzz.
       # A channel that fires on every unusual line move is one you mute inside a
       # weekend, and a muted channel carries nothing when something real happens.
-      - name: Send notifications for cleared-vig offers
+      # Records the line census and line-shopping picks every run. Alerts for these are
+      # switched off (?notify=0) at the owner's request; the recording must keep running,
+      # because the Record page and the edge calibration read it. Drop ?notify=0 to turn
+      # the alerts back on.
+      - name: Record line-shopping picks (alerts off)
         continue-on-error: true
         env:
           APP_URL: ${{ secrets.APP_URL }}
@@ -163,7 +167,7 @@ jobs:
             exit 0
           fi
           curl --fail --silent --show-error --max-time 60 \
-            -X POST "$APP_URL/api/dispatch-shop" \
+            -X POST "$APP_URL/api/dispatch-shop?notify=0" \
             -H "Authorization: Bearer $DISPATCH_SECRET" \
             || echo "dispatch failed; these alerts stay pending for the next run"
 

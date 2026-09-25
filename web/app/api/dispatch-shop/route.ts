@@ -71,6 +71,23 @@ export async function POST(request: Request) {
       ? await recordLineCensus(shop.rows, ruleVersion).catch(() => null)
       : null;
 
+    // Recording is done; pushing is optional. `?notify=0` keeps the measurement running
+    // with the phone quiet. The owner switched these alerts off (2026-09-25) -- they want
+    // the bet of the day, the parlay, their team, and results, not every price over the
+    // bar -- but this endpoint is also the only thing writing the line census and the
+    // shopping picks the Record page and the edge calibration read. Dropping the whole
+    // step to silence the pushes would have stopped both, with nothing on screen to say
+    // so. Removing the parameter from collect.yml turns the alerts back on.
+    if (new URL(request.url).searchParams.get("notify") === "0") {
+      return NextResponse.json({
+        sent: 0,
+        reason: "alerts switched off; recording only",
+        recorded: recorded?.written ?? 0,
+        censused: censused?.written ?? 0,
+        positive: shop.positive.length,
+      });
+    }
+
     // Only now does anything depend on push being configured.
     if (!publicKey || !privateKey) {
       return NextResponse.json(
