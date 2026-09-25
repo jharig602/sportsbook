@@ -259,3 +259,43 @@ export async function setFavourites(teams: string[]): Promise<string[]> {
   );
   return parseFavourites(value);
 }
+
+export const FAVOURITE_SENT_KEY = "favourite_pushes_sent";
+
+/** How many announced games are remembered. A season of one team's games, with room. */
+const FAVOURITE_SENT_KEEP = 40;
+
+/**
+ * Games already announced to your phone, by `favouriteKey`.
+ *
+ * Remembered per game rather than per date, because the question is "has this game been
+ * announced", and a game's window can span two calendar days.
+ */
+export async function favouritePushesSent(): Promise<Set<string>> {
+  if (!databaseUrl()) return new Set();
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [
+      FAVOURITE_SENT_KEY,
+    ]);
+    const raw = result.rows[0]?.value;
+    if (typeof raw !== "string" || raw.length === 0) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return new Set();
+    if (error instanceof SyntaxError) return new Set();
+    throw error;
+  }
+}
+
+export async function recordFavouritePushSent(key: string): Promise<void> {
+  const existing = [...(await favouritePushesSent())].filter((k) => k !== key);
+  const next = [...existing, key].slice(-FAVOURITE_SENT_KEEP);
+  const db = await getPool();
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [FAVOURITE_SENT_KEY, JSON.stringify(next)],
+  );
+}

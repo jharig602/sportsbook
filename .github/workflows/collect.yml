@@ -197,6 +197,25 @@ jobs:
             "$APP_URL/api/dispatch-daily" \
             -H "Authorization: Bearer $DISPATCH_SECRET"
 
+      # Your team's game: the cheapest way to back them, once per game, in the 30
+      # hours before kickoff. Its own step so a failure in the daily push cannot
+      # stop it (bash -e ends a step at the first failed command), and the same
+      # offer-every-run design: the endpoint decides, and remembers which games
+      # it has already announced.
+      - name: Favourite team push
+        continue-on-error: true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo "APP_URL / ALERT_DISPATCH_SECRET not set; skipping."
+            exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 -X POST \
+            "$APP_URL/api/dispatch-favourite" \
+            -H "Authorization: Bearer $DISPATCH_SECRET"
+
       # Survivor reminder, Saturday evening and Sunday morning Central.
       #
       # Sent on a schedule rather than on a change, unlike every other alert here,
