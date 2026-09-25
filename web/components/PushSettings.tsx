@@ -176,8 +176,9 @@ export function PushSettings() {
               a settings page describing an app that no longer exists. */}
           <p className="mt-1 text-sm text-slate-400">
             Get pushed for the bet of the day and parlay of the day, your team&rsquo;s game
-            each week, a price at your books that clears the house edge, and your survivor
-            pick before the deadline. Nothing on days there is nothing to say.
+            each week, whether each of your bets won or lost, a price at your books that
+            clears the house edge, and your survivor pick before the deadline. Nothing on
+            days there is nothing to say.
           </p>
           <button
             onClick={subscribe}

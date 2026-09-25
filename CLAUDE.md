@@ -285,6 +285,29 @@ The FanDuel $5/$50 qualifying promotion ended and its code (card, plan, `promo.t
 `dispatch-promo`) was removed; restore from git history if it recurs. `promo-window.ts`
 stays — it is the daily window the bet of the day uses.
 
+## Pushes
+
+Six dispatchers, all `/api/dispatch-*`, all called by `collect.yml` after the scores and
+odds steps, all guarded by `refuseUnlessDispatcher`, all offering on every run and
+remembering what they sent (GitHub delivers runs at arbitrary minutes):
+
+- **Bet of the day** (+ parlay in the same message) — once a day, only when one clears.
+- **Your team this week** — once per game in the 30 hours before kickoff, daytime only;
+  the cheapest way to back them. Skips a game you already hold.
+- **Win and loss** — one per ticket once final, owner's ledger only (`HOUSE`), games that
+  kicked off in the last 36 hours only (without that bound the first run would have
+  pushed the whole season), held midnight–8 AM Central, and one summary when more than
+  three land at once. Cash-outs are not announced; voided and corrected rows are gone
+  before it looks.
+- **Line-shopping alerts** — edges at your books over the alert bar. The repeat check
+  compares **edge in points**; for a while the dispatcher stored the expected *return*
+  (~0.04) in its place and every alert re-sent every run. `notificationRecord` is now the
+  only writer, and a test feeds what it records straight back into the check.
+- **Survivor reminder**, and the dormant **movers** dispatcher.
+
+Every response lands in **public** Actions logs: counts only, never teams, results or
+money.
+
 ## Promo tracker
 
 `/promos` (schema v18: `promos`, `promo_uses`). A calculator and a calendar, never a

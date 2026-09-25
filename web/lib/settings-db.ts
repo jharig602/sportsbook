@@ -340,3 +340,44 @@ export async function recordUnlockFailure(sourceHash: string): Promise<void> {
   ]);
   await db.query("DELETE FROM unlock_attempts WHERE attempted_at < NOW() - INTERVAL '1 day'");
 }
+
+export const RESULT_SENT_KEY = "result_pushes_sent";
+
+/** Results remembered as announced. A few busy weekends of tickets, with room. */
+const RESULT_SENT_KEEP = 500;
+
+/**
+ * Results already announced, by `ResultMessage.key`.
+ *
+ * Only results inside the 36-hour window are ever considered, so the list only has to
+ * outlast that window; the cap keeps it from growing for ever.
+ */
+export async function resultPushesSent(): Promise<Set<string>> {
+  if (!databaseUrl()) return new Set();
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [
+      RESULT_SENT_KEY,
+    ]);
+    const raw = result.rows[0]?.value;
+    if (typeof raw !== "string" || raw.length === 0) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return new Set();
+    if (error instanceof SyntaxError) return new Set();
+    throw error;
+  }
+}
+
+export async function recordResultPushesSent(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const existing = [...(await resultPushesSent())].filter((k) => !keys.includes(k));
+  const next = [...existing, ...keys].slice(-RESULT_SENT_KEEP);
+  const db = await getPool();
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [RESULT_SENT_KEY, JSON.stringify(next)],
+  );
+}

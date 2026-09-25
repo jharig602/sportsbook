@@ -216,6 +216,23 @@ jobs:
             "$APP_URL/api/dispatch-favourite" \
             -H "Authorization: Bearer $DISPATCH_SECRET"
 
+      # Won, lost or pushed: one notification per ticket once its game is final. After
+      # 'Capture final scores' above, so the scores it reads are this run's. Held
+      # overnight and sent by the first run after 8 AM Central.
+      - name: Win and loss push
+        continue-on-error: true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo "APP_URL / ALERT_DISPATCH_SECRET not set; skipping."
+            exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 -X POST \
+            "$APP_URL/api/dispatch-results" \
+            -H "Authorization: Bearer $DISPATCH_SECRET"
+
       # Survivor reminder, Saturday evening and Sunday morning Central.
       #
       # Sent on a schedule rather than on a change, unlike every other alert here,
