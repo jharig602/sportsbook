@@ -147,10 +147,11 @@ export function StakeSettings() {
       ) : null}
 
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
-        Every pick is sized flat right now. Kelly sizing turns on by itself, per Move
-        Strength bucket, once that bucket has enough settled games to show a real win
-        rate. Sizing by an unproven signal loses money faster than flat betting, not
-        slower.
+        A guide for sizing any bet: one unit is your normal stake, and the hard cap is
+        the most any single bet should be. The app only sizes stakes for you on the
+        Movers page; for the bet of the day and your boosts, the cap above is the number
+        to stay under. Sizing up on an unproven signal loses money faster than flat
+        betting, not slower.
       </p>
     </div>
   );

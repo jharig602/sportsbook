@@ -1,8 +1,8 @@
+import Link from "next/link";
 import { TeamLogo } from "@/components/TeamLogo";
 import { MyBooksPicker } from "@/components/MyBooksPicker";
 import { Card, Empty, Explainer, NotAdvice, PageHeader, Pill, Segmented, Stats } from "@/components/ui";
 import { BackingCard } from "@/components/BackingCard";
-import { FavouriteTeams } from "@/components/FavouriteTeams";
 import { ParlayBuilder } from "@/components/ParlayBuilder";
 import { DailyBetCard } from "@/components/DailyBetCard";
 import { DEFAULT_MAX_SPREAD, NO_LIMIT, parseMaxSpread, withoutBlowouts } from "@/lib/blowout";
@@ -195,7 +195,18 @@ export default async function ShopPage({
         />
       ))}
 
-      <FavouriteTeams selected={favourites} />
+      {/* The picker moved to Settings, where people look for it. Only a pointer stays
+          here, and only until a team is chosen -- after that the cards above are the
+          point, and a link to change them is one tap away in Settings. */}
+      {favourites.length === 0 ? (
+        <p className="mb-3 px-1 text-[11px] text-slate-500">
+          Back a team every week?{" "}
+          <Link href="/about" className="text-sky-400 underline underline-offset-2">
+            Set it in Settings
+          </Link>{" "}
+          to see the cheapest way to bet them here.
+        </p>
+      ) : null}
 
       {shop.gamesWithSecondBook === 0 ? (
         <Empty

@@ -79,8 +79,9 @@ export function FavouriteTeams({ selected }: { selected: string[] }) {
             })}
           </div>
           <p className="mt-2.5 text-[11px] leading-relaxed text-slate-600">
-            This does not decide whether to bet them &mdash; you already have. It shows
-            every way to back them this week ranked by what each costs, because a
+            This does not decide whether to bet them &mdash; you already have. The Shop
+            page shows every way to back them this week ranked by what each costs, and
+            with notifications on you get the cheapest one before each game, because a
             moneyline on a favourite and a spread at a book hanging a different number
             are not equally good. The bet of the day, the parlay and the same-game parlay
             also never suggest betting against them &mdash; totals are still fair game, since
