@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 21
+ANALYTICS_SCHEMA_VERSION = 22
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -415,6 +415,22 @@ CREATE TABLE IF NOT EXISTS shop_grades (
     result_covered BOOLEAN,
     result_push BOOLEAN NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS unlock_attempts (
+    -- Failed passcode attempts, kept briefly, so guessing it can be slowed down.
+    --
+    -- The passcode is the only thing between the internet and this app, and until this
+    -- table existed nothing limited how fast it could be guessed. Only FAILURES are
+    -- recorded; a correct passcode leaves no row.
+    --
+    -- The source is a SHA-256 of the client address, never the address itself: enough
+    -- to count one source's attempts, and nothing worth reading if the table leaked.
+    -- Rows older than a day are deleted as new ones arrive, so this never grows.
+    attempted_at TIMESTAMPTZ NOT NULL,
+    source_hash VARCHAR NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS unlock_attempts_time ON unlock_attempts (attempted_at);
 
 CREATE TABLE IF NOT EXISTS line_census (
     -- EVERY priced line the shop can compare, not only the ones that clear the vig.
