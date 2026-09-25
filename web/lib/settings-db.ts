@@ -86,7 +86,8 @@ export async function recordNotified(
     book: string;
     market: string;
     side: string;
-    roi: number;
+    /** The edge in points. Stored in the column still named `last_roi`. */
+    edge: number;
   }>,
 ): Promise<void> {
   if (rows.length === 0) return;
@@ -98,7 +99,7 @@ export async function recordNotified(
        VALUES ($1, $2, $3, $4, $5, $6, NOW())
        ON CONFLICT (offer_key) DO UPDATE
          SET last_roi = EXCLUDED.last_roi, notified_at = NOW()`,
-      [row.offer_key, row.event_id, row.book, row.market, row.side, row.roi],
+      [row.offer_key, row.event_id, row.book, row.market, row.side, row.edge],
     );
   }
 }

@@ -8,6 +8,7 @@ import {
   offerKey,
   selectAlerts,
   shopNotification,
+  notificationRecord,
 } from "./shop-alerts.ts";
 
 function edge(over: Partial<BoardEdge> = {}): BoardEdge {
@@ -44,7 +45,7 @@ const MINE = ["BetMGM", "FanDuel", "BetRivers"];
 test("a strong row at one of your books alerts", () => {
   const picked = selectAlerts([edge()], MINE, []);
   assert.equal(picked.length, 1);
-  assert.equal(picked[0].previousRoi, null);
+  assert.equal(picked[0].previousEdge, null);
 });
 
 test("a row at a book you cannot reach never alerts", () => {
@@ -134,7 +135,7 @@ test("a materially better version of the same offer does buzz again", () => {
   const better = edge({ edgePoints: 2.8 + RENOTIFY_IMPROVEMENT });
   const picked = selectAlerts([better], MINE, sent);
   assert.equal(picked.length, 1);
-  assert.equal(picked[0].previousRoi, 2.8);
+  assert.equal(picked[0].previousEdge, 2.8);
 });
 
 test("the same game at a different book is a different offer", () => {
@@ -201,4 +202,37 @@ test("a moneyline carries no line", () => {
   const push = shopNotification(decision);
   assert.match(push.body, /\+275/);
   assert.ok(!push.body.includes("null"));
+});
+
+// --- what gets stored must be what gets compared ---------------------------------
+
+test("an alert, once recorded, is not sent again on the next run", () => {
+  // The bug this pins: the dispatcher stored the expected RETURN (~0.04) while the
+  // repeat check compared the EDGE in points (~1.6), so every alert re-sent every run.
+  // Feeding the recorded value straight back in is the only honest test of that.
+  const row = edge({ edgePoints: 2.1 });
+  const [first] = selectAlerts([row], MINE, []);
+  assert.ok(first, "the first run should alert");
+  const stored = notificationRecord(first);
+  const again = selectAlerts([row], MINE, [
+    { offer_key: stored.offer_key, last_roi: stored.edge },
+  ]);
+  assert.deepEqual(again, [], "the same offer must not buzz twice");
+});
+
+test("a recorded alert still re-sends when the edge genuinely improves", () => {
+  const row = edge({ edgePoints: 2.1 });
+  const [first] = selectAlerts([row], MINE, []);
+  const stored = notificationRecord(first);
+  const better = edge({ edgePoints: 2.1 + RENOTIFY_IMPROVEMENT });
+  const again = selectAlerts([better], MINE, [
+    { offer_key: stored.offer_key, last_roi: stored.edge },
+  ]);
+  assert.equal(again.length, 1);
+});
+
+test("what is recorded is the edge in points, not the return", () => {
+  const row = edge({ edgePoints: 2.1, expectedRoi: 0.04 });
+  const [first] = selectAlerts([row], MINE, []);
+  assert.equal(notificationRecord(first).edge, 2.1);
 });

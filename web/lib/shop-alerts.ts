@@ -69,8 +69,8 @@ export function offerKey(row: {
 export interface AlertDecision {
   row: BoardEdge;
   key: string;
-  /** The previous return we alerted on, when this is a repeat. */
-  previousRoi: number | null;
+  /** The edge, in points, we last alerted on for this offer, when this is a repeat. */
+  previousEdge: number | null;
 }
 
 /**
@@ -108,7 +108,7 @@ export function selectAlerts(
     const previous = seen.get(key);
     if (previous !== undefined && edge < previous + RENOTIFY_IMPROVEMENT) continue;
 
-    out.push({ row, key, previousRoi: previous ?? null });
+    out.push({ row, key, previousEdge: previous ?? null });
   }
 
   // Ranked by the probability edge, for the same reason it is the threshold: ranking
@@ -144,7 +144,39 @@ export function shopNotification(decision: AlertDecision) {
     // One notification per offer, replacing any earlier one for the same offer rather
     // than stacking a wall of near-identical cards.
     tag: `shop-${decision.key}`,
-    renotify: decision.previousRoi !== null,
+    renotify: decision.previousEdge !== null,
     url: `/game/${row.eventId}`,
+  };
+}
+
+/**
+ * What gets remembered about an alert once it reaches a device.
+ *
+ * Lives here, beside `selectAlerts`, because the two must agree on a unit and did not.
+ * The repeat check compares a new offer's EDGE, in points, against what was stored plus
+ * a one-point margin. The dispatcher was storing the expected RETURN instead -- a
+ * fraction around 0.04 -- so an edge of 1.6 always looked a full point better than
+ * "0.04", and every alert was pushed again on every collector run, three to five times a
+ * day. The tests passed throughout: they wrote points into the store by hand, and never
+ * exercised the step that actually writes it.
+ *
+ * The database column is still called `last_roi`. Renaming a column is a migration for a
+ * word; the value it holds is the edge in points, and this function is the only writer.
+ */
+export function notificationRecord(decision: AlertDecision): {
+  offer_key: string;
+  event_id: string;
+  book: string;
+  market: string;
+  side: string;
+  edge: number;
+} {
+  return {
+    offer_key: decision.key,
+    event_id: decision.row.eventId,
+    book: decision.row.book,
+    market: decision.row.market,
+    side: decision.row.side,
+    edge: decision.row.edgePoints ?? 0,
   };
 }

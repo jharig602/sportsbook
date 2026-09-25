@@ -7,7 +7,7 @@ import { buildBoardShop } from "@/lib/board-shop";
 import { getData } from "@/lib/data";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { getMyBooks, notifiedOffers, recordNotified } from "@/lib/settings-db";
-import { selectAlerts, shopNotification } from "@/lib/shop-alerts";
+import { selectAlerts, shopNotification, notificationRecord } from "@/lib/shop-alerts";
 import { recordLineCensus } from "@/lib/census";
 import { activeRuleVersion, recordShopPicks } from "@/lib/shop-picks";
 
@@ -140,16 +140,7 @@ export async function POST(request: Request) {
       if (anyDelivered) delivered.push(decision);
     }
 
-    await recordNotified(
-      delivered.map((d) => ({
-        offer_key: d.key,
-        event_id: d.row.eventId,
-        book: d.row.book,
-        market: d.row.market,
-        side: d.row.side,
-        roi: d.row.expectedRoi ?? 0,
-      })),
-    );
+    await recordNotified(delivered.map(notificationRecord));
 
     return NextResponse.json({
       sent,
