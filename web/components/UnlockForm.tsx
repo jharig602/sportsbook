@@ -20,7 +20,11 @@ export function UnlockForm({ next }: { next: string }) {
         body: JSON.stringify({ passcode }),
       });
       if (!response.ok) {
-        setError("Incorrect passcode.");
+        // The server's own words: "Too many attempts, try again in 5 minutes" must not
+        // be flattened into "Incorrect passcode", or a locked-out owner keeps typing the
+        // right passcode into a wall and concludes it has changed.
+        const body = await response.json().catch(() => null);
+        setError(typeof body?.error === "string" ? body.error : "Incorrect passcode.");
         return;
       }
       // A full navigation, so the new cookie is attached to the next request.

@@ -299,3 +299,43 @@ export async function recordFavouritePushSent(key: string): Promise<void> {
     [FAVOURITE_SENT_KEY, JSON.stringify(next)],
   );
 }
+
+/**
+ * Failed passcode attempts in the last hour, for the rate limit.
+ *
+ * `null` means the check could not be made. The caller treats that as locked -- a limit
+ * that switches itself off whenever the database hiccups is a limit an attacker only has
+ * to wait for. A missing table is the one exception, returned as an empty list: that is a
+ * deploy that ran ahead of its migration, not an attack.
+ */
+export async function recentUnlockFailures(): Promise<
+  Array<{ sourceHash: string; at: Date }> | null
+> {
+  if (!databaseUrl()) return [];
+  try {
+    const db = await getPool();
+    const result = await db.query(
+      `SELECT source_hash, attempted_at FROM unlock_attempts
+        WHERE attempted_at > NOW() - INTERVAL '60 minutes'`,
+    );
+    return (result.rows as Array<{ source_hash: string; attempted_at: Date | string }>).map(
+      (row) => ({
+        sourceHash: String(row.source_hash),
+        at: row.attempted_at instanceof Date ? row.attempted_at : new Date(row.attempted_at),
+      }),
+    );
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return [];
+    return null;
+  }
+}
+
+/** Remember one wrong guess, and forget anything older than a day while here. */
+export async function recordUnlockFailure(sourceHash: string): Promise<void> {
+  if (!databaseUrl()) return;
+  const db = await getPool();
+  await db.query("INSERT INTO unlock_attempts (attempted_at, source_hash) VALUES (NOW(), $1)", [
+    sourceHash,
+  ]);
+  await db.query("DELETE FROM unlock_attempts WHERE attempted_at < NOW() - INTERVAL '1 day'");
+}

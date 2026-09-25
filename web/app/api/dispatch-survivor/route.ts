@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { refuseUnlessDispatcher } from "@/lib/dispatch-auth";
+
 import { getData } from "@/lib/data";
 import { listSubscriptions, recordFailure } from "@/lib/push";
 import { currentNflWeek, pickPopularity, seasonGames } from "@/lib/season-db";
@@ -22,28 +24,9 @@ export const dynamic = "force-dynamic";
  * Guarded by the same shared secret as the other dispatchers, because it too makes the
  * phone buzz.
  */
-function normaliseSecret(raw: string | undefined | null): string | null {
-  if (!raw) return null;
-  let value = raw.trim();
-  if (value.startsWith("ALERT_DISPATCH_SECRET=")) {
-    value = value.slice("ALERT_DISPATCH_SECRET=".length).trim();
-  }
-  if (value.length >= 2 && value[0] === value.at(-1) && (value[0] === '"' || value[0] === "'")) {
-    value = value.slice(1, -1).trim();
-  }
-  return value || null;
-}
-
 export async function POST(request: Request) {
-  const secret = normaliseSecret(process.env.ALERT_DISPATCH_SECRET);
-  if (!secret) {
-    return new NextResponse("ALERT_DISPATCH_SECRET is not configured.", { status: 503 });
-  }
-  const header = request.headers.get("authorization") ?? "";
-  const presented = normaliseSecret(
-    header.toLowerCase().startsWith("bearer ") ? header.slice(7) : header,
-  );
-  if (presented !== secret) return new NextResponse("Unauthorized.", { status: 401 });
+  const denied = await refuseUnlessDispatcher(request);
+  if (denied) return denied;
 
   const url = new URL(request.url);
   // `force` exists so the thing can be tested outside a Saturday night.

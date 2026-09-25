@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { refuseUnlessDispatcher } from "@/lib/dispatch-auth";
+
 import { planBacking, spreadOfOptions } from "@/lib/backing";
 import { listBets } from "@/lib/bets-db";
 import { buildBoardShop } from "@/lib/board-shop";
@@ -31,28 +33,9 @@ export const dynamic = "force-dynamic";
  * open is which market and which book cost least, and that is what the message says.
  */
 
-function normaliseSecret(raw: string | undefined | null): string | null {
-  if (!raw) return null;
-  let value = raw.trim();
-  if (value.startsWith("ALERT_DISPATCH_SECRET=")) {
-    value = value.slice("ALERT_DISPATCH_SECRET=".length).trim();
-  }
-  if (value.length >= 2 && value[0] === value.at(-1) && (value[0] === '"' || value[0] === "'")) {
-    value = value.slice(1, -1).trim();
-  }
-  return value || null;
-}
-
 export async function POST(request: Request) {
-  const secret = normaliseSecret(process.env.ALERT_DISPATCH_SECRET);
-  if (!secret) {
-    return new NextResponse("ALERT_DISPATCH_SECRET is not configured.", { status: 503 });
-  }
-  const header = request.headers.get("authorization") ?? "";
-  const presented = normaliseSecret(
-    header.toLowerCase().startsWith("bearer ") ? header.slice(7) : header,
-  );
-  if (presented !== secret) return new NextResponse("Unauthorized.", { status: 401 });
+  const denied = await refuseUnlessDispatcher(request);
+  if (denied) return denied;
 
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
@@ -91,12 +74,17 @@ export async function POST(request: Request) {
 
     const due = dueFavouriteGames(games, favourites, now, sent);
     if (due.length === 0) {
-      return NextResponse.json({ sent: 0, reason: "no game of yours inside the window", favourites });
+      return NextResponse.json({ sent: 0, reason: "no game of yours inside the window" });
     }
 
     const shop = buildBoardShop(games, lines, models);
     const held = openEvents(ledger, new Set(results.map((r) => r.event_id)));
-    const report: Array<Record<string, unknown>> = [];
+    // Counts only. The collector prints this response into GitHub Actions logs, which are
+    // PUBLIC for this repository -- a team name there says who you back, and "already
+    // bet" says you have money on a named game. Neither belongs in a public log. A manual
+    // dry run (?dry=1, needs the secret) still returns the full messages for checking.
+    const counts = { announced: 0, alreadyBet: 0, notPricedYet: 0 };
+    const previews: unknown[] = [];
     let sentTotal = 0;
     const webpush = dry ? null : (await import("web-push")).default;
     webpush?.setVapidDetails(subject, publicKey, privateKey);
@@ -105,7 +93,7 @@ export async function POST(request: Request) {
       // Already bet it: the message would be advice about a decision already taken.
       // Not stamped, so a bet voided later still gets its reminder.
       if (held.has(game.eventId)) {
-        report.push({ team: game.team, eventId: game.eventId, skipped: "already bet" });
+        counts.alreadyBet += 1;
         continue;
       }
 
@@ -118,7 +106,7 @@ export async function POST(request: Request) {
       // which time the books may have posted -- gets a chance. Announcing "no price" would
       // spend the one message on the least useful thing it could say.
       if (!plan.best) {
-        report.push({ team: game.team, eventId: game.eventId, skipped: "not priced yet" });
+        counts.notPricedYet += 1;
         continue;
       }
 
@@ -146,7 +134,7 @@ export async function POST(request: Request) {
       });
 
       if (dry || !webpush || subscriptions.length === 0) {
-        report.push({ team: game.team, eventId: game.eventId, dry: true, payload: JSON.parse(payload) });
+        if (dry) previews.push(JSON.parse(payload));
         continue;
       }
 
@@ -170,10 +158,15 @@ export async function POST(request: Request) {
       // Stamped only once a device actually took it; a failed send must not spend the game.
       if (delivered > 0) await recordFavouritePushSent(favouriteKey(game.eventId, game.team));
       sentTotal += delivered;
-      report.push({ team: game.team, eventId: game.eventId, delivered });
+      if (delivered > 0) counts.announced += 1;
     }
 
-    return NextResponse.json({ sent: sentTotal, subscribers: subscriptions.length, games: report });
+    return NextResponse.json({
+      sent: sentTotal,
+      subscribers: subscriptions.length,
+      ...counts,
+      ...(dry ? { previews } : {}),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

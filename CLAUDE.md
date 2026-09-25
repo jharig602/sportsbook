@@ -210,7 +210,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **21**.
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **22**.
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -528,6 +528,33 @@ The repo is **public**. Nothing secret has ever been committed (history was scan
 only connection strings are placeholders), and credentials live in Actions secrets and
 Vercel env. **Actions logs are public too** — keep anything sensitive out of stdout, and
 note `redact_url()` exists for exactly that reason.
+
+**Guessing the passcode is rate-limited** (`unlock-limit.ts`, table `unlock_attempts`,
+v22). Ten wrong guesses in fifteen minutes locks out that source; a hundred in an hour
+across everyone locks out new logins from anywhere, which is what stops guesses spread
+over many addresses. The global lock sounds like it could lock the owner out, and for a
+*fresh* login during an attack it can — but the phone's year-long cookie never touches
+`/api/unlock`, so an attacker can only block the login you make about once a year. The
+check runs **before** the guess is compared, and if the database cannot be read the route
+refuses rather than waving guesses through: a limit that turns off on a hiccup is one an
+attacker only has to wait out. Addresses are stored as a SHA-256, never raw.
+
+**The limit buys time; the passcode's length decides if it is enough.** At most 2,400
+guesses a day get through: a 4-digit PIN falls in about two days, 6 digits in over half
+a year, 12 random characters never.
+
+Passcodes and dispatcher secrets are compared as fixed-length digests in constant time.
+Every `/api/dispatch-*` route is public by the middleware's rule and must call
+`refuseUnlessDispatcher` first; there used to be five hand-copied versions of that check.
+
+Headers: HSTS comes from Vercel. The app adds nosniff, no framing, a strict referrer
+policy, a Permissions-Policy switching off hardware it never uses, and a content policy
+of `frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'` — no
+`script-src`, deliberately: that needs a per-request nonce through every page, and a
+wrong one fails as a blank screen.
+
+**Dispatcher responses land in public Actions logs.** Report counts, never team names or
+which games you hold money on.
 
 ## Whose ledger
 
