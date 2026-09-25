@@ -71,6 +71,7 @@ function priced(
 function game(legs: PricedLeg[]): SgpGame {
   return {
     eventId: "g1",
+    book: "FanDuel",
     league: "nfl",
     homeTeam: "Home",
     awayTeam: "Away",
@@ -296,30 +297,76 @@ test("a game without both numbers is skipped, not filled in", () => {
   assert.deepEqual(noSpread, []);
 });
 
-test("the best price for a leg wins, across books", () => {
+test("a ticket never mixes books", () => {
+  // A same-game parlay is placed in one app. Building it from the best price for each
+  // leg across several books produced tickets nobody could place.
   const games = sgpGamesFromBoard([
     boardRow({ book: "FanDuel", market: "spread", side: "home", price: -115 }),
     boardRow({ book: "DraftKings", market: "spread", side: "home", price: -105 }),
-    boardRow({ market: "total", side: "over", line: 45.5, price: -110 }),
+    boardRow({ book: "FanDuel", market: "total", side: "over", line: 45.5, price: -110 }),
   ]);
+  // DraftKings has only one leg on this game, so only FanDuel can make a ticket -- at
+  // FanDuel's own spread price, not DraftKings' better one.
   assert.equal(games.length, 1);
-  const spread = games[0].legs.find((l) => l.market === "spread")!;
-  assert.equal(spread.price, -105, "the price actually available is the one that decides");
+  assert.equal(games[0].book, "FanDuel");
+  assert.equal(games[0].legs.find((l) => l.market === "spread")!.price, -115);
 });
 
-test("two books on different numbers stay different bets", () => {
-  // Collapsing them would quote one book's price at the other's line, which is a bet
-  // nobody is offering.
+test("each book is its own candidate", () => {
   const games = sgpGamesFromBoard([
     boardRow({ book: "FanDuel", market: "spread", side: "home", line: -3.5 }),
-    boardRow({ book: "DraftKings", market: "spread", side: "home", line: -3 }),
-    boardRow({ market: "total", side: "over", line: 45.5 }),
+    boardRow({ book: "FanDuel", market: "total", side: "over", line: 45.5 }),
+    boardRow({ book: "BetMGM", market: "spread", side: "home", line: -3 }),
+    boardRow({ book: "BetMGM", market: "total", side: "over", line: 45.5 }),
   ]);
-  const lines = games[0].legs
-    .filter((l) => l.market === "spread")
-    .map((l) => l.line as number)
-    .sort((a, b) => a - b);
-  assert.deepEqual(lines, [-3.5, -3]);
+  const byBook = new Map(games.map((g) => [g.book, g]));
+  assert.deepEqual([...byBook.keys()].sort(), ["BetMGM", "FanDuel"]);
+  // Each carries its own number, never the other book's.
+  assert.equal(byBook.get("FanDuel")!.legs.find((l) => l.market === "spread")!.line, -3.5);
+  assert.equal(byBook.get("BetMGM")!.legs.find((l) => l.market === "spread")!.line, -3);
+});
+
+test("the reference line is every book's consensus, not only yours", () => {
+  // The Gardner-Webb card: legs chosen because your book beats the market, then priced
+  // against your book's own numbers, which erased the difference they were chosen for.
+  const rows = [
+    boardRow({ book: "FanDuel", market: "spread", side: "home", line: -3 }),
+    boardRow({ book: "FanDuel", market: "total", side: "under", line: 52.5 }),
+    boardRow({ book: "Caesars", market: "spread", side: "home", line: -4 }),
+    boardRow({ book: "Caesars", market: "total", side: "under", line: 51.5 }),
+    boardRow({ book: "DraftKings", market: "spread", side: "home", line: -4 }),
+    boardRow({ book: "DraftKings", market: "total", side: "under", line: 51.5 }),
+  ];
+  const [built] = sgpGamesFromBoard(rows, { books: ["FanDuel"] });
+  assert.equal(built.book, "FanDuel");
+  assert.equal(built.lines.homeSpread, -4, "the market's number, not FanDuel's");
+  assert.equal(built.lines.total, 51.5);
+  // So FanDuel's under 52.5 is priced as the better bet it is: a point above the market.
+  const under = built.legs.find((l) => l.market === "total")!;
+  assert.equal(under.line, 52.5);
+});
+
+test("a leg at a better number than the market is priced as better", () => {
+  const atMarket = priceSameGame(margin(), score(), { homeSpread: -3.5, total: 52.5 }, [
+    { market: "total", side: "under", line: 52.5 },
+    { market: "spread", side: "home", line: -3.5 },
+  ])!;
+  const pointBetter = priceSameGame(margin(), score(), { homeSpread: -3.5, total: 51.5 }, [
+    { market: "total", side: "under", line: 52.5 },
+    { market: "spread", side: "home", line: -3.5 },
+  ])!;
+  assert.ok(pointBetter.win > atMarket.win, `${pointBetter.win} vs ${atMarket.win}`);
+});
+
+test("a stale quote is never part of the reference", () => {
+  const rows = [
+    boardRow({ book: "FanDuel", market: "spread", side: "home", line: -4 }),
+    boardRow({ book: "FanDuel", market: "total", side: "over", line: 45.5 }),
+    boardRow({ book: "Caesars", market: "spread", side: "home", line: -4 }),
+    boardRow({ book: "Stale", market: "spread", side: "home", line: -20, stale: true } as never),
+  ];
+  const [built] = sgpGamesFromBoard(rows);
+  assert.equal(built.lines.homeSpread, -4);
 });
 
 test("only my books are considered when I say which I hold", () => {

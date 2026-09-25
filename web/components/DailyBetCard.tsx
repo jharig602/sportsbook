@@ -209,7 +209,7 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
       {view.sameGame ? (
         <div className="border-t border-edge/70 px-3.5 py-2.5">
           <p className="text-[10px] uppercase tracking-wide text-slate-500">
-            Same-game parlay of the day
+            Same-game parlay of the day &middot; at {view.sameGame.game.book}
           </p>
           <ul className="mt-1 space-y-0.5">
             {view.sameGame.legs.map((leg) => (
@@ -231,8 +231,9 @@ export function DailyBetCard({ view }: { view: DailyBetView }) {
             {pct(view.sameGame.bonusConversion ?? 0)}
           </p>
           <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">
-            {view.sameGame.game.awayTeam} @ {view.sameGame.game.homeTeam}. From separate
-            games these legs would pay {signed(view.sameGame.independentAmerican)}; the book
+            {view.sameGame.game.awayTeam} @ {view.sameGame.game.homeTeam}, every leg at{" "}
+            {view.sameGame.game.book} &mdash; a same-game parlay is placed in one app. From
+            separate games these legs would pay {signed(view.sameGame.independentAmerican)}; the book
             will offer less for one scoreline, and anything better than{" "}
             {signed(view.sameGame.quote.fairAmerican ?? 0)} is worth taking. Good for a
             bonus bet, where only the profit ever comes back.

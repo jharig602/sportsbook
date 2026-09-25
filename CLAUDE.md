@@ -361,11 +361,18 @@ Ranking is on the legs' own **measured cross-book edge**, each leg held to the s
 points the single uses. Redundant legs are refused by removing each and repricing: if the
 ticket is as likely without it, the leg adds no chance and only shortens the price.
 
-**The reference line comes from the same rows the legs do.** It used to come from the
-board snapshot while legs came from the shopped books; when those drift the game is
-centred on a number nobody priced. Legs reading +6 against a board reading ~−3 turned a
-31% ticket into 40% and a fair +225 into +146, and nothing looked wrong because both
-halves were internally consistent — they were just not the same game.
+**Every ticket is at one book.** A same-game parlay is placed in one app, so each
+candidate is one book's view of one game. It used to take the best price for each leg
+across your books, which produced tickets nobody could place.
+
+**The reference line is the consensus of every live book** — not the board snapshot, and
+not your own books. It has been wrong both ways. The board snapshot could be stale: legs
+reading +6 against a board reading ~−3 turned a 31% ticket into 40%. Your own books' median
+fixed that and broke something subtler: legs are *chosen* because your book beats the
+market, and centring the game on your book's numbers erased exactly that — the
+Gardner-Webb card picked two legs for beating the market by 1.5 points and then priced them
+as fair. The all-book consensus is what the margin model was fitted against, so a leg at a
+better number than the market is priced as the better bet it is. Stale quotes are left out.
 
 Pushes are valued as the stake back, not as a loss, and only counted when a leg can
 actually land on its number: the pmf pools whole-number and half-point lines onto one
@@ -478,8 +485,15 @@ any number of times. `collector/set_pool_field.py` (workflow `set-pool-field`, d
 default) applies it without the passcode and prints sizes and counts only — never `used`,
 because Actions logs are public and picks are strategy.
 
-`seasonGames` only returns `commence_time > NOW()`, so the planner's week 1 is the next
-unplayed week, not the season's. The field state is "as of now", which lines up.
+`seasonGames` only returns `commence_time > NOW()`, so week numbers are counted from the
+season **opener** (`seasonOpener`), never from the first block returned — that bug showed
+"week 1" every week of the season and aimed pins at the wrong week.
+
+**Two pools are kept off each other's team for the current week, by the owner's choice**
+(2026-09-25): one bad week must not cost both entries. It was argued the other way — the
+141-entry and 11-entry pools pay out separately, so the constraint can cost the better
+pick in one of them — and the owner decided diversification is worth that. Do not reopen
+it. The page states which team an entry was kept off and why.
 
 ---
 

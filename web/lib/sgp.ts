@@ -139,6 +139,15 @@ export interface PricedLeg {
 
 export interface SgpGame {
   eventId: string;
+  /**
+   * The one book every leg is priced at.
+   *
+   * A same-game parlay is placed at a single book, so a ticket built from the best price
+   * for each leg across several books is a ticket nobody can place -- one leg's price
+   * lives in one app and the other's in another. Each candidate is therefore one book's
+   * view of one game.
+   */
+  book: string;
   league: string;
   homeTeam: string;
   awayTeam: string;
@@ -370,69 +379,87 @@ export function sgpGamesFromBoard(
   options: { books?: string[]; favourites?: string[] } = {},
 ): SgpGame[] {
   const allowed = options.books && options.books.length > 0 ? new Set(options.books) : null;
+
+  // Every live row of every game, at EVERY book, for the reference line -- and only then
+  // the rows at your books, for the legs.
   const byEvent = new Map<string, BoardEdge[]>();
   for (const row of rows) {
-    if (allowed && !allowed.has(row.book)) continue;
+    if (row.stale) continue;
     const list = byEvent.get(row.eventId);
     if (list) list.push(row);
     else byEvent.set(row.eventId, [row]);
   }
 
   const games: SgpGame[] = [];
-  for (const [eventId, group] of byEvent) {
-    // The reference line comes from the SAME rows the legs do.
+  for (const [eventId, everyBook] of byEvent) {
+    // The reference line is the median across ALL the books, not just yours.
     //
-    // It used to come from `gameSpread`, which is the board's snapshot, while the legs
-    // come from the books being shopped. When those two drift apart the game is centred
-    // on the wrong number and every leg is converted against it: a ticket whose legs said
-    // +6 was priced against a board reading about -3, and the model called a 30% ticket
-    // 40% and a fair +225 "+146". Nothing looked wrong, because both halves were
-    // internally consistent -- they just were not the same game.
+    // It has been wrong twice, in opposite directions. First it was the board snapshot,
+    // which could be stale: legs reading +6 against a board reading about -3 turned a
+    // 31% ticket into 40%. Then it was the median of your own books' lines, which fixed
+    // that and quietly broke something else -- the legs are chosen BECAUSE your book is
+    // better than the others, and centring the game on your book's own numbers erased
+    // exactly that difference. The Gardner-Webb card was the result: both legs picked
+    // for beating the market by 1.5 points, then priced as though they were fair.
     //
-    // Taking the median of the rows in hand makes the reference agree with the legs by
-    // construction, which is the only way this cannot come back.
-    const homeSpread = medianHomeSpread(group);
+    // The consensus of every live book is the market's own number, which is what the
+    // margin model was fitted against, so a leg at a better line than that is priced as
+    // the better bet it is. Stale quotes are left out, as they are everywhere else.
+    const homeSpread = medianHomeSpread(everyBook);
     const totalLine = median(
-      group.filter((r) => r.market === "total" && r.line !== null).map((r) => r.line as number),
+      everyBook
+        .filter((r) => r.market === "total" && r.line !== null)
+        .map((r) => r.line as number),
     );
     if (homeSpread === null || totalLine === null) continue;
 
-    // Best price per leg, keyed on the line too: two books on different numbers are
-    // different bets, and collapsing them would quote one book's price at another's line.
-    const best = new Map<string, PricedLeg>();
-    for (const row of group) {
-      if (row.price === null || Math.abs(row.price) < 100) continue;
-      // A leg backing the other side against one of your teams never joins a ticket.
-      // The reference line above still uses every row, because what the game is priced
-      // at does not depend on which side you would bet.
-      if (betsAgainst(row, options.favourites ?? [])) continue;
-      const leg = legFor(row.market, row.side, row.line);
-      if (leg === null) continue;
-      const key = `${row.market}|${row.side}|${row.line ?? ""}`;
-      const current = best.get(key);
-      if (current && decimalFrom(current.price) >= decimalFrom(row.price)) continue;
-      best.set(key, {
-        leg,
-        price: row.price,
-        market: row.market,
-        side: row.side,
-        line: row.line,
-        label: `${labelFor(row)}`,
-        edgePoints: row.edgePoints,
+    const byBook = new Map<string, BoardEdge[]>();
+    for (const row of everyBook) {
+      if (allowed && !allowed.has(row.book)) continue;
+      const list = byBook.get(row.book);
+      if (list) list.push(row);
+      else byBook.set(row.book, [row]);
+    }
+
+    for (const [book, group] of byBook) {
+      const legs = new Map<string, PricedLeg>();
+      for (const row of group) {
+        if (row.price === null || Math.abs(row.price) < 100) continue;
+        // A leg backing the other side against one of your teams never joins a ticket.
+        // The reference line above still uses every row, because what the game is
+        // priced at does not depend on which side you would bet.
+        if (betsAgainst(row, options.favourites ?? [])) continue;
+        const leg = legFor(row.market, row.side, row.line);
+        if (leg === null) continue;
+        // Keyed on the line too: a book quoting two numbers on one side is quoting two
+        // different bets.
+        const key = `${row.market}|${row.side}|${row.line ?? ""}`;
+        const current = legs.get(key);
+        if (current && decimalFrom(current.price) >= decimalFrom(row.price)) continue;
+        legs.set(key, {
+          leg,
+          price: row.price,
+          market: row.market,
+          side: row.side,
+          line: row.line,
+          label: `${labelFor(row)}`,
+          edgePoints: row.edgePoints,
+        });
+      }
+      if (legs.size < 2) continue;
+
+      const first = group[0];
+      games.push({
+        eventId,
+        book,
+        league: first.league,
+        homeTeam: first.homeTeam,
+        awayTeam: first.awayTeam,
+        commenceTime: first.commenceTime,
+        lines: { homeSpread, total: totalLine },
+        legs: [...legs.values()],
       });
     }
-    if (best.size < 2) continue;
-
-    const first = group[0];
-    games.push({
-      eventId,
-      league: first.league,
-      homeTeam: first.homeTeam,
-      awayTeam: first.awayTeam,
-      commenceTime: first.commenceTime,
-      lines: { homeSpread, total: totalLine },
-      legs: [...best.values()],
-    });
   }
   return games;
 }
