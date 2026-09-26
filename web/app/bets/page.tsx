@@ -11,6 +11,8 @@ import { currentSession } from "@/lib/session";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
 import { activeBets, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
+import { allBookLines } from "@/lib/book-lines";
+import { fairChance, openSummary } from "@/lib/open-summary";
 import type { League, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -166,10 +168,13 @@ export default async function BetsPage({
   const prefill = parseBetPrefill(await searchParams);
   const data = getData();
   const session = await currentSession();
-  const [games, results, freshness] = await Promise.all([
+  const [games, results, freshness, models, lines] = await Promise.all([
     data.games(),
     data.results(),
     data.freshness(),
+    data.marginModels(),
+    // Only for pricing the open tickets; a failure costs the "expected" figure, not the page.
+    data.backend === "postgres" ? allBookLines().catch(() => new Map()) : Promise.resolve(new Map()),
   ]);
 
   let bets: Bet[] = [];
@@ -205,6 +210,15 @@ export default async function BetsPage({
   const corrections = bets.length - standing.length;
   const { rows, totals } = tally(standing, scores);
 
+  // What is riding on the open tickets, priced against the other books. See open-summary.ts.
+  const gamesById = new Map(games.map((g) => [g.eventId, g]));
+  const open = openSummary(
+    rows,
+    parlayLegs,
+    (bet) => fairChance(bet, gamesById.get(bet.event_id), lines.get(bet.event_id) ?? [], models[bet.league] ?? null),
+    scores,
+  );
+
   // Every game you might be logging, not the first eighty.
   //
   // The cap was a dropdown's limit, and on a college Saturday eighty upcoming games is
@@ -232,6 +246,38 @@ export default async function BetsPage({
         offering a second and weaker way into it.
       */}
       {session.role === "viewer" ? <LedgerTransfer bets={standing.length} /> : null}
+
+      {/*
+        The open tickets first: what is in play right now is the question this page is
+        opened to answer on a game day. "If all win" is the ceiling, and it is labelled as
+        one; "expected" is the number to plan around.
+      */}
+      {open.tickets > 0 ? (
+        <>
+          <Stats
+            items={[
+              { value: `$${open.atStake.toFixed(2)}`, label: `in play · ${open.tickets} open` },
+              { value: money(open.ifAllWin), label: "if all win" },
+              {
+                value: money(open.expected),
+                label: "expected",
+                tone: open.expected > 0.005 ? ("good" as const) : open.expected < -0.005 ? ("bad" as const) : ("plain" as const),
+              },
+            ]}
+          />
+          <p className="-mt-1.5 mb-3 text-[11px] leading-relaxed text-slate-500">
+            Expected is each ticket&rsquo;s payout times its fair chance of winning, from the
+            other books&rsquo; prices, less its stake times its chance of losing. All{" "}
+            {open.tickets} hitting is the ceiling, not the forecast.
+            {open.bonusStake > 0
+              ? ` Plus $${open.bonusStake.toFixed(2)} of bonus bets riding, which cannot be lost.`
+              : ""}
+            {open.unpriced > 0
+              ? ` ${open.unpriced} ticket${open.unpriced === 1 ? " has" : "s have"} no market to price against and ${open.unpriced === 1 ? "is" : "are"} counted at break-even.`
+              : ""}
+          </p>
+        </>
+      ) : null}
 
       {corrections > 0 ? (
         <p className="mb-3 text-[11px] leading-relaxed text-slate-600">
