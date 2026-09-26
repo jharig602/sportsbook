@@ -1,7 +1,7 @@
 /**
  * Live scores from ESPN's public scoreboard, for pricing bets mid-game.
  *
- * One request per league covers every game, and it is cached for 45 seconds across
+ * One request per league covers every game, and it is cached for 30 seconds per server instance across
  * every visitor, so however often the Bets page is refreshed ESPN sees at most a request
  * or two a minute -- against the ~195 the collector already makes each cycle. It is only
  * called when an open ticket has a game under way.
