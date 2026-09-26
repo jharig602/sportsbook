@@ -59,6 +59,10 @@ on:
 
 # One writer at a time. Overlapping runs would interleave inserts into the same
 # append-only tables; the collector's design assumes a single writer.
+permissions:
+  actions: write   # to start the kickoff watcher
+  contents: read
+
 concurrency:
   group: collect
   cancel-in-progress: false
@@ -236,6 +240,17 @@ jobs:
           curl --fail --silent --show-error --max-time 60 -X POST \
             "$APP_URL/api/dispatch-results" \
             -H "Authorization: Bearer $DISPATCH_SECRET"
+
+      # Kickoff pushes are timed by their own long-running watcher (kickoff-watch.yml),
+      # because this schedule cannot hit a minute. Every collect run makes sure one is
+      # running, which is what catches a bet logged while none was. A watcher already
+      # running makes this a queued no-op that exits in seconds.
+      - name: Start the kickoff watcher
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run kickoff-watch.yml --ref main
 
       # Survivor reminder, Saturday evening and Sunday morning Central.
       #

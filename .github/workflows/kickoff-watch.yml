@@ -1,0 +1,86 @@
+name: kickoff-watch
+
+# Push when a game you have bet on kicks off.
+#
+# Not a step in `collect`, because collect cannot keep time: GitHub's scheduler drops
+# most of what a dense cron asks for and delivers the rest at arbitrary minutes, and a
+# kickoff push that arrives forty minutes late is not a kickoff push. So this is one
+# long-running job that SLEEPS until the next kickoff and calls the app on the minute.
+#
+# The endpoint returns `next`: seconds until the next kickoff still to announce, within
+# six hours, or null. The loop sleeps until then (at most ten minutes, so a bet logged
+# meanwhile is picked up), and exits when there is nothing ahead. Runs are capped under
+# GitHub's six-hour job limit; one that reaches the cap with kickoffs still ahead starts
+# its own successor. Collect starts a watcher on every run, which covers bets logged
+# while none was running; the cron below is a backstop for game-day mornings.
+#
+# Minutes are free (the repository is public). The database is touched a few times an
+# hour while a watcher runs, and only on game days, when collect keeps it awake anyway.
+#
+# Nothing about the bets is printed: these logs are public. The loop reads `sent` and
+# `next` from the response and logs only how many pushes went out.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 15 * * 6"   # Sat 10:30am CT, before the college slate
+    - cron: "30 16 * * 0"   # Sun 11:30am CT, before the NFL early games
+    - cron: "30 22 * * 4"   # Thu 5:30pm CT, before Thursday Night Football
+    - cron: "30 22 * * 1"   # Mon 5:30pm CT, before Monday Night Football
+
+# One watcher at a time; a second request waits rather than doubling every push.
+concurrency:
+  group: kickoff-watch
+  cancel-in-progress: false
+
+permissions:
+  actions: write   # to start a successor when this run reaches its time cap
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Watch for kickoffs
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo "APP_URL / ALERT_DISPATCH_SECRET not set; skipping."
+            exit 0
+          fi
+          # Hand over with room to spare under the 350-minute timeout.
+          deadline=$(( $(date +%s) + 330 * 60 ))
+          failures=0
+          while :; do
+            if ! body=$(curl --fail --silent --show-error --max-time 60 -X POST \
+                "$APP_URL/api/dispatch-kickoff" \
+                -H "Authorization: Bearer $DISPATCH_SECRET"); then
+              failures=$(( failures + 1 ))
+              echo "dispatch failed ($failures)"
+              [ "$failures" -ge 5 ] && exit 1
+              sleep 60
+              continue
+            fi
+            failures=0
+            sent=$(jq -r '.sent // 0' <<<"$body")
+            next=$(jq -r '.next // empty' <<<"$body")
+            [ "$sent" != "0" ] && echo "sent $sent"
+            if [ -z "$next" ]; then
+              echo "no kickoffs ahead; done"
+              exit 0
+            fi
+            wait=$next
+            [ "$wait" -gt 600 ] && wait=600
+            [ "$wait" -lt 15 ] && wait=15
+            if [ $(( $(date +%s) + wait )) -ge "$deadline" ]; then
+              echo "time cap reached with kickoffs ahead; starting a successor"
+              gh workflow run kickoff-watch.yml --ref main
+              exit 0
+            fi
+            sleep "$wait"
+          done

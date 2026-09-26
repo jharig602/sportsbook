@@ -381,3 +381,37 @@ export async function recordResultPushesSent(keys: string[]): Promise<void> {
     [RESULT_SENT_KEY, JSON.stringify(next)],
   );
 }
+
+export const KICKOFF_SENT_KEY = "kickoff_pushes_sent";
+
+/**
+ * Games whose kickoff has been announced, by `KickoffMessage.key`. Only kickoffs inside a
+ * twenty-minute window are ever considered, so the cap only has to outlast that.
+ */
+export async function kickoffPushesSent(): Promise<Set<string>> {
+  if (!databaseUrl()) return new Set();
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [KICKOFF_SENT_KEY]);
+    const raw = result.rows[0]?.value;
+    if (typeof raw !== "string" || raw.length === 0) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return new Set();
+    if (error instanceof SyntaxError) return new Set();
+    throw error;
+  }
+}
+
+export async function recordKickoffPushesSent(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const existing = [...(await kickoffPushesSent())].filter((k) => !keys.includes(k));
+  const next = [...existing, ...keys].slice(-200);
+  const db = await getPool();
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [KICKOFF_SENT_KEY, JSON.stringify(next)],
+  );
+}

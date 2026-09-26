@@ -287,7 +287,7 @@ stays — it is the daily window the bet of the day uses.
 
 ## Pushes
 
-Six dispatchers, all `/api/dispatch-*`, all called by `collect.yml` after the scores and
+Seven dispatchers, all `/api/dispatch-*`, all but one called by `collect.yml` after the scores and
 odds steps, all guarded by `refuseUnlessDispatcher`, all offering on every run and
 remembering what they sent (GitHub delivers runs at arbitrary minutes):
 
@@ -307,6 +307,15 @@ remembering what they sent (GitHub delivers runs at arbitrary minutes):
   (~0.04) in its place and every alert re-sent every run. `notificationRecord` is now the
   only writer, and a test feeds what it records straight back into the check.
 - **Survivor reminder**, and the dormant **movers** dispatcher.
+- **Kickoff** (`dispatch-kickoff`, 2026-09-26) — one push per GAME you hold a live bet or
+  parlay leg on, as it starts. The exception to "called by collect": collect cannot keep
+  time, so `kickoff-watch.yml` is a long-running job that sleeps until the endpoint's
+  `next` (seconds to the next kickoff within six hours; capped at ten-minute sleeps so a
+  newly logged bet is seen), and starts its own successor at its time cap. Collect starts
+  a watcher every run; a cron on game-day mornings is the backstop. Window: 2 minutes
+  before to 20 after kickoff, then dropped, not sent late. Overnight (midnight–8 AM
+  Central) kickoffs are skipped rather than held -- unlike a result, a kickoff is not
+  news in the morning. A dead parlay's remaining legs and cash-outs are not announced.
 
 Every response lands in **public** Actions logs: counts only, never teams, results or
 money.
