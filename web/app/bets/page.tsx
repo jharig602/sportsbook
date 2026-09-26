@@ -61,7 +61,7 @@ function HeldInstead({ took, held }: { took: number; held: number }) {
  * pregame figure rather than passing a stale number off as live.
  */
 type Hold = { chance: number; value: number; started: boolean };
-function HoldValue({ hold, live, why }: { hold?: Hold; live?: string | null; why?: string | null }) {
+function HoldValue({ hold, live, why, total = false }: { hold?: Hold; live?: string | null; why?: string | null; total?: boolean }) {
   if (!hold) return null;
   const stale = hold.started && !live;
   // ESPN's short status for a finished game starts "Final" ("Final", "Final/OT").
@@ -72,6 +72,29 @@ function HoldValue({ hold, live, why }: { hold?: Hold; live?: string | null; why
         <span className="font-medium text-slate-300">{live.replace(/ · Final.*$/, "")} · Final</span>{" "}
         &mdash; {hold.chance >= 0.5 ? "a winner" : "a loser"}; it settles here once the collector
         records the result.
+      </p>
+    );
+  }
+  // Decided before the whistle: an over past its line, an under beaten by it.
+  // Totals only: that is the one market a clock-running game can settle outright.
+  if (total && live && (hold.chance >= 0.9999 || hold.chance <= 0.0001)) {
+    const won = hold.chance >= 0.9999;
+    return (
+      <p className="mt-1 text-[11px] text-slate-500">
+        <span className="font-medium text-emerald-300/90">Live · {live} · </span>
+        {won ? (
+          <>
+            <span className="font-medium text-emerald-300">Already won</span> &mdash; the total is
+            past the line and points cannot come off. Worth the full{" "}
+            <span className="tabular text-slate-300">${hold.value.toFixed(2)}</span>; never cash
+            out for less.
+          </>
+        ) : (
+          <>
+            <span className="font-medium text-rose-300">Already lost</span> &mdash; the total is
+            past the line. Any cash-out offer above $0 is free money.
+          </>
+        )}
       </p>
     );
   }
@@ -195,7 +218,7 @@ function BetRow({ bet, hold, live, why }: { bet: GradedRow; hold?: Hold; live?: 
           {bet.outcome === "cashed" && bet.heldProfit !== null ? (
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
-          <HoldValue hold={hold} live={live} why={why} />
+          <HoldValue hold={hold} live={live} why={why} total={bet.market === "total" && !bet.team} />
         </div>
       </div>
     </Card>

@@ -87,6 +87,11 @@ export function liveChance(
 
   if (bet.market === "total") {
     if (pregame.total === null || bet.line === null) return null;
+    // Points never come off the board: past the line, an over has already won and an
+    // under already lost, whatever the clock says. The normal curve below would leave a
+    // sliver of doubt either way, which is wrong in exactly the moment a cash-out offer
+    // shows up.
+    if (points > bet.line) return bet.side === "over" ? 1 : 0;
     const t = dist(points, pregame.total + model.totalMean, model.totalSd);
     return bet.side === "over" ? t.above(bet.line) : t.below(bet.line);
   }

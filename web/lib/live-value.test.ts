@@ -89,3 +89,12 @@ test("the scoreboard parser reads ESPN's shape and skips what it cannot read", (
   );
   assert.deepEqual(parseScoreboard(null), []);
 });
+
+test("a total past its line is decided with time on the clock: the over has won, the under lost", () => {
+  const early = live({ period: 3, clockSeconds: 600, homeScore: 30, awayScore: 25 }); // 55 > 54.5
+  assert.equal(liveChance(bet({ market: "total", side: "over", line: 54.5 }), early, PRE, MODEL), 1);
+  assert.equal(liveChance(bet({ market: "total", side: "under", line: 54.5 }), early, PRE, MODEL), 0);
+  // Landing exactly on a whole-number line is not past it: a push is still possible.
+  const onIt = live({ period: 3, clockSeconds: 600, homeScore: 30, awayScore: 24 }); // 54
+  assert.ok(liveChance(bet({ market: "total", side: "over", line: 54 }), onIt, PRE, MODEL)! < 1);
+});
