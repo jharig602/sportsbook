@@ -105,7 +105,7 @@ export async function POST(request: Request) {
 
     const payload = JSON.stringify({
       title: `Survivor week ${week} — ${windowLabel(window)}`,
-      body: `${body}. Locks 10am Central.`,
+      body: `${body}. Locks 11am Eastern.`,
       // One card per window, so Sunday's replaces nothing and Saturday's stays read.
       tag: `survivor-${week}-${window}`,
       renotify: true,

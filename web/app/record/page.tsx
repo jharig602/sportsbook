@@ -13,7 +13,7 @@ import {
   type MarketFilter,
 } from "@/lib/breakdown";
 import { buildTrackRecord, getData, MIN_SAMPLES } from "@/lib/data";
-import { formatKind, formatPercent } from "@/lib/format";
+import { DISPLAY_TIME_ZONE, formatKind, formatPercent } from "@/lib/format";
 import type { RecordRow } from "@/lib/types";
 import type { MarginModel } from "@/lib/probability";
 import { DEFAULT_MAX_SPREAD } from "@/lib/blowout";
@@ -245,7 +245,7 @@ function VerdictLine({
                   , around{" "}
                   <span className="text-slate-300">
                     {when.toLocaleDateString("en-US", {
-                      timeZone: "America/Chicago",
+                      timeZone: DISPLAY_TIME_ZONE,
                       month: "long",
                       day: "numeric",
                     })}

@@ -296,7 +296,7 @@ remembering what they sent (GitHub delivers runs at arbitrary minutes):
   the cheapest way to back them. Skips a game you already hold.
 - **Win and loss** — one per ticket once final, owner's ledger only (`HOUSE`), games that
   kicked off in the last 36 hours only (without that bound the first run would have
-  pushed the whole season), held midnight–8 AM Central, and one summary when more than
+  pushed the whole season), held midnight–8 AM Central (push windows stay on Central; displayed times are Eastern), and one summary when more than
   three land at once. Cash-outs are not announced; voided and corrected rows are gone
   before it looks.
 - **Line-shopping alerts** — **switched off** by the owner (2026-09-25) with `?notify=0` in

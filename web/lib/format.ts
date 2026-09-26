@@ -61,16 +61,22 @@ export function formatLeague(league: string): string {
  *
  * Pinned rather than left to the runtime, because `toLocaleString(undefined, ...)` uses
  * the SERVER's zone in a server component — and these pages are server-rendered on
- * Vercel, where that is UTC. Every kickoff was being shown five hours late: Sunday's
- * noon Central games read as "5:00 PM", which is not a cosmetic error when the survivor
- * deadline is 10am Central and a game you think you have all afternoon to decide on has
+ * Vercel, where that is UTC. Every kickoff was being shown hours late: Sunday's 1pm
+ * Eastern games read as "5:00 PM", which is not a cosmetic error when the survivor
+ * deadline is 11am Eastern and a game you think you have all afternoon to decide on has
  * in fact already kicked off.
  *
- * Central because that is where these are read, and one fixed zone beats the viewer's
- * own: a server-rendered page has no access to the viewer's zone anyway, so the
- * alternative is not "their time" but "whatever machine rendered it".
+ * Eastern because the owner asked for it (2026-09-26): it is the zone the books, the
+ * networks and the league schedule all quote, so a time here matches the one on the
+ * slip. One fixed zone beats the viewer's own: a server-rendered page has no access to
+ * the viewer's zone anyway, so the alternative is not "their time" but "whatever machine
+ * rendered it".
+ *
+ * Display only. The push windows (quiet hours, the morning sends, the survivor
+ * reminders) still run on Central, because they are about when the owner is awake, not
+ * about how a kickoff reads.
  */
-export const DISPLAY_TIME_ZONE = "America/Chicago";
+export const DISPLAY_TIME_ZONE = "America/New_York";
 
 export function formatKickoff(iso: string | null): string {
   if (!iso) return EM_DASH;
@@ -88,7 +94,7 @@ export function formatKickoff(iso: string | null): string {
  * The calendar day a kickoff belongs to, for grouping.
  *
  * Same fix, and it matters more here: grouping on the server's UTC day files a Saturday
- * 8pm Central game under Sunday, because 8pm Central is already 01:00 UTC. That is not a
+ * 9pm Eastern game under Sunday, because 9pm Eastern is already 01:00 UTC. That is not a
  * mislabelled heading, it is the game appearing on the wrong day of the board.
  */
 export function formatDay(iso: string | null): string {
