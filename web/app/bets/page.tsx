@@ -396,15 +396,26 @@ export default async function BetsPage({
             },
             {
               value: money(totals.profit),
-              label: totals.bonusProfit !== 0 ? "profit · your money" : "profit",
+              // The total, bonus winnings included. It was labelled "your money", which is
+              // what the ROI beside it measures and this does not -- so +$372 sat next to
+              // -13.6% and read as a contradiction.
+              label: totals.bonusProfit !== 0 ? "profit · all" : "profit",
               tone: totals.profit > 0 ? ("good" as const) : totals.profit < 0 ? ("bad" as const) : ("plain" as const),
             },
             {
               value: totals.roi === null ? "—" : formatPercent(totals.roi, 1),
-              label: "roi",
+              label: totals.bonusProfit !== 0 ? "roi · your money" : "roi",
             },
           ]}
         />
+      ) : null}
+      {totals.placed > 0 && totals.bonusProfit !== 0 ? (
+        <p className="-mt-1.5 mb-3 text-[11px] leading-relaxed text-slate-500">
+          <span className="tabular text-slate-300">{money(totals.bonusProfit)}</span> of that came
+          from bonus bets, which risked none of your money. On your own money you are{" "}
+          <span className="tabular text-slate-300">{money(totals.profit - totals.bonusProfit)}</span>
+          {totals.roi === null ? "" : `, a ${formatPercent(totals.roi, 1)} return on what you staked`}.
+        </p>
       ) : null}
 
       {/*
