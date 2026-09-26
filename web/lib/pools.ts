@@ -69,13 +69,16 @@ export interface StoredPool {
    */
   crowd?: { top: number; picks: number };
   /**
-   * Rivals' picks already made for the current week, by team, from the pool's sheet.
+   * Every live rival's history, from the pool's sheet: the teams they have spent, and
+   * their pick for `week` when it is already made. Grouped by identical history and
+   * counted -- never names, and never your own row, which is not a rival's.
    *
-   * Counts only -- never names, and never your own pick, which is not a rival's. Tagged
-   * with the week so last week's picks cannot quietly steer this week's plan: the
-   * planner applies them only when `week` is the week it is planning.
+   * Spent teams are what make the field's future predictable: a rival cannot select a
+   * team twice, so a team half the pool has used can only ever draw the other half.
+   * Tagged with the week so a sheet read last week still counts as history but its
+   * picks are never mistaken for this week's.
    */
-  thisWeek?: { week: number; picks: Record<string, number> };
+  rivals?: { week: number; groups: Array<{ used: string[]; pick?: string; n: number }> };
   /** Losses your own entry has taken. Absent means none. */
   myLosses?: number;
 }
@@ -225,19 +228,25 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
               },
             }
           : {}),
-        // Kept on re-save for the same reason as `crowd`.
+        // Kept on re-save for the same reason as `crowd`. Junk is dropped group by group
+        // rather than failing the pool: a pool must still load with a bad row in it.
         ...(() => {
-          const week = Math.floor(Number(p.thisWeek?.week));
-          const raw = p.thisWeek?.picks;
-          if (!(week >= 1 && week <= 30) || !raw || typeof raw !== "object") return {};
-          const picks: Record<string, number> = {};
-          for (const [team, n] of Object.entries(raw).slice(0, 40)) {
-            const count = Math.floor(Number(n));
-            if (team.trim() && team.length <= 60 && count > 0 && count <= 100000) {
-              picks[team.trim()] = count;
-            }
+          const week = Math.floor(Number(p.rivals?.week));
+          const raw = p.rivals?.groups;
+          if (!(week >= 1 && week <= 30) || !Array.isArray(raw)) return {};
+          const name = (t: unknown) =>
+            typeof t === "string" && t.trim() && t.length <= 60 ? t.trim() : null;
+          const groups: Array<{ used: string[]; pick?: string; n: number }> = [];
+          for (const g of raw.slice(0, 500)) {
+            const n = Math.floor(Number(g?.n));
+            if (!(n > 0 && n <= 100000)) continue;
+            const used = Array.isArray(g.used)
+              ? g.used.slice(0, 20).map(name).filter((t: string | null): t is string => t !== null)
+              : [];
+            const pick = name(g.pick);
+            groups.push({ used, ...(pick ? { pick } : {}), n });
           }
-          return Object.keys(picks).length ? { thisWeek: { week, picks } } : {};
+          return groups.length ? { rivals: { week, groups } } : {};
         })(),
         ...(Number(p.myLosses) > 0
           ? { myLosses: Math.min(5, Math.max(0, Math.floor(Number(p.myLosses)))) }

@@ -155,30 +155,32 @@ def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[d
     return out, report
 
 
-def apply_known(
-    pools: list[dict], known: dict, stored_sizes: list[int]
+def apply_rivals(
+    pools: list[dict], rivals: dict, stored_sizes: list[int]
 ) -> tuple[list[dict], list[str]]:
-    """Record rivals' already-made picks for the current week, per pool.
+    """Record every live rival's history, per pool.
 
-    `known` maps a pool's size AS STORED BEFORE THIS RUN to {"week": n, "picks": {team:
-    count}}, or to null to clear it. Matched on the stored size for the same reason the
-    field is: a size changed earlier in the same run must not make this land on a
-    different pool, or on none.
+    `rivals` maps a pool's size AS STORED BEFORE THIS RUN to {"week": n, "groups":
+    [{"used": [team, ...], "pick": team, "n": count}, ...]}, or to null to clear it. A
+    group is the rivals sharing one exact history: the teams they have spent before
+    `week`, and their pick for `week` when the sheet shows it. Matched on the stored size
+    for the same reason the field is: a size changed earlier in the same run must not
+    make this land on a different pool, or on none.
 
     Refuses rather than guesses: an unknown or ambiguous size, a week outside 1-30, a
-    count that is not a positive whole number, or more known picks than the pool has
-    rivals -- that last one is a sheet read wrongly, not a busy week.
+    group without a positive whole count, a team that is not a short non-empty name, or
+    more rivals than the pool has -- that last one is a sheet read wrongly.
 
-    Reports counts only. The team names are in the workflow input, not in anything this
-    prints.
+    Reports counts only. The histories are in the workflow input, not in anything this
+    prints, and never include the owner's own row.
     """
     out = [dict(p) for p in pools]
     report: list[str] = []
-    for key, value in known.items():
+    for key, value in rivals.items():
         try:
             size = int(key)
         except (TypeError, ValueError) as error:
-            raise ValueError(f"known picks keyed by {key!r}, which is not a pool size") from error
+            raise ValueError(f"rivals keyed by {key!r}, which is not a pool size") from error
         matches = [i for i, stored in enumerate(stored_sizes) if stored == size]
         if len(matches) != 1:
             raise ValueError(
@@ -186,30 +188,55 @@ def apply_known(
                 f"{', '.join(str(n) for n in stored_sizes) or 'none'}"
             )
         pool = out[matches[0]]
+        # The per-team counts this replaces would otherwise sit beside it, stale.
+        pool.pop("thisWeek", None)
         if value is None:
-            pool.pop("thisWeek", None)
-            report.append(f"pool of {size}: this week's known picks cleared")
+            pool.pop("rivals", None)
+            report.append(f"pool of {size}: rivals' histories cleared")
             continue
         try:
             week = int(value["week"])
-            picks = {str(team).strip(): int(n) for team, n in dict(value["picks"]).items()}
+            raw = list(value["groups"])
         except (KeyError, TypeError, ValueError) as error:
-            raise ValueError(f"pool of {size}: known picks must be {{week, picks}}") from error
+            raise ValueError(f"pool of {size}: rivals must be {{week, groups}}") from error
         if not 1 <= week <= 30:
             raise ValueError(f"pool of {size}: week {week} is not a week of the season")
-        if any(not team or n < 1 for team, n in picks.items()):
-            raise ValueError(f"pool of {size}: every pick needs a team and a count of 1 or more")
-        rivals = int(pool.get("size") or 0) - 1
-        total = sum(picks.values())
-        if total > rivals:
+        if not raw or len(raw) > 500:
+            raise ValueError(f"pool of {size}: between 1 and 500 groups, not {len(raw)}")
+
+        def team(name: object) -> str:
+            if not isinstance(name, str) or not name.strip() or len(name) > 60:
+                raise ValueError(f"pool of {size}: every team must be a short name")
+            return name.strip()
+
+        groups = []
+        for g in raw:
+            try:
+                n = int(g["n"])
+                used = [team(t) for t in list(g.get("used") or [])]
+                pick = g.get("pick")
+            except (KeyError, TypeError, AttributeError) as error:
+                raise ValueError(f"pool of {size}: each group needs used, n and maybe pick") from error
+            if n < 1:
+                raise ValueError(f"pool of {size}: every group needs a count of 1 or more")
+            if len(used) > 20:
+                raise ValueError(f"pool of {size}: more than 20 spent teams in one history")
+            group = {"used": used, "n": n}
+            if pick is not None:
+                group["pick"] = team(pick)
+            groups.append(group)
+        count = int(pool.get("size") or 0) - 1
+        total = sum(g["n"] for g in groups)
+        if total > count:
             raise ValueError(
-                f"pool of {size}: {total} known picks but only {rivals} rivals -- "
+                f"pool of {size}: {total} rivals on the sheet but only {count} in the pool -- "
                 "the sheet was read wrongly"
             )
-        pool["thisWeek"] = {"week": week, "picks": picks}
+        pool["rivals"] = {"week": week, "groups": groups}
+        picked = sum(g["n"] for g in groups if "pick" in g)
         report.append(
-            f"pool of {size}: {total} of this week's picks known (week {week}, "
-            f"{len(picks)} teams)"
+            f"pool of {size}: {total} rivals' histories recorded (week {week}, "
+            f"{len(groups)} groups, {picked} picks known this week)"
         )
     return out, report
 
@@ -218,8 +245,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--set", dest="sets", action="append", default=[],
                         help="MATCH:FIELD:MYLOSSES, repeatable")
-    parser.add_argument("--known", default="",
-                        help='JSON: {"POOLSIZE": {"week": N, "picks": {"Team": count}}}')
+    parser.add_argument("--rivals", default="",
+                        help='JSON: {"POOLSIZE": {"week": N, "groups": [{"used": [...], "pick": "Team", "n": count}]}}')
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -228,14 +255,14 @@ def main(argv: list[str] | None = None) -> int:
     env_sets = os.environ.get("POOL_SETS", "").split()
     try:
         updates = [parse_update(text) for text in [*args.sets, *env_sets]]
-        known_text = (args.known or os.environ.get("POOL_KNOWN", "")).strip()
-        known = json.loads(known_text) if known_text else {}
-        if not isinstance(known, dict):
-            raise ValueError("known picks must be a JSON object keyed by pool size")
+        rivals_text = (args.rivals or os.environ.get("POOL_RIVALS", "")).strip()
+        rivals = json.loads(rivals_text) if rivals_text else {}
+        if not isinstance(rivals, dict):
+            raise ValueError("rivals must be a JSON object keyed by pool size")
     except (ValueError, json.JSONDecodeError) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
-    if not updates and not known:
+    if not updates and not rivals:
         print("refused: nothing to set", file=sys.stderr)
         return 2
 
@@ -257,9 +284,9 @@ def main(argv: list[str] | None = None) -> int:
         stored_sizes = [int(p.get("size") or 0) for p in pools]
         try:
             updated, report = apply_updates(pools, updates)
-            if known:
-                updated, known_report = apply_known(updated, known, stored_sizes)
-                report.extend(known_report)
+            if rivals:
+                updated, rivals_report = apply_rivals(updated, rivals, stored_sizes)
+                report.extend(rivals_report)
         except ValueError as error:
             print(f"refused: {error}", file=sys.stderr)
             return 2

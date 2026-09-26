@@ -139,47 +139,56 @@ def test_herding_in_the_report_names_no_team():
         assert team not in " ".join(report)
 
 
-# --- this week's known picks -------------------------------------------------------
+# --- rivals' histories ----------------------------------------------------------
 
-from set_pool_field import apply_known  # noqa: E402
+from set_pool_field import apply_rivals  # noqa: E402
 
-KNOWN = {"week": 3, "picks": {"Kansas City Chiefs": 12, "San Francisco 49ers": 4}}
+RIVALS = {"week": 3, "groups": [
+    {"used": ["San Francisco 49ers", "Jacksonville Jaguars"], "pick": "Kansas City Chiefs", "n": 12},
+    {"used": ["Los Angeles Chargers"], "n": 4},
+]}
 
 
-def test_known_picks_land_on_the_pool_they_name():
-    out, report = apply_known(pools(), {"137": KNOWN}, [13, 137])
+def test_histories_land_on_the_pool_they_name():
+    out, report = apply_rivals(pools(), {"137": RIVALS}, [13, 137])
     big = next(p for p in out if p["size"] == 137)
-    assert big["thisWeek"] == KNOWN
-    assert "16 of this week's picks known (week 3, 2 teams)" in report[0]
+    assert big["rivals"] == RIVALS
+    assert "16 rivals' histories recorded (week 3, 2 groups, 12 picks known this week)" in report[0]
 
 
-def test_known_picks_match_the_size_stored_before_this_run():
+def test_histories_match_the_size_stored_before_this_run():
     """A field update earlier in the same run must not move them onto another pool."""
     updated, _ = apply_updates(pools(), [parse_update("137:41,79:0")])
-    out, _ = apply_known(updated, {"137": KNOWN}, [13, 137])
-    assert next(p for p in out if p["size"] == 120)["thisWeek"] == KNOWN
+    out, _ = apply_rivals(updated, {"137": RIVALS}, [13, 137])
+    assert next(p for p in out if p["size"] == 120)["rivals"] == RIVALS
 
 
-def test_known_picks_can_be_cleared():
-    first, _ = apply_known(pools(), {"137": KNOWN}, [13, 137])
-    out, report = apply_known(first, {"137": None}, [13, 137])
-    assert "thisWeek" not in next(p for p in out if p["size"] == 137)
+def test_histories_replace_the_old_per_team_counts_and_can_be_cleared():
+    start = [dict(p) for p in pools()]
+    start[1]["thisWeek"] = {"week": 3, "picks": {"Kansas City Chiefs": 12}}
+    first, _ = apply_rivals(start, {"137": RIVALS}, [13, 137])
+    assert "thisWeek" not in first[1]
+    out, report = apply_rivals(first, {"137": None}, [13, 137])
+    assert "rivals" not in out[1]
     assert "cleared" in report[0]
 
 
-@pytest.mark.parametrize("known, why", [
-    ({"99": KNOWN}, "no such pool"),
-    ({"137": {"week": 0, "picks": {"A": 1}}}, "week 0"),
-    ({"137": {"week": 3, "picks": {"A": 0}}}, "a count of zero"),
-    ({"137": {"week": 3, "picks": {"": 2}}}, "no team"),
-    ({"137": {"week": 3}}, "no picks"),
-    ({"13": {"week": 3, "picks": {"A": 13}}}, "more picks than rivals"),
+@pytest.mark.parametrize("rivals, why", [
+    ({"99": RIVALS}, "no such pool"),
+    ({"137": {"week": 0, "groups": [{"used": [], "n": 1}]}}, "week 0"),
+    ({"137": {"week": 3, "groups": [{"used": [], "n": 0}]}}, "a count of zero"),
+    ({"137": {"week": 3, "groups": [{"used": [""], "n": 2}]}}, "an empty team"),
+    ({"137": {"week": 3, "groups": [{"used": [], "pick": 7, "n": 2}]}}, "a pick that is not a name"),
+    ({"137": {"week": 3, "groups": []}}, "no groups"),
+    ({"137": {"week": 3}}, "no groups at all"),
+    ({"13": {"week": 3, "groups": [{"used": [], "n": 13}]}}, "more rivals than the pool has"),
 ])
-def test_known_picks_that_cannot_be_true_are_refused(known, why):
+def test_histories_that_cannot_be_true_are_refused(rivals, why):
     with pytest.raises(ValueError):
-        apply_known(pools(), known, [13, 137])
+        apply_rivals(pools(), rivals, [13, 137])
 
 
-def test_the_known_picks_report_names_no_team():
-    _, report = apply_known(pools(), {"137": KNOWN}, [13, 137])
-    assert "Kansas" not in " ".join(report) and "Francisco" not in " ".join(report)
+def test_the_report_names_no_team():
+    _, report = apply_rivals(pools(), {"137": RIVALS}, [13, 137])
+    text = " ".join(report)
+    assert not any(word in text for word in ("Kansas", "Francisco", "Jacksonville", "Chargers"))

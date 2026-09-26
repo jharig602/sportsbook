@@ -515,26 +515,43 @@ because Actions logs are public and picks are strategy.
 season **opener** (`seasonOpener`), never from the first block returned — that bug showed
 "week 1" every week of the season and aimed pins at the wrong week.
 
-**Each pool's own sheet feeds the field model** (`StoredPool.crowd`, `StoredPool.thisWeek`,
-both set through `set-pool-field` as counts, never names):
+**Each pool's own sheet feeds the field model** (`StoredPool.crowd`, `StoredPool.rivals`,
+both set through `set-pool-field`, never with names and never with the owner's own row):
 
 - **`crowd`** — how much the pool herds: the most-picked team's count summed over completed
   weeks, over all picks. Measured 37% (big) and 50% (small) against the national feed's
   ~28%. `poolCrowding` blends it with the national figure as if that were one more week
   of the pool, so a small pool's two weeks cannot set the number alone.
-- **`thisWeek`** — rivals' picks already made this week (never the owner's), tagged with
-  the week so stale picks are ignored. `knownWeek` counts them exactly and, if they show
-  a clear clump (≥ `KNOWN_CLUMP_MIN` = 5, ahead of every other team), moves the week's
-  crowd team there, with unpicked rivals assumed to herd there at the pool's rate.
-  Getting the crowd's TEAM right matters more than the rate: taking the team a clump is
-  on is sharing its fate, and a planner that placed the crowd elsewhere scored it as
-  separation. Picks for teams not playing are reported as unmatched, never dropped.
-- **`Field.restProbabilities`** exists because one number used to do two jobs: the crowd
-  team's odds and every other rival's. Moving the clump from Buffalo (86%) to Kansas City
-  (80%) then marked the other 62% of the field down to 80% too, cancelling the very cost
-  the move exists to show. A test asserting that cost caught it.
+- **`rivals`** — every live rival's history, grouped by identical history and counted:
+  the teams spent before `week`, and the pick for `week` when the sheet shows it.
+  `fieldFromRivals` walks each group through the season on its own history: a known pick
+  is a bloc on that team counted exactly (one pick counts -- there is no threshold), and
+  everyone else herds toward their best REMAINING team at the pool's rate, spending it.
+  So a team half the pool has used can only draw the other half, and this week's picks
+  are off those rivals' boards in every later week. Measured on the week-3 sheet: 59 of
+  the big pool's 119 live rivals had already spent San Francisco, 47 Jacksonville, 37
+  the Chargers -- the single-crowd model had all 119 still holding every one of them.
+  A sheet read for an earlier week still counts as history (its picks become spent
+  teams); one read for a later week is ignored. Picks naming a team not playing, and
+  spent teams the schedule does not know, are counted and shown, never dropped.
+- **The field is blocs, not one crowd** (`Field.blocs`, `last-standing.ts`). Each week
+  holds every team some rivals are on; each season draws one uniform per GAME on the
+  slate, so a bloc's result does not depend on which other blocs exist (fair
+  comparisons between fields), and a bloc on the other side of a game reads the same draw
+  inverted -- two blocs on one game cannot both win. Your line follows whichever bloc
+  holds your team, or holds the opposite result when a bloc is on your opponent: taking
+  the team the field is playing AGAINST wins exactly when the field loses, which the
+  single-crowd model scored as unrelated. With one blank-history group the blocs are
+  the old greedy crowd week for week (tested); without a sheet the old model runs.
+- `restProbabilities` is the non-herding rivals' odds: the mean of their best remaining
+  teams. It exists because one number used to do two jobs (the crowd team's odds and
+  everyone else's), and moving the crowd onto a weaker team marked the whole field down.
 - Both fields must be kept by `parsePools`: the app re-saves the whole pool list on every
   tap, and a dropped field would be erased the first time a team was marked used.
+- Refreshing: read both sheets, map the abbreviations to full team names, drop eliminated
+  rows and the owner's row, treat picks on games already played as spent (not live), and
+  dispatch `set-pool-field` with `rivals` (dry run first). The input is visible in the
+  public Actions log: histories and counts, no names.
 
 **Two pools are kept off each other's team for the current week, by the owner's choice**
 (2026-09-25): one bad week must not cost both entries. It was argued the other way — the

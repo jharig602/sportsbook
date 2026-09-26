@@ -1,4 +1,4 @@
-import type { Field, ScoredLine } from "./pool-win";
+import type { Bloc, Field, ScoredLine } from "./pool-win";
 
 /**
  * Winning a survivor pool the way a survivor pool is actually won.
@@ -26,13 +26,11 @@ import type { Field, ScoredLine } from "./pool-win";
  */
 
 /**
- * The crowding that applies in week `i` of the plan: the week's own override when one is
- * set (a week with known picks), the field's rate otherwise. Lives here, beside the
- * simulation that reads it, so the dependency runs one way.
+ * A bloc's share of the field at a given herding rate: the picks already made, plus the
+ * rivals whose best remaining team this is, times how many of them follow the board.
  */
-export function crowdingAt(field: Field, i: number): number {
-  const override = field.crowdingByWeek?.[i];
-  return override !== undefined && Number.isFinite(override) ? override : field.crowding;
+export function blocShare(bloc: Bloc, crowding: number): number {
+  return Math.max(0, bloc.fixed + bloc.herd * crowding);
 }
 
 /**
@@ -134,6 +132,13 @@ export interface PreparedField {
   rivalBefore: Float64Array;
   /** SEASONS x (weeks + 1): P(a rival goes out in exactly week t). */
   rivalAt: Float64Array;
+  /**
+   * With a bloc field: SEASONS x weeks x `blocWidth`, 1 where that bloc's team lost, and
+   * the blocs themselves so your own line can find the one it shares a game with.
+   */
+  blocs?: Bloc[][];
+  blocLost?: Uint8Array;
+  blocWidth?: number;
 }
 
 /**
@@ -169,14 +174,13 @@ export function prepareField(
   const rivalBefore = new Float64Array(seasons * span);
   const rivalAt = new Float64Array(seasons * span);
 
+  const crowding = field.crowding;
   const base = new Float64Array(weeks);
-  // Per week, so the current week can carry the bloc its KNOWN picks imply while later
-  // weeks keep the rate assumed for picks nobody has made yet. See `crowdingAt`.
-  const crowd = new Float64Array(weeks);
   for (let i = 0; i < weeks; i += 1) {
-    crowd[i] = crowdingAt(field, i);
-    base[i] = (1 - crowd[i]) * (1 - (field.restProbabilities?.[i] ?? field.probabilities[i]));
+    base[i] = (1 - crowding) * (1 - (field.restProbabilities?.[i] ?? field.probabilities[i]));
   }
+  const bloc = field.blocs ? blocSchedule(field, weeks) : null;
+  const blocLost = bloc ? new Uint8Array(seasons * weeks * bloc.width) : undefined;
   const lose = new Float64Array(weeks);
   const pmf = new Float64Array(span);
   const part = new Float64Array(span);
@@ -189,10 +193,32 @@ export function prepareField(
 
   for (let s = 0; s < seasons; s += 1) {
     const w0 = s * weeks;
-    for (let i = 0; i < weeks; i += 1) {
-      const lost = next() >= field.probabilities[i] ? 1 : 0;
-      crowdLost[w0 + i] = lost;
-      lose[i] = lost ? base[i] + crowd[i] : base[i];
+    if (bloc && blocLost) {
+      for (let i = 0; i < weeks; i += 1) {
+        const w = bloc.weeks[i];
+        // One draw per game on the week's slate, blocs or not, so two fields over the
+        // same schedule see the same games go the same way. See `blocSchedule`.
+        for (let g = 0; g < w.draws; g += 1) bloc.drawn[g] = next();
+        const b0 = (w0 + i) * bloc.width;
+        let rate = w.restLose;
+        for (let k = 0; k < w.probability.length; k += 1) {
+          const u = bloc.drawn[w.draw[k]];
+          // A game is read from its first-listed bloc's side: that team loses when u >= p.
+          // Its opponent is the same draw read the other way, so two blocs on one game
+          // can never both win.
+          const lost = w.flip[k] ? (u < w.probability[k] ? 1 : 0) : u >= w.probability[k] ? 1 : 0;
+          blocLost[b0 + k] = lost;
+          if (lost) rate += w.share[k];
+        }
+        crowdLost[w0 + i] = w.probability.length ? blocLost[b0] : 0;
+        lose[i] = rate;
+      }
+    } else {
+      for (let i = 0; i < weeks; i += 1) {
+        const lost = next() >= field.probabilities[i] ? 1 : 0;
+        crowdLost[w0 + i] = lost;
+        lose[i] = lost ? base[i] + crowding : base[i];
+      }
     }
     if (shares.length === 1) {
       exitPmf(lose, lossesAllowed, pmf, dp);
@@ -212,7 +238,60 @@ export function prepareField(
       before += pmf[t];
     }
   }
-  return { weeks, lossesAllowed, seasons, crowdLost, rivalBefore, rivalAt };
+  return {
+    weeks, lossesAllowed, seasons, crowdLost, rivalBefore, rivalAt,
+    ...(bloc ? { blocs: field.blocs, blocLost, blocWidth: bloc.width } : {}),
+  };
+}
+
+/**
+ * The per-week arithmetic of a bloc field, worked out once rather than per season.
+ *
+ * Draws are laid out by GAME, in the order `field.events` lists the week's slate, so a
+ * bloc's result is the same uniform whichever other blocs exist. That keeps comparisons
+ * fair: two fields over the same schedule -- one knowing this week's picks, one not --
+ * are scored over the same seasons, and a difference between them is the picks, not the
+ * dice. A bloc on the other side of a game reads that game's draw the other way (`flip`),
+ * holding the complement of the first side's probability.
+ */
+function blocSchedule(field: Field, weeks: number) {
+  const blocs = field.blocs ?? [];
+  let width = 1;
+  let most = 1;
+  const out = [];
+  for (let i = 0; i < weeks; i += 1) {
+    const list = blocs[i] ?? [];
+    width = Math.max(width, list.length);
+    // Every game on the slate gets a draw; games no bloc is on are drawn and ignored.
+    const order = new Map<string, number>();
+    for (const id of field.events?.[i] ?? []) if (!order.has(id)) order.set(id, order.size);
+    const anchor = new Map<string, number>();
+    const probability: number[] = [];
+    const share: number[] = [];
+    const draw: number[] = [];
+    const flip: boolean[] = [];
+    for (const b of list) {
+      if (!order.has(b.eventId)) order.set(b.eventId, order.size);
+      const first = anchor.get(b.eventId);
+      if (first === undefined) anchor.set(b.eventId, b.probability);
+      // The second side of a game is decided by the first side's draw and probability,
+      // so the two are exact complements even if their priced odds do not quite sum to 1.
+      probability.push(first === undefined ? b.probability : first);
+      flip.push(first !== undefined);
+      share.push(blocShare(b, field.crowding));
+      draw.push(order.get(b.eventId)!);
+    }
+    // More on blocs than there are rivals can only be a read error upstream; scale it
+    // back rather than let a rival lose with probability above one.
+    const onBlocs = share.reduce((a, b) => a + b, 0);
+    const scale = onBlocs > 1 ? 1 / onBlocs : 1;
+    for (let k = 0; k < share.length; k += 1) share[k] *= scale;
+    const rest = Math.max(0, 1 - onBlocs * scale);
+    const restP = field.restProbabilities?.[i] ?? field.probabilities[i] ?? 1;
+    most = Math.max(most, order.size);
+    out.push({ probability, share, draw, flip, draws: order.size, restLose: rest * (1 - restP) });
+  }
+  return { weeks: out, width, drawn: new Float64Array(most) };
 }
 
 /**
@@ -241,13 +320,41 @@ export function lastStandingWin(
   // The weeks you are on your own ticket do not vary by season; only shared ones do.
   const solo = new Float64Array(weeks);
   for (let i = 0; i < weeks; i += 1) solo[i] = 1 - line.mine[i];
+  // Against a bloc field you share a result with whichever bloc is on your team -- or
+  // hold the opposite one, when a bloc is on the team you are playing. -1 is a week
+  // your game is nobody else's.
+  const { blocs, blocLost, blocWidth = 1 } = prepared;
+  const follow = new Int32Array(weeks).fill(-1);
+  const invert = new Uint8Array(weeks);
+  if (blocs && blocLost && line.teams) {
+    for (let i = 0; i < weeks; i += 1) {
+      const team = line.teams[i];
+      if (!team) continue;
+      const list = blocs[i] ?? [];
+      const same = list.findIndex((b) => b.team === team);
+      const against = same < 0 ? list.findIndex((b) => b.opponent === team) : -1;
+      follow[i] = same >= 0 ? same : against;
+      invert[i] = against >= 0 ? 1 : 0;
+    }
+  }
 
   let total = 0;
   for (let s = 0; s < seasons; s += 1) {
     const w0 = s * weeks;
-    for (let i = 0; i < weeks; i += 1) {
-      // On a shared week your result IS the crowd's; otherwise it is your own game.
-      lose[i] = line.shared[i] ? crowdLost[w0 + i] : solo[i];
+    if (blocs && blocLost && line.teams) {
+      for (let i = 0; i < weeks; i += 1) {
+        const k = follow[i];
+        if (k < 0) lose[i] = solo[i];
+        else {
+          const lost = blocLost[(w0 + i) * blocWidth + k];
+          lose[i] = invert[i] ? 1 - lost : lost;
+        }
+      }
+    } else {
+      for (let i = 0; i < weeks; i += 1) {
+        // On a shared week your result IS the crowd's; otherwise it is your own game.
+        lose[i] = line.shared[i] ? crowdLost[w0 + i] : solo[i];
+      }
     }
     exitPmf(lose, lossesAllowed, pmf, dp);
     const p0 = s * span;

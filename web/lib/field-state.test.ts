@@ -278,12 +278,23 @@ test("an impossible crowd measurement is dropped, not stored", () => {
   assert.equal(pool.crowd, undefined);
 });
 
-test("this week's known picks survive a re-save, and junk in them is dropped", () => {
+test("rivals' histories survive a re-save, and junk in them is dropped row by row", () => {
   const [pool] = parsePools(JSON.stringify([{
     used: [], size: 120, lossesAllowed: 1, field: [41, 79],
-    thisWeek: { week: 3, picks: { "Kansas City Chiefs": 12, "": 3, "San Francisco 49ers": -2, "Seattle Seahawks": 2 } },
+    rivals: { week: 3, groups: [
+      { used: ["San Francisco 49ers", "", 7], pick: "Kansas City Chiefs", n: 12 },
+      { used: ["Jacksonville Jaguars"], n: 0 },
+      { used: "not a list", n: 3 },
+      { used: [], pick: "", n: 2 },
+    ] },
   }]));
-  assert.deepEqual(pool.thisWeek, { week: 3, picks: { "Kansas City Chiefs": 12, "Seattle Seahawks": 2 } });
+  assert.deepEqual(pool.rivals, { week: 3, groups: [
+    { used: ["San Francisco 49ers"], pick: "Kansas City Chiefs", n: 12 },
+    { used: [], n: 3 },
+    { used: [], n: 2 },
+  ] });
   const [again] = parsePools(JSON.stringify([pool]));
-  assert.deepEqual(again.thisWeek, pool.thisWeek);
+  assert.deepEqual(again.rivals, pool.rivals);
+  const [stale] = parsePools(JSON.stringify([{ used: [], size: 5, rivals: { week: 99, groups: [{ used: [], n: 1 }] } }]));
+  assert.equal(stale.rivals, undefined, "a week that is not a week of the season is not kept");
 });

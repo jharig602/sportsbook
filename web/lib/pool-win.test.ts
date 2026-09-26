@@ -16,6 +16,7 @@ function twoTeamWeek(): Week[] {
   ];
 }
 
+import { lastStandingWin, prepareField } from "./last-standing.ts";
 import { survival } from "./pool-odds.ts";
 import {
   buildPoolWinPlans,
@@ -27,8 +28,7 @@ import {
   shareOfPot,
   type Field,
   poolCrowding,
-  knownWeek,
-  crowdingAt,
+  fieldFromRivals,
 } from "./pool-win.ts";
 import { buildWeeks, type SeasonGame, type Week } from "./survivor.ts";
 import type { MarginModel } from "./probability.ts";
@@ -711,7 +711,7 @@ test("each pool is planned against its own crowding, and the plan says which", (
   assert.equal(plans[1].crowding, 0.276, "a pool with no sheets keeps the national figure");
 });
 
-// --- this week's known picks -------------------------------------------------------
+// --- the pool's sheet: every rival's history -------------------------------------------------------
 
 function candidate(team: string, p: number) {
   return {
@@ -720,7 +720,10 @@ function candidate(team: string, p: number) {
   } as never;
 }
 
-/** Three weeks. Buffalo is the safest team in week 3, so it is the assumed crowd team. */
+/**
+ * Three weeks. Buffalo is the safest team in week 3, so it is the assumed crowd team, and
+ * Kansas City is week 4's favourite -- for whoever has not spent it.
+ */
 function season(): Week[] {
   return [
     { week: 3, startsAt: "2026-09-27T17:00:00Z", candidates: [
@@ -728,7 +731,7 @@ function season(): Week[] {
       candidate("San Francisco 49ers", 0.75), candidate("Seattle Seahawks", 0.7),
     ] },
     { week: 4, startsAt: "2026-10-04T17:00:00Z", candidates: [
-      candidate("Detroit Lions", 0.82), candidate("Baltimore Ravens", 0.78),
+      candidate("Kansas City Chiefs", 0.9), candidate("Detroit Lions", 0.82), candidate("Baltimore Ravens", 0.78),
     ] },
     { week: 5, startsAt: "2026-10-11T17:00:00Z", candidates: [
       candidate("Philadelphia Eagles", 0.8), candidate("Denver Broncos", 0.72),
@@ -736,66 +739,157 @@ function season(): Week[] {
   ];
 }
 
-test("a clear clump of known picks becomes the week's crowd team", () => {
-  const known = knownWeek(3, season()[0].candidates, { "Kansas City Chiefs": 12, "San Francisco 49ers": 4 }, 119, 0.344, "Buffalo Bills")!;
-  assert.equal(known.crowdTeam, "Kansas City Chiefs");
-  assert.equal(known.moved, true);
-  assert.equal(known.known, 16);
-  // Twelve counted, plus the 103 who have not picked herding there at the pool's rate.
-  assert.ok(Math.abs(known.crowding - (12 + 103 * 0.344) / 119) < 1e-12);
+const R = 119;
+const blank = (n = R) => ({ used: [] as string[], n });
+const herdOn = (field: Field, week: number, team: string) =>
+  field.blocs![week].find((b) => b.team === team)?.herd ?? 0;
+const near = (a: number, b: number, tol = 1e-12) => Math.abs(a - b) < tol;
+
+test("a sheet of blank histories is exactly the old greedy crowd", () => {
+  const { field, crowdPicks } = fieldFromRivals(season(), { week: 3, groups: [blank()] }, R, 0.344, "Buffalo Bills");
+  assert.deepEqual(crowdPicks.map((c) => c?.team), ["Buffalo Bills", "Kansas City Chiefs", "Philadelphia Eagles"]);
+  for (const week of field.blocs!) {
+    assert.equal(week.length, 1, "everyone alike means one bloc a week");
+    assert.equal(week[0].herd, 1);
+    assert.equal(week[0].fixed, 0);
+  }
+  assert.deepEqual(field.restProbabilities, [0.86, 0.9, 0.8]);
 });
 
-test("a few scattered picks do not move the crowd off the favourite", () => {
-  const known = knownWeek(3, season()[0].candidates, { "Kansas City Chiefs": 2, "Buffalo Bills": 1 }, 119, 0.344, "Buffalo Bills")!;
-  assert.equal(known.crowdTeam, "Buffalo Bills");
-  assert.equal(known.moved, false);
-  assert.equal(known.knownOnCrowd, 1, "the one known Buffalo pick is counted exactly");
-});
-
-test("a tie at the top does not move the crowd either", () => {
-  const known = knownWeek(3, season()[0].candidates, { "Kansas City Chiefs": 6, "San Francisco 49ers": 6 }, 119, 0.344, "Buffalo Bills")!;
-  assert.equal(known.crowdTeam, "Buffalo Bills");
-});
-
-test("a pick for a team not playing is counted as left out, never silently dropped", () => {
-  const known = knownWeek(3, season()[0].candidates, { "Kansas City Chiefs": 12, "Green Bay Packers": 5, "Philly": 2 }, 119, 0.344, "Buffalo Bills")!;
-  assert.equal(known.unmatched, 7);
-  assert.equal(known.known, 12);
-});
-
-test("no known picks leaves the week exactly as it was", () => {
-  assert.equal(knownWeek(3, season()[0].candidates, {}, 119, 0.344, "Buffalo Bills"), null);
-  assert.equal(knownWeek(3, season()[0].candidates, { "Green Bay Packers": 5 }, 119, 0.344, "Buffalo Bills"), null);
-});
-
-test("taking the team the pool is actually on is scored as sharing its fate", () => {
-  // Before: the planner thinks the crowd is on Buffalo, so Kansas City reads as separation.
+test("and it scores the same as having no sheet at all", () => {
   const base = { lossesAllowed: 1, poolSize: 120, crowding: 0.344, rivalLosses: [41, 79] };
-  const blind = rankByPoolWin(season(), base);
-  const informed = rankByPoolWin(season(), {
-    ...base,
-    knownPicks: { week: 3, picks: { "Kansas City Chiefs": 12, "San Francisco 49ers": 4 } },
-  });
-  const kc = (r: typeof blind) => r.find((x) => x.candidate.team === "Kansas City Chiefs")!;
-  assert.equal(kc(blind).isCrowdPick, false);
-  assert.equal(kc(informed).isCrowdPick, true, "Kansas City is where this pool is going");
-  assert.ok(kc(informed).line.shared[0], "and taking it shares that clump's result");
-  assert.ok(kc(informed).poolWin < kc(blind).poolWin, "which is worth less than it looked");
+  const none = rankByPoolWin(season(), base);
+  const sheet = rankByPoolWin(season(), { ...base, rivals: { week: 3, groups: [blank()] } });
+  assert.deepEqual(sheet.map((r) => r.candidate.team), none.map((r) => r.candidate.team));
+  // Different dice (one draw per game rather than per week), so close rather than equal.
+  for (const r of sheet) {
+    const was = none.find((x) => x.candidate.team === r.candidate.team)!.poolWin;
+    assert.ok(Math.abs(r.poolWin - was) / was < 0.05, `${r.candidate.team}: ${r.poolWin} vs ${was}`);
+  }
 });
 
-test("last week's picks never steer this week's plan", () => {
+test("a team a rival has spent is off their board: it only draws the rivals who still have it", () => {
+  const { field } = fieldFromRivals(
+    season(),
+    { week: 3, groups: [{ used: ["Kansas City Chiefs"], n: 60 }, blank(59)] },
+    R, 0.344, "Buffalo Bills",
+  );
+  assert.ok(near(herdOn(field, 1, "Kansas City Chiefs"), 59 / R));
+  assert.ok(near(herdOn(field, 1, "Detroit Lions"), 60 / R), "the other 60 move to their next-best team");
+});
+
+test("this week's picks come off the board for next week", () => {
+  const { field } = fieldFromRivals(
+    season(),
+    { week: 3, groups: [{ used: [], pick: "Kansas City Chiefs", n: 12 }, blank(107)] },
+    R, 0.344, "Buffalo Bills",
+  );
+  assert.ok(near(herdOn(field, 1, "Kansas City Chiefs"), 107 / R), "the 12 on Kansas City cannot take them again");
+  assert.ok(near(herdOn(field, 1, "Detroit Lions"), 12 / R));
+});
+
+test("every known pick counts on its own team, even a single one", () => {
+  const { field, summary } = fieldFromRivals(
+    season(),
+    { week: 3, groups: [{ used: [], pick: "Seattle Seahawks", n: 1 }, blank(118)] },
+    R, 0.344, "Buffalo Bills",
+  );
+  const seattle = field.blocs![0].find((b) => b.team === "Seattle Seahawks")!;
+  assert.ok(near(seattle.fixed, 1 / R));
+  assert.equal(seattle.herd, 0, "a pick already made is not scaled by the herding rate");
+  assert.equal(summary.known, 1);
+  assert.equal(summary.crowdTeam, "Buffalo Bills");
+});
+
+test("the biggest bloc is this week's crowd, counted and estimated together", () => {
+  const { summary, crowdPicks } = fieldFromRivals(
+    season(),
+    { week: 3, groups: [{ used: ["Buffalo Bills"], pick: "Kansas City Chiefs", n: 50 }, blank(69)] },
+    R, 0.344, "Buffalo Bills",
+  );
+  // 50 counted on Kansas City beats 69 x 34.4% = 23.7 herding onto Buffalo.
+  assert.equal(summary.crowdTeam, "Kansas City Chiefs");
+  assert.equal(summary.knownOnCrowd, 50);
+  assert.equal(summary.moved, true);
+  assert.equal(crowdPicks[0]?.team, "Kansas City Chiefs");
+});
+
+test("taking a team rivals are already on is scored as sharing its fate", () => {
+  // One week, so nothing later differs: twelve known picks on Kansas City against the
+  // same twelve on Seattle. Only whether you hold their ticket changes.
+  const oneWeek = season().slice(0, 1);
+  const base = { lossesAllowed: 1, poolSize: 120, crowding: 0.344, rivalLosses: [41, 79] };
+  const on = (team: string) =>
+    rankByPoolWin(oneWeek, { ...base, rivals: { week: 3, groups: [{ used: [], pick: team, n: 12 }, blank(107)] } })
+      .find((x) => x.candidate.team === "Kansas City Chiefs")!.poolWin;
+  assert.ok(on("Kansas City Chiefs") < on("Seattle Seahawks"), "twelve rivals on your ticket is less separation");
+});
+
+test("a sheet read for a later week than the one planned changes nothing", () => {
   const base = { lossesAllowed: 1, poolSize: 120, crowding: 0.344, rivalLosses: [41, 79] };
   const plain = rankByPoolWin(season(), base).map((r) => [r.candidate.team, r.poolWin]);
-  const stale = rankByPoolWin(season(), {
+  const future = rankByPoolWin(season(), {
     ...base,
-    knownPicks: { week: 2, picks: { "Kansas City Chiefs": 60 } },
+    rivals: { week: 4, groups: [{ used: [], pick: "Kansas City Chiefs", n: 60 }] },
   }).map((r) => [r.candidate.team, r.poolWin]);
-  assert.deepEqual(stale, plain);
+  assert.deepEqual(future, plain);
 });
 
-test("known picks change this week's crowding and no other week's", () => {
-  const field = { probabilities: [0.8, 0.8, 0.8], crowding: 0.3 };
-  assert.equal(crowdingAt({ ...field, crowdingByWeek: [0.45] }, 0), 0.45);
-  assert.equal(crowdingAt({ ...field, crowdingByWeek: [0.45] }, 1), 0.3);
-  assert.equal(crowdingAt(field, 0), 0.3);
+test("last week's sheet still counts as history, but none of its picks as this week's", () => {
+  const { field, summary } = fieldFromRivals(
+    season(),
+    { week: 2, groups: [{ used: [], pick: "Kansas City Chiefs", n: 60 }] },
+    R, 0.344, "Buffalo Bills",
+  );
+  assert.equal(summary.known, 0);
+  assert.ok(near(herdOn(field, 1, "Kansas City Chiefs"), 59 / R), "the 60 spent Kansas City last week");
+});
+
+test("picks and spent teams the schedule does not know are counted, never silently dropped", () => {
+  const { summary } = fieldFromRivals(
+    season(),
+    { week: 3, groups: [
+      { used: [], pick: "Green Bay Packers", n: 5 },
+      { used: ["Philly"], n: 2 },
+      blank(112),
+    ] },
+    R, 0.344, "Buffalo Bills",
+  );
+  assert.equal(summary.unmatched, 5);
+  assert.equal(summary.known, 0);
+  assert.equal(summary.unknownUsed, 2);
+});
+
+test("taking the team the whole field is playing against wins exactly when they lose", () => {
+  // One week, every rival on A. Take B, A's opponent: you are the only survivor when A
+  // loses and out when A wins, so the pool is yours with probability 1 - P(A wins).
+  const field: Field = {
+    probabilities: [0.7],
+    crowding: 0.5,
+    blocs: [[{ team: "A", opponent: "B", eventId: "g", probability: 0.7, fixed: 1, herd: 0 }]],
+    events: [["g"]],
+  };
+  const prepared = prepareField(field, 1, 0);
+  const win = lastStandingWin({ mine: [0.3], shared: [false], teams: ["B"] }, prepared, 11);
+  assert.ok(Math.abs(win - 0.3) < 0.02, `got ${win}`);
+});
+
+test("two blocs on one game can never both win", () => {
+  const field: Field = {
+    probabilities: [0.6],
+    crowding: 0.5,
+    blocs: [[
+      { team: "A", opponent: "B", eventId: "g", probability: 0.6, fixed: 0.5, herd: 0 },
+      { team: "B", opponent: "A", eventId: "g", probability: 0.4, fixed: 0.5, herd: 0 },
+    ]],
+    events: [["g"]],
+  };
+  const prepared = prepareField(field, 1, 0, 2000);
+  let aLost = 0;
+  for (let s = 0; s < 2000; s += 1) {
+    const w = prepared.blocWidth!;
+    assert.equal(prepared.blocLost![s * w] + prepared.blocLost![s * w + 1], 1);
+    aLost += prepared.blocLost![s * w];
+  }
+  assert.ok(Math.abs(aLost / 2000 - 0.4) < 0.04);
 });

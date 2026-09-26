@@ -317,7 +317,7 @@ export default async function SurvivorPage({
     myLosses: hereState.myLosses,
     crowding: hereCrowding,
     popularity,
-    knownPicks: viewedPool?.thisWeek,
+    rivals: viewedPool?.rivals,
   });
   const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
   const stable = distinct.size <= 1;
@@ -717,24 +717,30 @@ export default async function SurvivorPage({
             )}
           </p>
 
-          {/* What the pool's own sheet changed this week, said out loud. A known pick
-              that named no team playing this week is counted as left out rather than
-              dropped silently -- a misspelling must not look like "nobody picked it". */}
-          {poolEntry?.knownWeek ? (
+          {/* What the pool's own sheet changed, said out loud. A known pick naming no
+              team playing this week, or a spent team the schedule does not know, is
+              counted rather than dropped silently -- a misspelling must not look like
+              "nobody picked it". */}
+          {poolEntry?.rivals ? (
             <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">
               <span className="font-medium text-slate-300">
-                This week: {poolEntry.knownWeek.known} of {hereState.rivals} rivals&rsquo;
-                picks are known
+                Planned against every rival&rsquo;s own history
               </span>
-              , {poolEntry.knownWeek.knownOnCrowd} of them on {poolEntry.knownWeek.crowdTeam}.
-              Planned with the crowd on {poolEntry.knownWeek.crowdTeam} at{" "}
-              {Math.round(poolEntry.knownWeek.crowding * 100)}% of the field
-              {poolEntry.knownWeek.moved
-                ? " — moved there from the week's safest team, because that is where this pool is actually going"
+              : a team they have spent is off their board for the rest of the season, so
+              later weeks crowd only among teams each rival still has.{" "}
+              {poolEntry.rivals.known > 0
+                ? `This week ${poolEntry.rivals.known} of ${hereState.rivals} rivals have picked, and each counts on its own team. `
                 : ""}
-              .
-              {poolEntry.knownWeek.unmatched > 0
-                ? ` ${poolEntry.knownWeek.unmatched} known pick${poolEntry.knownWeek.unmatched === 1 ? "" : "s"} named a team not playing this week and ${poolEntry.knownWeek.unmatched === 1 ? "was" : "were"} left out.`
+              {poolEntry.rivals.crowdTeam
+                ? `The biggest bloc is ${poolEntry.rivals.crowdTeam} at ${Math.round(poolEntry.rivals.crowding * 100)}% of the field${
+                    poolEntry.rivals.knownOnCrowd > 0 ? ` (${poolEntry.rivals.knownOnCrowd} picked already)` : ""
+                  }${poolEntry.rivals.moved ? ", not the week's safest team" : ""}.`
+                : ""}
+              {poolEntry.rivals.unmatched > 0
+                ? ` ${poolEntry.rivals.unmatched} pick${poolEntry.rivals.unmatched === 1 ? "" : "s"} named a team not playing this week and ${poolEntry.rivals.unmatched === 1 ? "was" : "were"} left out.`
+                : ""}
+              {poolEntry.rivals.unknownUsed > 0
+                ? ` ${poolEntry.rivals.unknownUsed} rival${poolEntry.rivals.unknownUsed === 1 ? " has" : "s have"} a spent team the schedule does not recognise.`
                 : ""}
             </p>
           ) : null}
