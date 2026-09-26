@@ -34,6 +34,43 @@ export function BoostFinder({
 }) {
   const field = "mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100";
   const top = checked.filter((p) => p.boosted > 0).slice(0, 10);
+  // Totals rarely make the top: a boost multiplies profit, and a long shot has more of
+  // it. But a total wins about half the time and suits a boost limited to totals, so
+  // the best few are always shown apart.
+  const totals = checked.filter((p) => p.market === "total" && p.boosted > 0).slice(0, 3);
+  const row = (p: BoostPick) => (
+            <li key={`${p.eventId}${p.label}`} className="rounded-lg border border-edge/70 px-2.5 py-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="truncate text-[13px] font-medium text-slate-100">
+                  {p.label}{" "}
+                  <span className="tabular text-slate-400">{formatPrice(p.price)}</span>
+                  <span className="tabular text-slate-500"> → {formatPrice(p.logPrice)}</span>
+                </p>
+                <p className="tabular shrink-0 text-[13px] font-semibold text-emerald-300">{money(p.boosted)}</p>
+              </div>
+              <p className="truncate text-[11px] text-slate-500">
+                {p.game} · {p.league.toUpperCase()} · {formatKickoff(p.commenceTime)}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
+                Wins {(p.win * 100).toFixed(1)}%{p.push > 0.001 ? `, pushes ${(p.push * 100).toFixed(1)}%` : ""} ·
+                without the boost {money(p.plain)} · {p.basis}.{" "}
+                <a
+                  className="text-sky-400 underline underline-offset-2"
+                  href={betHref({
+                    eventId: p.eventId,
+                    market: p.market,
+                    side: p.side,
+                    line: p.line,
+                    price: p.logPrice,
+                    book,
+                    stake,
+                  })}
+                >
+                  Log it
+                </a>
+              </p>
+            </li>
+  );
   return (
     <Card className="mb-4 px-3.5 py-3">
       <h2 id="boost" className="scroll-mt-16 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -79,41 +116,20 @@ export function BoostFinder({
         </p>
       ) : (
         <ol className="mt-3 space-y-2">
-          {top.map((p) => (
-            <li key={`${p.eventId}${p.label}`} className="rounded-lg border border-edge/70 px-2.5 py-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="truncate text-[13px] font-medium text-slate-100">
-                  {p.label}{" "}
-                  <span className="tabular text-slate-400">{formatPrice(p.price)}</span>
-                  <span className="tabular text-slate-500"> → {formatPrice(p.logPrice)}</span>
-                </p>
-                <p className="tabular shrink-0 text-[13px] font-semibold text-emerald-300">{money(p.boosted)}</p>
-              </div>
-              <p className="truncate text-[11px] text-slate-500">
-                {p.game} · {p.league.toUpperCase()} · {formatKickoff(p.commenceTime)}
-              </p>
-              <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
-                Wins {(p.win * 100).toFixed(1)}%{p.push > 0.001 ? `, pushes ${(p.push * 100).toFixed(1)}%` : ""} ·
-                without the boost {money(p.plain)} · {p.basis}.{" "}
-                <a
-                  className="text-sky-400 underline underline-offset-2"
-                  href={betHref({
-                    eventId: p.eventId,
-                    market: p.market,
-                    side: p.side,
-                    line: p.line,
-                    price: p.logPrice,
-                    book,
-                    stake,
-                  })}
-                >
-                  Log it
-                </a>
-              </p>
-            </li>
-          ))}
+          {top.map((p) => row(p))}
         </ol>
       )}
+      {totals.length > 0 ? (
+        <>
+          <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Best totals
+          </h3>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+            Worth less than the long shots above, but they win about half the time.
+          </p>
+          <ol className="mt-2 space-y-2">{totals.map((p) => row(p))}</ol>
+        </>
+      ) : null}
       <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
         Worth = the fair chance of winning times the boosted profit, less the stake times the
         chance of losing; a whole-number total that lands exactly returns the stake. Totals
