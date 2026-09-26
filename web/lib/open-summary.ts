@@ -68,6 +68,12 @@ export interface OpenSummary {
   expected: number;
   /** Tickets with no market to price them, counted at break-even. */
   unpriced: number;
+  /**
+   * Per open ticket (by `bet_id`): its fair chance and what holding it is worth in cash
+   * -- the fair chance times what it pays back. A cash-out offer below `value` is the
+   * book keeping the difference. Absent when there is no market to price it.
+   */
+  hold: Map<string, { chance: number; value: number; started: boolean }>;
 }
 
 export function openSummary(
@@ -76,7 +82,8 @@ export function openSummary(
   chance: (bet: Bet) => number | null,
   scores: Map<string, Score>,
 ): OpenSummary {
-  const out: OpenSummary = { tickets: 0, atStake: 0, bonusStake: 0, ifAllWin: 0, expected: 0, unpriced: 0 };
+  const out: OpenSummary = { tickets: 0, atStake: 0, bonusStake: 0, ifAllWin: 0, expected: 0, unpriced: 0, hold: new Map() };
+  const now = Date.now();
 
   for (const row of rows) {
     if (row.outcome !== "open") continue;
@@ -126,6 +133,14 @@ export function openSummary(
       continue; // break-even: contributes nothing either way
     }
     out.expected += p * profit - (1 - p) * (row.bonus ? 0 : row.stake);
+    // What comes back on a win: stake and profit, or the profit alone on a bonus bet.
+    const back = row.bonus ? profit : row.stake + profit;
+    const kickoffs = (legs ?? [row]).map((b) => (b.commence_time ? Date.parse(b.commence_time) : NaN));
+    out.hold.set(row.bet_id, {
+      chance: p,
+      value: p * back,
+      started: kickoffs.some((k) => Number.isFinite(k) && k <= now),
+    });
   }
   return out;
 }

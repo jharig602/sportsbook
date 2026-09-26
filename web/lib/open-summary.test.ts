@@ -75,3 +75,13 @@ test("two parlay legs on one game are not priced as independent", () => {
   assert.equal(s.unpriced, 1);
   assert.equal(s.expected, 0);
 });
+
+test("each open ticket carries what holding it is worth, the bar a cash-out has to clear", () => {
+  const s = openSummary([row()], new Map(), () => 0.5, none);
+  const hold = s.hold.get("b1")!;
+  assert.equal(hold.chance, 0.5);
+  assert.ok(near(hold.value, 0.5 * (25 + 27.25)), "half of stake plus profit");
+  const bonus = openSummary([row({ bonus: true, price: 300, stake: 10 } as Partial<GradedRow>)], new Map(), () => 0.25, none);
+  assert.ok(near(bonus.hold.get("b1")!.value, 0.25 * 30), "a bonus bet returns only its profit");
+  assert.equal(openSummary([row()], new Map(), () => null, none).hold.size, 0, "unpriced: no number offered");
+});

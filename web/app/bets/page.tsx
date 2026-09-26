@@ -47,6 +47,28 @@ function HeldInstead({ took, held }: { took: number; held: number }) {
   );
 }
 
+/**
+ * What an open ticket is worth to hold: the line a cash-out offer has to clear.
+ *
+ * Books price cash-outs below this -- the offer carries their margin -- so an offer
+ * under it is paying you to hand the book part of your ticket. Priced off the pregame
+ * market; once the game is on, the score has moved the real value and this figure is
+ * shown as the pregame one, not passed off as live.
+ */
+function HoldValue({ hold }: { hold?: { chance: number; value: number; started: boolean } }) {
+  if (!hold) return null;
+  return (
+    <p className="mt-1 text-[11px] text-slate-500">
+      {hold.started ? "Pregame worth " : "Worth "}
+      <span className="tabular text-slate-300">${hold.value.toFixed(2)}</span> to hold (
+      {Math.round(hold.chance * 100)}% to win)
+      {hold.started
+        ? " — the game is on, so the live value has moved; compare against a live line."
+        : " — only cash out above this."}
+    </p>
+  );
+}
+
 function money(value: number): string {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}$${Math.abs(value).toFixed(2)}`;
@@ -58,7 +80,7 @@ function money(value: number): string {
  * The tally already counts it once, so this only has to make it look like what it is:
  * a single stake on several results, any one of which can end it.
  */
-function ParlayRow({ bet, legs }: { bet: GradedRow; legs: Bet[] }) {
+function ParlayRow({ bet, legs, hold }: { bet: GradedRow; legs: Bet[]; hold?: { chance: number; value: number; started: boolean } }) {
   return (
     <Card className="px-3 py-2.5">
       <div className="flex items-start gap-2.5">
@@ -103,13 +125,14 @@ function ParlayRow({ bet, legs }: { bet: GradedRow; legs: Bet[] }) {
           {bet.outcome === "cashed" && bet.heldProfit !== null ? (
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
+          <HoldValue hold={hold} />
         </div>
       </div>
     </Card>
   );
 }
 
-function BetRow({ bet }: { bet: GradedRow }) {
+function BetRow({ bet, hold }: { bet: GradedRow; hold?: { chance: number; value: number; started: boolean } }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
   const label =
     bet.market === "total"
@@ -153,6 +176,7 @@ function BetRow({ bet }: { bet: GradedRow }) {
           {bet.outcome === "cashed" && bet.heldProfit !== null ? (
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
+          <HoldValue hold={hold} />
         </div>
       </div>
     </Card>
@@ -371,7 +395,11 @@ export default async function BetsPage({
             const legs = bet.parlay_id ? (parlayLegs.get(bet.parlay_id) ?? []) : null;
             return (
               <div key={bet.bet_id}>
-                {legs ? <ParlayRow bet={bet} legs={legs} /> : <BetRow bet={bet} />}
+                {legs ? (
+                  <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} />
+                ) : (
+                  <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} />
+                )}
                 {legs ? null : <CorrectBet bet={bet} />}
               </div>
             );
