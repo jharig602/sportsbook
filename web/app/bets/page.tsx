@@ -14,7 +14,7 @@ import { activeBets, tally, type Bet, type GradedRow, type Score } from "@/lib/s
 import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
 import { ledgerSections } from "@/lib/ordering";
-import { liveGames } from "@/lib/live-scores";
+import { liveGamesFor } from "@/lib/live-scores";
 import { liveChance, scoreLine, type LiveGame } from "@/lib/live-value";
 import type { ScoreModel } from "@/lib/joint-score";
 import type { League, Side } from "@/lib/types";
@@ -254,13 +254,16 @@ export default async function BetsPage({
     (b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id),
   );
   const [liveByEvent, scoreModels] = startedLegs.length
-    ? await Promise.all([liveGames(startedLegs.map((b) => b.league)), data.scoreModels().catch(() => ({}))])
+    ? await Promise.all([
+        liveGamesFor(startedLegs.map((b) => ({ eventId: b.event_id, league: b.league }))),
+        data.scoreModels().catch(() => ({})),
+      ])
     : [new Map<string, LiveGame>(), {} as Record<string, ScoreModel>];
   // Why a started game could not be priced live, for the row to say rather than guess.
   const whyNotLive = (bet: Bet): string => {
-    if (liveByEvent.size === 0) return "the live scoreboard could not be read";
+    if (liveByEvent.size === 0) return "ESPN's live scores could not be read";
     const game = liveByEvent.get(bet.event_id);
-    if (!game) return "the game is not on today's scoreboard";
+    if (!game) return "ESPN has no live score for this game";
     if (!gamesById.get(bet.event_id)) return "its pregame line is not on the board";
     if (!(scoreModels as Record<string, ScoreModel>)[bet.league]) return "no fitted score model for the league";
     return "this bet type cannot be priced live";
@@ -291,7 +294,9 @@ export default async function BetsPage({
     const started = legs.filter((b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id));
     if (started.length === 0) return null;
     if (started.some((b) => liveChanceOf(b) === null)) return null;
-    return started.map((b) => scoreLine(liveByEvent.get(b.event_id)!)).join(" | ");
+    return started
+      .map((b) => scoreLine(liveByEvent.get(b.event_id)!, { away: b.away_team, home: b.home_team }))
+      .join(" | ");
   };
   const staleReason = (row: GradedRow): string | null => {
     const legs = row.parlay_id ? parlayLegs.get(row.parlay_id) ?? [row] : [row];

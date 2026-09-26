@@ -100,7 +100,12 @@ export function liveChance(
   return bet.side === "home" ? m.above(-bet.line) : m.below(bet.line);
 }
 
-/** "DET 17-10 NYJ · 8:12 - 3rd", for the bet row. */
-export function scoreLine(game: LiveGame): string {
-  return `${game.awayAbbr} ${game.awayScore}–${game.homeScore} ${game.homeAbbr} · ${game.detail}`;
+/**
+ * "NYJ 10-17 DET · 8:12 - 3rd", for the bet row. Falls back to the given names when the
+ * source had no abbreviations (the core API).
+ */
+export function scoreLine(game: LiveGame, names?: { away?: string | null; home?: string | null }): string {
+  const away = game.awayAbbr || names?.away || "Away";
+  const home = game.homeAbbr || names?.home || "Home";
+  return `${away} ${game.awayScore}–${game.homeScore} ${home} · ${game.detail}`;
 }
