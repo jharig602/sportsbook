@@ -363,6 +363,16 @@ a boost multiplies the flattery — and lists sides with fewer than two other bo
 unranked. **Log a boosted bet at the boosted price** (`boostedPrice`), or the ledger
 settles the win at half its real profit.
 
+**The boost finder** (Promos page, `boost-finder.ts`, 2026-09-26) is the same ranking in
+the app, and it adds **game totals**. A total's fair chance is the other books' fair total
+(each book's line nudged by how its own over/under are priced) plus the measured lean --
+finals land +0.58/+0.61 over the closing total (`score_models.totalMean`) -- scattered by
+`totalSd`, with a whole-number line's push counted as the stake back. So at the same
+number the over outranks the under, but a point better on the under beats the lean
+(tested). A total more than 3 points off the others is stale or mistyped and listed
+apart; moneylines against My teams are skipped; each row links to the ledger with the
+boosted price filled in. The Actions workflow still exists but prints to public logs.
+
 ## Same-game parlays
 
 One final score, asked several questions. `joint-score.ts` prices them; `sgp.ts` turns

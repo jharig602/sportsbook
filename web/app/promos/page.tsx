@@ -1,4 +1,10 @@
 import { AddPromo } from "@/components/AddPromo";
+import { BoostFinder } from "@/components/BoostFinder";
+import { DEFAULT_MAX_SPREAD } from "@/lib/blowout";
+import { allBookLines } from "@/lib/book-lines";
+import { findBoosts } from "@/lib/boost-finder";
+import { getData } from "@/lib/data";
+import { getFavourites } from "@/lib/settings-db";
 import { PromoList } from "@/components/PromoList";
 import { Banner, NotAdvice, PageHeader } from "@/components/ui";
 import { databaseUrl } from "@/lib/env";
@@ -16,8 +22,37 @@ export const dynamic = "force-dynamic";
  * bonus bet sitting in an account until it lapses — and neither of those is a question
  * about which side to take.
  */
-export default async function PromosPage() {
+export default async function PromosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ book?: string; boost?: string; stake?: string }>;
+}) {
+  const params = await searchParams;
   const session = await currentSession();
+
+  // The boost finder's inputs, range-checked: a URL is typed input.
+  const boostSize = Number(params.boost);
+  const boost = boostSize > 0 && boostSize <= 2 ? boostSize : 0.5;
+  const stakeValue = Number(params.stake);
+  const stake = stakeValue > 0 && stakeValue <= 1000 ? stakeValue : 25;
+  const data = getData();
+  const [games, lines, models, scoreModels, favourites] = await Promise.all([
+    data.games(),
+    data.backend === "postgres" ? allBookLines().catch(() => new Map()) : Promise.resolve(new Map()),
+    data.marginModels(),
+    data.scoreModels().catch(() => ({})),
+    data.backend === "postgres" ? getFavourites().catch(() => [] as string[]) : Promise.resolve([] as string[]),
+  ]);
+  const books = [...new Set([...lines.values()].flat().map((r) => r.book as string))].sort();
+  if (!books.includes("FanDuel")) books.unshift("FanDuel");
+  const book = params.book && books.includes(params.book) ? params.book : "FanDuel";
+  const found = findBoosts(games, lines, models, scoreModels, {
+    book,
+    boost,
+    stake,
+    favourites,
+    maxSpread: DEFAULT_MAX_SPREAD,
+  });
 
   let promos: Promo[] = [];
   let loadError: string | null = null;
@@ -41,6 +76,16 @@ export default async function PromosPage() {
       />
 
       {loadError ? <Banner tone="error">{loadError}</Banner> : null}
+
+      <BoostFinder
+        books={books}
+        book={book}
+        boost={boost}
+        stake={stake}
+        checked={found.checked}
+        unchecked={found.unchecked.length}
+        gamesAtBook={found.gamesAtBook}
+      />
 
       <AddPromo recent={promos} />
       {/*
