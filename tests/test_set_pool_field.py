@@ -91,3 +91,49 @@ def test_a_refusal_reports_sizes_as_stored_not_half_applied():
         apply_updates(pools(), [parse_update("137:90,51:0"), parse_update("12:9,2:0")])
     assert "sizes as stored: 13, 137" in str(error.value)
     assert "141" not in str(error.value)
+
+
+# --- each pool's own herding ------------------------------------------------------
+
+def test_a_pools_own_herding_is_stored_with_the_field():
+    out, report = apply_updates(
+        pools(), [parse_update("137:42,82:0:105/282"), parse_update("13:2,9:1:11/22")]
+    )
+    big = next(p for p in out if p["size"] == 124)
+    small = next(p for p in out if p["size"] == 11)
+    assert big["crowd"] == {"top": 105, "picks": 282}
+    assert small["crowd"] == {"top": 11, "picks": 22}
+    assert "herding 105/282 (37%)" in report[0]
+
+
+def test_a_new_measurement_on_an_unchanged_field_is_still_applied():
+    """Otherwise it reports 'already recorded' and silently skips the herding."""
+    first, _ = apply_updates(pools(), [parse_update("137:90,51:0")])
+    again, report = apply_updates(first, [parse_update("141:90,51:0:105/282")])
+    big = next(p for p in again if p["size"] == 141)
+    assert big["crowd"] == {"top": 105, "picks": 282}
+    assert "already recorded" not in report[0]
+
+
+def test_leaving_herding_out_keeps_what_is_stored():
+    first, _ = apply_updates(pools(), [parse_update("137:90,51:0:105/282")])
+    again, _ = apply_updates(first, [parse_update("141:88,50:0")])
+    big = next(p for p in again if p["size"] == 138)
+    assert big["crowd"] == {"top": 105, "picks": 282}
+
+
+@pytest.mark.parametrize("text", [
+    "137:90,51:0:300/282",   # more top picks than picks
+    "137:90,51:0:10/0",      # no picks
+    "137:90,51:0:ten/282",   # not a number
+    "137:90,51:0:105",       # missing the slash
+])
+def test_impossible_herding_is_refused(text):
+    with pytest.raises(ValueError):
+        parse_update(text)
+
+
+def test_herding_in_the_report_names_no_team():
+    _, report = apply_updates(pools(), [parse_update("137:42,82:0:105/282")])
+    for team in ("Jacksonville", "Tampa", "Detroit", "Philadelphia", "Kansas"):
+        assert team not in " ".join(report)

@@ -26,6 +26,7 @@ import {
   rankByPoolWin,
   shareOfPot,
   type Field,
+  poolCrowding,
 } from "./pool-win.ts";
 import { buildWeeks, type SeasonGame, type Week } from "./survivor.ts";
 import type { MarginModel } from "./probability.ts";
@@ -664,4 +665,46 @@ test("a single entry is never kept off anything", () => {
     crowding: 0,
   });
   assert.deepEqual(plans[0].keptOff, []);
+});
+
+// --- each pool's own crowding -----------------------------------------------------
+
+test("a pool's own herding replaces the national figure as its evidence grows", () => {
+  // The owner's big pool: 105 of 282 picks on the top team (37%), 124 alive.
+  const big = { crowd: { top: 105, picks: 282 }, field: [42, 82] };
+  const blended = poolCrowding(big, 0.276, true);
+  assert.ok(blended > 0.33 && blended < 0.36, `big pool ${blended}`);
+});
+
+test("a small pool's two weeks cannot set the number on their own", () => {
+  // 11 of 22 picks on the top team (50%): real herding, thin evidence. The national
+  // figure counts as one more week of this pool.
+  const small = { crowd: { top: 11, picks: 22 }, field: [2, 9] };
+  const blended = poolCrowding(small, 0.276, true);
+  assert.ok(Math.abs(blended - (11 + 11 * 0.276) / 33) < 1e-12, `small pool ${blended}`);
+  assert.ok(blended > 0.276 && blended < 0.5, "between the two, pulled toward its own");
+});
+
+test("with no national figure, the pool's own ratio stands alone", () => {
+  // Blending toward a zero nobody measured would invent a calm field.
+  assert.equal(poolCrowding({ crowd: { top: 11, picks: 22 }, field: [2, 9] }, 0, false), 0.5);
+});
+
+test("with no measurement of its own, a pool uses the national figure", () => {
+  assert.equal(poolCrowding({ field: [42, 82] }, 0.276, true), 0.276);
+  assert.equal(poolCrowding({ crowd: { top: 0, picks: 0 } }, 0.276, true), 0.276);
+});
+
+test("each pool is planned against its own crowding, and the plan says which", () => {
+  const weeks = twoTeamWeek();
+  const plans = buildPoolWinPlans(
+    weeks,
+    [
+      { used: [], size: 124, lossesAllowed: 1, field: [42, 82], crowd: { top: 105, picks: 282 } },
+      { used: [], size: 20, lossesAllowed: 0 },
+    ],
+    { crowding: 0.276, crowdingMeasured: true },
+  );
+  assert.ok(Math.abs(plans[0].crowding - poolCrowding(plans[0].pool, 0.276, true)) < 1e-12);
+  assert.equal(plans[1].crowding, 0.276, "a pool with no sheets keeps the national figure");
 });

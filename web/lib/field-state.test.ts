@@ -259,3 +259,21 @@ test("a missing or nonsense start is simply not recorded", () => {
   );
   assert.equal(negative.entered, undefined);
 });
+
+test("a pool's own crowding survives the app re-saving the whole list", () => {
+  // The app writes every pool back whenever anything is tapped. If the parser dropped
+  // this, marking a team used would silently erase the measurement.
+  const [pool] = parsePools(
+    JSON.stringify([{ used: [], size: 124, lossesAllowed: 1, field: [42, 82], crowd: { top: 105, picks: 282 } }]),
+  );
+  assert.deepEqual(pool.crowd, { top: 105, picks: 282 });
+  const [again] = parsePools(JSON.stringify([pool]));
+  assert.deepEqual(again.crowd, { top: 105, picks: 282 });
+});
+
+test("an impossible crowd measurement is dropped, not stored", () => {
+  const [pool] = parsePools(
+    JSON.stringify([{ used: [], size: 10, lossesAllowed: 0, crowd: { top: 30, picks: 22 } }]),
+  );
+  assert.equal(pool.crowd, undefined);
+});

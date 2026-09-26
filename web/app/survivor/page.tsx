@@ -207,9 +207,17 @@ export default async function SurvivorPage({
 
   const withPins = pools.map((pool, i) => (i === viewing ? { ...pool, pinned: pins } : pool));
 
-  const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, { crowding, popularity });
+  const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, {
+    crowding,
+    popularity,
+    crowdingMeasured: measuredCrowding !== null,
+  });
   const baseline =
-    pins.size > 0 ? buildPoolWinPlans(horizonWeeks, pools, { crowding, popularity }) : poolPlans;
+    pins.size > 0 ? buildPoolWinPlans(horizonWeeks, pools, {
+        crowding,
+        popularity,
+        crowdingMeasured: measuredCrowding !== null,
+      }) : poolPlans;
   const hasWhatIf = pins.size > 0 || unavailablePins.length > 0;
   const survivals = poolPlans.map((p) => p.plan.survival).filter((s) => s > 0);
   const multi = {
@@ -285,7 +293,15 @@ export default async function SurvivorPage({
           unavailable: unavailablePins,
         }
       : null;
-  const havePopularity = measuredCrowding !== null;
+  // The crowding the viewed pool was actually planned against: its own measured herding
+  // when its sheets have been read, the national feed otherwise. Every sentence below
+  // quotes this one number, so the text can never describe a different field than the
+  // pick above it was ranked against.
+  const viewedPool = pools[poolIndex];
+  const ownCrowd = viewedPool?.crowd && viewedPool.crowd.picks > 0 ? viewedPool.crowd : null;
+  const hereCrowding = poolEntry?.crowding ?? crowding;
+  // Measured if either source exists: a pool's own sheets count as measuring the field.
+  const havePopularity = measuredCrowding !== null || ownCrowd !== null;
 
   // Does this week's pick actually depend on how far ahead we look?
   // On the same objective as the headline pick. Reporting the survival-optimal team
@@ -299,7 +315,7 @@ export default async function SurvivorPage({
     poolSize: hereState.rivals + 1,
     rivalLosses: hereState.rivalLosses,
     myLosses: hereState.myLosses,
-    crowding,
+    crowding: hereCrowding,
     popularity,
   });
   const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
@@ -673,15 +689,15 @@ export default async function SurvivorPage({
                 {ranking[0].candidate.team} takes the pool more often than{" "}
                 {poolEntry.insteadOf.team} despite winning{" "}
                 {percent(poolEntry.insteadOf.winProbability - ranking[0].candidate.winProbability)}{" "}
-                less often. Surviving alongside {(crowding * 100).toFixed(0)}% of the
+                less often. Surviving alongside {(hereCrowding * 100).toFixed(0)}% of the
                 pool does not decide anything; the weeks they lose and you do not are the
                 weeks you gain the whole field.{" "}
                 {poolEntry.crossover !== null ? (
                   <span className="text-slate-500">
                     It needs the field above {(poolEntry.crossover * 100).toFixed(0)}% on
                     one team to be the better play, and{" "}
-                    {(crowding * 100).toFixed(0)}% is measured
-                    {crowding - poolEntry.crossover < 0.05
+                    {(hereCrowding * 100).toFixed(0)}% is measured
+                    {hereCrowding - poolEntry.crossover < 0.05
                       ? " — close enough that a quiet week would flip it back."
                       : "."}
                   </span>
@@ -692,7 +708,7 @@ export default async function SurvivorPage({
                 <span className="font-medium text-emerald-300">
                   The safest pick is also the best one here.
                 </span>{" "}
-                At {(crowding * 100).toFixed(0)}% on one team the field is not crowded
+                At {(hereCrowding * 100).toFixed(0)}% on one team the field is not crowded
                 enough to be worth avoiding &mdash; separating would cost more survival
                 than it trims off the pool. That flips once one team is on most of the
                 tickets, which is what this card is watching for.
@@ -702,9 +718,17 @@ export default async function SurvivorPage({
 
           <p className="mt-1.5 text-[11px] text-slate-600">
             Ranked on last-one-standing over {plan.weeksPlanned} weeks.{" "}
-            {havePopularity
-              ? `${(crowding * 100).toFixed(0)}% crowding measured this week, assumed to hold.`
-              : "No popularity collected, so no crowding is assumed."}
+            {ownCrowd
+              ? `${(hereCrowding * 100).toFixed(0)}% crowding: this pool's own picks (${Math.round(
+                  (ownCrowd.top / ownCrowd.picks) * 100,
+                )}% on the top team over ${ownCrowd.picks} picks)${
+                  measuredCrowding !== null
+                    ? `, blended with the national ${Math.round(measuredCrowding * 100)}%`
+                    : ""
+                }.`
+              : havePopularity
+                ? `${(hereCrowding * 100).toFixed(0)}% crowding measured this week, assumed to hold.`
+                : "No popularity collected, so no crowding is assumed."}
           </p>
         </Card>
       ) : null}

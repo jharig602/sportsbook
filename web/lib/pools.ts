@@ -55,6 +55,19 @@ export interface StoredPool {
    * check that the number in front of you means what you think it means.
    */
   entered?: number;
+  /**
+   * How much THIS pool herds, from its own completed weeks: the most-picked team's count
+   * summed across weeks (`top`), over every pick made in them (`picks`).
+   *
+   * The planner otherwise borrows a national survivor-pick feed, and a pool is not the
+   * nation. Measured from the owner's own sheets, the 141-entry pool put 37% on one team
+   * a week and the 11-entry pool 50%, against the feed's ~28%. More herding makes
+   * separating from the crowd's team worth more, so this changes picks, not just labels.
+   *
+   * Stored as the two counts rather than a percentage so the blend with the national
+   * figure can weigh them by how much evidence they are -- see `poolCrowding`.
+   */
+  crowd?: { top: number; picks: number };
   /** Losses your own entry has taken. Absent means none. */
   myLosses?: number;
 }
@@ -188,6 +201,21 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
           : {}),
         ...(Number(p.entered) > 0
           ? { entered: Math.min(100000, Math.max(1, Math.floor(Number(p.entered)))) }
+          : {}),
+        // Kept on every re-save. The app writes the whole pool list back whenever
+        // anything is tapped, so a field this parser dropped would be erased the first
+        // time you marked a team used -- silently, with the plan quietly reverting to
+        // the national figure.
+        ...(p.crowd &&
+        Number(p.crowd.picks) > 0 &&
+        Number(p.crowd.top) >= 0 &&
+        Number(p.crowd.top) <= Number(p.crowd.picks)
+          ? {
+              crowd: {
+                top: Math.floor(Number(p.crowd.top)),
+                picks: Math.min(1_000_000, Math.floor(Number(p.crowd.picks))),
+              },
+            }
           : {}),
         ...(Number(p.myLosses) > 0
           ? { myLosses: Math.min(5, Math.max(0, Math.floor(Number(p.myLosses)))) }

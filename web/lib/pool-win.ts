@@ -654,6 +654,8 @@ export interface PoolWinPlan {
    * the order holds across every crowding rate, so the call does not depend on it.
    */
   crossover: number | null;
+  /** The crowding this pool was actually planned against: its own, or the national feed. */
+  crowding: number;
 }
 
 export interface PoolEntry {
@@ -673,6 +675,33 @@ export interface PoolEntry {
   field?: number[];
   /** Losses your own entry has taken. */
   myLosses?: number;
+  /** This pool's own herding, measured from its sheets. See `StoredPool.crowd`. */
+  crowd?: { top: number; picks: number };
+}
+
+/**
+ * How crowded THIS pool is, from its own picks blended with the national feed.
+ *
+ * The pool's own measurement wins as it accumulates, but never all at once: the national
+ * figure counts as one more week of this pool, at its current size. Two weeks of an
+ * 11-entry pool is 22 picks, and one of those weeks had 7 of 11 on Tampa Bay -- enough to
+ * say this pool herds, not enough to let a single week set the number. For the 141-entry
+ * pool the same rule barely moves its own 37%, because 282 picks outweigh one week.
+ *
+ * With no national figure measured, the pool's own ratio stands alone; with no pool
+ * measurement, the national figure does. Neither case invents anything.
+ */
+export function poolCrowding(
+  pool: { crowd?: { top: number; picks: number }; size?: number; field?: number[] },
+  national: number,
+  nationalMeasured: boolean,
+): number {
+  const crowd = pool.crowd;
+  if (!crowd || !(crowd.picks > 0)) return national;
+  const own = Math.min(1, Math.max(0, crowd.top / crowd.picks));
+  if (!nationalMeasured) return own;
+  const weight = Math.max(1, pool.field?.length ? pool.field.reduce((a, b) => a + b, 0) : pool.size ?? 1);
+  return (crowd.top + weight * national) / (crowd.picks + weight);
 }
 
 /**
@@ -687,7 +716,16 @@ export interface PoolEntry {
 export function buildPoolWinPlans(
   weeks: Week[],
   pools: PoolEntry[],
-  options: { crowding: number; popularity?: Record<string, number> },
+  options: {
+    crowding: number;
+    popularity?: Record<string, number>;
+    /**
+     * Whether `crowding` came from the feed or is the zero standing in for "unknown".
+     * Needed so a pool's own measurement can stand alone when the feed is empty instead
+     * of being blended toward a zero nobody measured.
+     */
+    crowdingMeasured?: boolean;
+  },
 ): PoolWinPlan[] {
   const reservedThisWeek = new Set<string>();
   const out: PoolWinPlan[] = [];
@@ -704,12 +742,14 @@ export function buildPoolWinPlans(
     // gone out, who are nobody's rival any more.
     const state = fieldState(pool);
     const poolSize = state.rivals + 1;
+    // Each pool's own herding when its sheets have been read, the national feed when not.
+    const crowding = poolCrowding(pool, options.crowding, options.crowdingMeasured ?? options.crowding > 0);
     const ranking = rankByPoolWin(weeks, {
       used,
       excludeThisWeek: reservedThisWeek,
       lossesAllowed,
       poolSize,
-      crowding: options.crowding,
+      crowding,
       popularity: options.popularity,
       pinned,
       rivalLosses: state.rivalLosses,
@@ -734,12 +774,13 @@ export function buildPoolWinPlans(
     out.push({
       pool,
       ranking,
+      crowding,
       crossover:
         top && safest && safest.candidate.team !== top.candidate.team
           ? crossoverCrowding(
               top.line,
               safest.line,
-              { probabilities: crowd.map((c) => c?.winProbability ?? 1), crowding: options.crowding },
+              { probabilities: crowd.map((c) => c?.winProbability ?? 1), crowding },
               lossesAllowed,
               poolSize,
               state.rivalLosses,

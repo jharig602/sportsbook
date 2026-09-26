@@ -18,10 +18,13 @@ shared one -- so the report is sizes and loss counts only.
 
 Usage (DATABASE_URL from the environment, never argv):
 
-    python collector/set_pool_field.py --set 137:90,51:0 --set 13:9,2:0 [--dry-run]
+    python collector/set_pool_field.py --set 137:90,51:0 --set 13:9,2:0:11/22 [--dry-run]
 
-Each --set is MATCH:FIELD:MYLOSSES. MATCH is the pool's current size, which is how the
-two pools are told apart; FIELD is entrants alive by losses taken, you included.
+Each --set is MATCH:FIELD:MYLOSSES[:TOP/PICKS]. MATCH is the pool's current size, which
+is how the two pools are told apart; FIELD is entrants alive by losses taken, you
+included. The optional TOP/PICKS is how much the pool herds, from its own completed weeks:
+the most-picked team's count summed across weeks, over all picks made. Counts only -- no
+teams -- so it is safe in these public logs.
 """
 from __future__ import annotations
 
@@ -39,13 +42,25 @@ class FieldUpdate:
     match_size: int
     field: tuple[int, ...]
     my_losses: int
+    #: (top, picks) -- the pool's own herding. None leaves whatever is stored alone.
+    crowd: tuple[int, int] | None = None
 
 
 def parse_update(text: str) -> FieldUpdate:
-    """`137:90,51:0` -> FieldUpdate. Rejects anything that is not exactly that shape."""
+    """`137:90,51:0` or `137:90,51:0:105/282` -> FieldUpdate. Rejects any other shape."""
     parts = text.strip().split(":")
-    if len(parts) != 3:
-        raise ValueError(f"expected MATCH:FIELD:MYLOSSES, got {text!r}")
+    if len(parts) not in (3, 4):
+        raise ValueError(f"expected MATCH:FIELD:MYLOSSES[:TOP/PICKS], got {text!r}")
+    crowd = None
+    if len(parts) == 4:
+        try:
+            top_text, picks_text = parts[3].split("/")
+            crowd = (int(top_text), int(picks_text))
+        except ValueError as error:
+            raise ValueError(f"crowd must be TOP/PICKS in {text!r}") from error
+        if crowd[1] < 1 or crowd[0] < 0 or crowd[0] > crowd[1]:
+            raise ValueError(f"crowd out of range in {text!r}: top must be 0..picks")
+        parts = parts[:3]
     try:
         match = int(parts[0])
         field = tuple(int(n) for n in parts[1].split(",") if n.strip() != "")
@@ -54,7 +69,7 @@ def parse_update(text: str) -> FieldUpdate:
         raise ValueError(f"not all numbers in {text!r}") from error
     if match < 1 or mine < 0 or not field or any(n < 0 for n in field) or sum(field) < 1:
         raise ValueError(f"out of range in {text!r}")
-    return FieldUpdate(match, field, mine)
+    return FieldUpdate(match, field, mine, crowd)
 
 
 def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[dict], list[str]]:
@@ -85,6 +100,10 @@ def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[d
             i for i, p in enumerate(out)
             if list(p.get("field") or []) == list(update.field)
             and int(p.get("myLosses") or 0) == update.my_losses
+            # A new crowd measurement on an unchanged field is still a change. Without this
+            # the update would report "already recorded" and silently skip it.
+            and (update.crowd is None
+                 or (p.get("crowd") or {}) == {"top": update.crowd[0], "picks": update.crowd[1]})
         ]
         if already:
             report.append(f"pool of {target_total}: already recorded, unchanged")
@@ -121,10 +140,17 @@ def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[d
             pool["myLosses"] = update.my_losses
         else:
             pool.pop("myLosses", None)
+        if update.crowd is not None:
+            pool["crowd"] = {"top": update.crowd[0], "picks": update.crowd[1]}
         rivals = target_total - (1 if update.my_losses <= allowed else 0)
+        herding = (
+            f", herding {update.crowd[0]}/{update.crowd[1]} "
+            f"({update.crowd[0] / update.crowd[1]:.0%})"
+            if update.crowd else ""
+        )
         report.append(
             f"pool of {before} -> {target_total}: field {list(update.field)}, "
-            f"your losses {update.my_losses}, {rivals} rivals"
+            f"your losses {update.my_losses}, {rivals} rivals{herding}"
         )
     return out, report
 
