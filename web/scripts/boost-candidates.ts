@@ -31,6 +31,8 @@ import { buildBoard } from "../lib/data";
 import { formatKickoff } from "../lib/format";
 import { deVig, winProbabilityFromSpread, type MarginModel } from "../lib/probability";
 import { boostedEv, boostedPrice, parlayPrice } from "../lib/profit-boost";
+import { findBoosts } from "../lib/boost-finder";
+import type { ScoreModel } from "../lib/joint-score";
 import type { Game, Side } from "../lib/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -100,6 +102,7 @@ SELECT DISTINCT ON (b.event_id, b.book, b.market, b.side)
  ORDER BY b.event_id, b.book, b.market, b.side, b.observed_at DESC`;
 
 const MODELS = `SELECT league, games, mean, sd, lo, hi, pmf_json, buckets_json FROM margin_models`;
+const SCORE_MODELS = `SELECT league, games, total_mean, total_sd, margin_mean, margin_sd, correlation FROM score_models`;
 
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -253,6 +256,32 @@ BEST ${league.toUpperCase()} (${inLeague.length} sides worth something boosted)`
       `${`${pair.a.team} ML + ${pair.b.team} ML`.padEnd(60)} ` +
       `${signed(pair.price).padStart(6)} -> log ${signed(boostedPrice(pair.price, BOOST)).padStart(6)}  ` +
       `wins ${pct(pair.p)} (1 in ${(1 / pair.p).toFixed(0)})  BOOSTED ${money(pair.boosted)}`,
+    );
+  }
+
+  // Totals, from the same code the Promos page runs (boost-finder.ts).
+  const scoreModels: Record<string, ScoreModel> = {};
+  for (const r of await query<any>(SCORE_MODELS)) {
+    scoreModels[r.league] = {
+      league: r.league, games: Number(r.games), totalMean: Number(r.total_mean), totalSd: Number(r.total_sd),
+      marginMean: Number(r.margin_mean), marginSd: Number(r.margin_sd), correlation: Number(r.correlation),
+    };
+  }
+  const found = findBoosts(games, stored, models, scoreModels, {
+    book: BOOK, boost: BOOST, stake: STAKE, maxSpread: DEFAULT_MAX_SPREAD, now,
+  });
+  const totals = [...found.checked, ...found.unchecked].filter((p) => p.market === "total");
+  const totalQuotes = [...stored.values()].flat().filter((r) => r.market === "total");
+  console.log(
+    `\nTOTALS: score models for ${Object.keys(scoreModels).join(", ") || "no league"}; ` +
+      `${totalQuotes.length} stored total quotes (${totalQuotes.filter((r) => r.book === BOOK).length} at ${BOOK}); ` +
+      `${totals.length} priced (${totals.filter((p) => p.checked).length} checked, ` +
+      `${totals.filter((p) => p.boosted > 0).length} worth something boosted)`,
+  );
+  for (const t of totals.slice(0, 8)) {
+    console.log(
+      `${t.league.toUpperCase().padEnd(5)} ${t.game.padEnd(55)} ${t.label.padEnd(12)} ${signed(t.price).padStart(5)} ` +
+        `wins ${pct(t.win)} push ${pct(t.push)} ${t.checked ? "checked" : "UNCHECKED"} [${t.basis}] BOOSTED ${money(t.boosted)}`,
     );
   }
 
