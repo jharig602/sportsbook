@@ -475,6 +475,7 @@ export default async function SurvivorPage({
         pools={pools}
         index={poolIndex}
         suggestion={plan.picks[0]?.pick?.team ?? null}
+        teams={[...new Set(weeks.flatMap((w) => w.candidates.map((c) => c.team)))].sort()}
       />
 
       <Segmented

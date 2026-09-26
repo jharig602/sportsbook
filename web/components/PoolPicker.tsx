@@ -20,10 +20,19 @@ export function PoolPicker({
   pools,
   index,
   suggestion,
+  teams = [],
 }: {
   pools: StoredPool[];
   index: number;
   suggestion: string | null;
+  /**
+   * Every team the planner knows, spelled the way the planner spells them.
+   *
+   * Passed in from the season's own schedule rather than typed from a list here, because
+   * a used team only works if its name matches the planner's exactly -- "Philly" or
+   * "Philadelphia" would be stored, shown as spent, and silently not excluded.
+   */
+  teams?: string[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -296,6 +305,30 @@ export function PoolPicker({
               Nothing spent yet. Mark a team once you have actually submitted it.
             </p>
           )}
+          {/* Any team, not just today's suggestion. Until this existed, the only way to
+              record a pick was the "I picked X" button, which only offers the team the
+              plan is recommending now -- so a week-1 pick that was not the suggestion
+              could never be entered, and the plan could recommend a team you had spent. */}
+          {teams.length > 0 ? (
+            <select
+              value=""
+              disabled={busy}
+              onChange={(e) => {
+                if (e.target.value) mark(e.target.value);
+              }}
+              aria-label="Add a team you have already picked"
+              className="mt-2 w-full rounded border border-edge bg-ink px-2 py-1.5 text-[12px] text-slate-300 outline-none focus:border-sky-600 disabled:opacity-50"
+            >
+              <option value="">Add a team you&rsquo;ve already picked&hellip;</option>
+              {teams
+                .filter((team) => !pool.used.includes(team))
+                .map((team) => (
+                  <option key={team} value={team}>
+                    {team}
+                  </option>
+                ))}
+            </select>
+          ) : null}
           <p className="mt-2 text-[11px] text-slate-600">
             Tap a team to un-spend it &mdash; the plan excludes everything listed here.
             Entrants drives the picks, not just the label: a 25-person pool and a

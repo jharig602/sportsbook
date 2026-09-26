@@ -125,18 +125,21 @@ export function Banner({
 }
 
 /**
- * Standing disclaimer. Move Strength ranks how unusual a move is; it says nothing about
- * whether a bet is good. This component exists so that claim is worded identically
- * everywhere and cannot quietly drift into sounding like a tip.
+ * Standing disclaimer, worded once so it cannot drift into sounding like a tip.
+ *
+ * It used to say "nothing here is a recommendation, and no expected value can be computed
+ * from a single sportsbook" -- true when the app watched one book, and false for a long
+ * time since: it sat under the bet of the day, on the page that computes expected value
+ * across nine books. A disclaimer that contradicts the card above it teaches you to ignore
+ * both. This one says what is actually true of every number the app shows.
  */
 export function NotAdvice({ className = "" }: { className?: string }) {
   return (
     <p className={`text-[11px] leading-relaxed text-slate-600 ${className}`}>
-      Move Strength ranks how <em>unusual</em> a line move is — not how likely a bet is to
-      win. Nothing here is a recommendation, and no expected value can be computed from a
-      single sportsbook.{" "}
+      Every number here is an estimate from comparing books, not a promise. A good price
+      still loses often, and &ldquo;nothing clears the edge&rdquo; is the usual answer.{" "}
       <Link href="/about" className="text-slate-500 underline underline-offset-2">
-        Why
+        How to read these
       </Link>
     </p>
   );
