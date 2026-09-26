@@ -4,6 +4,7 @@ import { databaseStatus, getData } from "@/lib/data";
 import { databaseUrl, databaseUrlSource, isPooled } from "@/lib/env";
 import { formatDay, formatKickoff, formatLeague, formatLine, formatPrice, formatRelative } from "@/lib/format";
 import type { Game, Side } from "@/lib/types";
+import { boardGames } from "@/lib/ordering";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +93,9 @@ export default async function BoardPage({
 }) {
   const { league = "all" } = await searchParams;
   const data = getData();
-  const all = await data.games();
+  const [every, results] = await Promise.all([data.games(), data.results()]);
+  // Only games still to play or under way; finished ones belong to the Record, not here.
+  const all = boardGames(every, new Set(results.map((r) => r.event_id)));
   const issue = databaseStatus();
   const source = databaseUrlSource() ?? "none";
   // Surfaced on hover: an unpooled URL works but exhausts connections under

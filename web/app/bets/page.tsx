@@ -13,6 +13,7 @@ import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } f
 import { activeBets, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
 import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
+import { ledgerSections } from "@/lib/ordering";
 import type { League, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -234,6 +235,9 @@ export default async function BetsPage({
   const corrections = bets.length - standing.length;
   const { rows, totals } = tally(standing, scores);
 
+  // Live, then soonest kickoff, then won, lost and the rest. See ordering.ts.
+  const sections = ledgerSections(rows, parlayLegs);
+
   // What is riding on the open tickets, priced against the other books. See open-summary.ts.
   const gamesById = new Map(games.map((g) => [g.eventId, g]));
   const open = openSummary(
@@ -390,20 +394,39 @@ export default async function BetsPage({
           detail="Nothing recorded yet. Logging a bet is what lets the system measure it — an unrecorded bet is invisible to every number on the Track Record."
         />
       ) : (
-        <div className="space-y-1.5">
-          {rows.map((bet) => {
-            const legs = bet.parlay_id ? (parlayLegs.get(bet.parlay_id) ?? []) : null;
-            return (
-              <div key={bet.bet_id}>
-                {legs ? (
-                  <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} />
-                ) : (
-                  <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} />
-                )}
-                {legs ? null : <CorrectBet bet={bet} />}
-              </div>
-            );
-          })}
+        <div className="space-y-4">
+          {(
+            [
+              ["Live now", sections.live],
+              ["Coming up", sections.upcoming],
+              ["Won", sections.won],
+              ["Lost", sections.lost],
+              ["Pushed or cashed out", sections.other],
+            ] as const
+          )
+            .filter(([, list]) => list.length > 0)
+            .map(([title, list]) => (
+              <section key={title}>
+                <h2 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  {title} <span className="tabular font-normal text-slate-600">· {list.length}</span>
+                </h2>
+                <div className="space-y-1.5">
+                  {list.map((bet) => {
+                    const legs = bet.parlay_id ? (parlayLegs.get(bet.parlay_id) ?? []) : null;
+                    return (
+                      <div key={bet.bet_id}>
+                        {legs ? (
+                          <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} />
+                        ) : (
+                          <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} />
+                        )}
+                        {legs ? null : <CorrectBet bet={bet} />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
         </div>
       )}
 
