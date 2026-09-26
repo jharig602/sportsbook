@@ -246,6 +246,10 @@ a college Saturday's game or a bet logged late could simply be missing.
   it sits on every leg and is counted once. The score is **still graded underneath**
   (`heldInstead`) so the page can report what holding would have paid — one cash-out
   says nothing, twenty say whether the decision is any good.
+  **In the record, a cash-out counts by the money it made** (owner's rule, 2026-09-26):
+  up is a win, down is a loss, even is a push (`recordResult`), and the Bets page files it
+  under Won or Lost the same way. It is still counted apart in `cashed`, and the
+  held-instead comparison still runs.
 
 ---
 

@@ -40,14 +40,16 @@ test("the ledger reads live, then soonest upcoming, then won, lost and the rest"
     row("up-soon", "open", 2),
     row("won-new", "won", -4),
     row("push", "push", -5),
-    row("cashed", "cashed", -6),
+    row("cashed-up", "cashed", -6, { profit: 143.98 }),
+    row("cashed-down", "cashed", -7, { profit: -4 }),
   ];
   const s = ledgerSections(rows, new Map(), NOW);
   assert.deepEqual(s.live.map((r) => r.bet_id), ["live"]);
   assert.deepEqual(s.upcoming.map((r) => r.bet_id), ["up-soon", "up-late"]);
-  assert.deepEqual(s.won.map((r) => r.bet_id), ["won-new", "won-old"]);
-  assert.deepEqual(s.lost.map((r) => r.bet_id), ["lost"]);
-  assert.deepEqual(s.other.map((r) => r.bet_id), ["push", "cashed"]);
+  // Cash-outs file by the money they made.
+  assert.deepEqual(s.won.map((r) => r.bet_id), ["won-new", "cashed-up", "won-old"]);
+  assert.deepEqual(s.lost.map((r) => r.bet_id), ["lost", "cashed-down"]);
+  assert.deepEqual(s.other.map((r) => r.bet_id), ["push"]);
 });
 
 test("a parlay is live once any leg has started, and upcoming ones sort by their next leg", () => {

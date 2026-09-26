@@ -262,6 +262,12 @@ export interface Tally {
   roi: number | null;
 }
 
+/** How a settled ticket counts in the record. A cash-out counts by the money it made. */
+export function recordResult(row: { outcome: Outcome; profit: number }): "won" | "lost" | "push" | "open" {
+  if (row.outcome === "cashed") return row.profit > 0.005 ? "won" : row.profit < -0.005 ? "lost" : "push";
+  return row.outcome;
+}
+
 export function tally(
   bets: Bet[],
   scores: Map<string, Score>,
@@ -301,9 +307,12 @@ export function tally(
     totals: {
       placed: rows.length,
       settled: settled.length,
-      won: rows.filter((r) => r.outcome === "won").length,
-      lost: rows.filter((r) => r.outcome === "lost").length,
-      push: rows.filter((r) => r.outcome === "push").length,
+      // A cash-out counts by the money it made, by the owner's rule (2026-09-26): up is a
+      // win, down is a loss, even is a push. It is still counted apart in `cashed`, and
+      // `cashedHeld` still reports what holding would have paid.
+      won: rows.filter((r) => recordResult(r) === "won").length,
+      lost: rows.filter((r) => recordResult(r) === "lost").length,
+      push: rows.filter((r) => recordResult(r) === "push").length,
       open: rows.filter((r) => r.outcome === "open").length,
       cashed: cashedRows.length,
       cashedGraded: cashedGraded.length,

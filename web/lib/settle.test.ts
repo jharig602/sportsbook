@@ -520,15 +520,16 @@ test("an ungraded counterfactual is null, never zero", () => {
   assert.equal(heldInstead(bet(), new Map([["E1", { home_score: 1, away_score: 0 }]])), null);
 });
 
-test("the tally separates cashed tickets from won and lost", () => {
+test("the tally counts a profitable cash-out as a win, and still keeps it apart", () => {
   const scores = new Map([["E1", { home_score: 10, away_score: 30 }]]);
   const { totals } = tally(
     [bet({ market: "moneyline", side: "away", price: 920, stake: 50, bonus: true, cashout: 193.98 })],
     scores,
   );
   assert.equal(totals.cashed, 1);
-  assert.equal(totals.won, 0, "a cash-out is not a win");
-  assert.equal(totals.lost, 0, "nor a loss");
+  // The owner's rule (2026-09-26): a cash-out counts by the money it made.
+  assert.equal(totals.won, 1, "cashed for +$193.98, so it is a win");
+  assert.equal(totals.lost, 0);
   assert.equal(totals.settled, 1, "but it is settled");
   assert.equal(totals.cashedGraded, 1);
   assert.equal(totals.cashedTaken, 193.98);
@@ -601,4 +602,16 @@ test("a total with no team is still the game's, as every old row is", () => {
     }),
     true,
   );
+});
+
+test("a cash-out counts in the record by the money it made", async () => {
+  const { tally } = await import("./settle.ts");
+  const up = bet({ bet_id: "u", cashout: 60, stake: 25 });
+  const down = bet({ bet_id: "d", event_id: "E2", cashout: 10, stake: 25 });
+  const even = bet({ bet_id: "e", event_id: "E3", cashout: 25, stake: 25 });
+  const { totals } = tally([up, down, even], new Map());
+  assert.equal(totals.won, 1);
+  assert.equal(totals.lost, 1);
+  assert.equal(totals.push, 1);
+  assert.equal(totals.cashed, 3, "still counted apart as cash-outs");
 });

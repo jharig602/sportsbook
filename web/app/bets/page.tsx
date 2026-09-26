@@ -471,7 +471,7 @@ export default async function BetsPage({
               ["Coming up", sections.upcoming],
               ["Won", sections.won],
               ["Lost", sections.lost],
-              ["Pushed or cashed out", sections.other],
+              ["Pushed", sections.other],
             ] as const
           )
             .filter(([, list]) => list.length > 0)

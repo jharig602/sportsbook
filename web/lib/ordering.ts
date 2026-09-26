@@ -8,9 +8,9 @@
  *
  * The ledger reads top-down in the order you need it on a game day: tickets live now,
  * then open tickets by soonest kickoff, then everything settled -- won, then lost, then
- * the rest (pushes and cash-outs), newest first within each.
+ * pushes, newest first within each. A cash-out counts as won or lost by the money it made.
  */
-import type { Bet, GradedRow } from "./settle";
+import { recordResult, type Bet, type GradedRow } from "./settle";
 import type { Game } from "./types";
 
 /** Longest a game is treated as still on without a final score. Overtime included. */
@@ -40,7 +40,7 @@ export interface LedgerSections {
   upcoming: GradedRow[];
   won: GradedRow[];
   lost: GradedRow[];
-  /** Pushes and cash-outs: settled, but neither a win nor a loss. */
+  /** Pushes, and cash-outs that came back exactly even. */
   other: GradedRow[];
 }
 
@@ -58,9 +58,11 @@ export function ledgerSections(
 
   const out: LedgerSections = { live: [], upcoming: [], won: [], lost: [], other: [] };
   for (const row of rows) {
-    if (row.outcome === "won") out.won.push(row);
-    else if (row.outcome === "lost") out.lost.push(row);
-    else if (row.outcome !== "open") out.other.push(row);
+    // A cash-out files under won or lost by the money it made (`recordResult`).
+    const result = recordResult(row);
+    if (result === "won") out.won.push(row);
+    else if (result === "lost") out.lost.push(row);
+    else if (result === "push") out.other.push(row);
     else if (kickoffs(row).some((k) => k <= t)) out.live.push(row);
     else out.upcoming.push(row);
   }
