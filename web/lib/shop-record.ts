@@ -37,12 +37,29 @@ import { upperTail } from "./stats";
 import type { League, Market, ShopGrade } from "./types";
 import { Z, zForFamily } from "./verdict";
 
+export type Part = "over" | "under" | "favourite" | "underdog";
+
+/** The half of its market a pick is on. Null when it cannot be told. */
+export function partOf(market: Market, side: string, line: number | null, price: number | null): Part | null {
+  if (market === "total") return side === "over" ? "over" : side === "under" ? "under" : null;
+  if (market === "spread" && line !== null && line !== 0) return line < 0 ? "favourite" : "underdog";
+  if (price === null) return null;
+  // A moneyline (or a pick'em spread) is decided by the price: the side laying odds is
+  // the favourite. Even money has no favourite.
+  return price < 0 && price !== -100 ? "favourite" : price > 100 ? "underdog" : null;
+}
+
 export interface OutcomeRow {
   key: string;
   eventId: string | null;
   league: League;
   market: Market;
   side: string;
+  /**
+   * Which half of the market this is: over/under for a total, favourite/underdog for a
+   * spread (by the line; a pick'em by the price) or a moneyline (by the price).
+   */
+  part: Part | null;
   books: string[];
   /** How many recorded picks this one result stands for. */
   copies: number;
@@ -85,6 +102,7 @@ export function collapseByOutcome(grades: ShopGrade[]): OutcomeRow[] {
       league: first.league,
       market: first.market,
       side: first.side,
+      part: partOf(first.market, first.side, first.line, first.price),
       books: [...new Set(rows.map((r) => r.book).filter((b): b is string => Boolean(b)))],
       copies: rows.length,
       profit: mean(rows.map((r) => profitPerDollar(r.price as number))),
@@ -125,8 +143,10 @@ export function roiCell(
   market: MarketFilter,
   league: LeagueFilter,
   zCritical: number = Z,
+  /** Narrow to one half of the market: over/under, favourite/underdog. */
+  part?: Part,
 ): RoiCell {
-  const slice = filterGrades(rows, market, league);
+  const slice = filterGrades(rows, market, league).filter((r) => !part || r.part === part);
   let profit = 0;
   let variance = 0;
   let wins = 0;
@@ -184,8 +204,22 @@ export function roiCell(
   };
 }
 
+/** The halves each market splits into. */
+export const PARTS: Record<Market, [Part, Part]> = {
+  spread: ["favourite", "underdog"],
+  total: ["over", "under"],
+  moneyline: ["favourite", "underdog"],
+};
+
 export interface RoiBreakdown {
   cells: RoiCell[];
+  /**
+   * The same cells split in half: over/under, favourite/underdog. Judged as their own
+   * family of twelve, so a split cell has to clear a stricter bar than a whole one --
+   * cutting a record finer is more looks, and each look is another chance at a fluke.
+   * Kept out of `best` and `familyP`, which describe the six whole cells.
+   */
+  parts: Array<RoiCell & { part: Part }>;
   best: RoiCell | null;
   /** How many cells had enough results to be compared. */
   compared: number;
@@ -220,8 +254,14 @@ export function buildRoiBreakdown(rows: OutcomeRow[], minCompared = 5): RoiBreak
     familyP = Math.min(1, Math.max(0, 1 - noneReach));
   }
 
+  const partCombos: Array<[Market, LeagueFilter, Part]> = [];
+  for (const m of MARKETS) for (const l of LEAGUES) for (const part of PARTS[m]) partCombos.push([m, l, part]);
+  const zParts = zForFamily(partCombos.length);
+  const parts = partCombos.map(([m, l, part]) => ({ ...roiCell(rows, m, l, zParts, part), part }));
+
   return {
     cells,
+    parts,
     best,
     compared: comparable.length,
     familyP,

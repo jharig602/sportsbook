@@ -1,7 +1,8 @@
+import { Fragment } from "react";
 import { Freshness } from "@/components/Freshness";
 import { Card, Empty, PageHeader, Segmented, Stats } from "@/components/ui";
 import { calibrate, type Calibration } from "@/lib/calibration";
-import { buildRoiBreakdown, collapseByOutcome, roiCell, type RoiBreakdown } from "@/lib/shop-record";
+import { buildRoiBreakdown, collapseByOutcome, PARTS, roiCell, type RoiBreakdown, type RoiCell } from "@/lib/shop-record";
 import {
   buildBreakdown,
   type Gradeable,
@@ -389,6 +390,45 @@ function MarketGrid({ breakdown, market, league }: { breakdown: Breakdown; marke
  * -110 bets; see shop-record.ts. Each cell shows what $1 on every result actually made,
  * what the picks predicted, and a verdict that knows the prices.
  */
+function RoiCellView({
+  cell: c,
+  dim,
+  best,
+  signedPct,
+  small = false,
+}: {
+  cell: RoiCell;
+  dim: boolean;
+  best: boolean;
+  signedPct: (v: number | null) => string;
+  small?: boolean;
+}) {
+  return (
+    <td className={`px-1 ${small ? "py-1 text-[11px]" : "py-1.5"} text-right tabular ${dim ? "opacity-40" : ""}`}>
+      <span
+        className={
+          c.state === "clears"
+            ? "text-emerald-300"
+            : c.state === "fails"
+              ? "text-rose-300"
+              : c.roi === null
+                ? "text-slate-600"
+                : small
+                  ? "text-slate-400"
+                  : "text-slate-200"
+        }
+      >
+        {signedPct(c.roi)}
+      </span>
+      <span className="ml-1 text-[10px] text-slate-600">{c.games > 0 ? `n=${c.games}` : ""}</span>
+      {c.expectedRoi !== null ? (
+        <span className="block text-[10px] text-slate-600">predicted {signedPct(c.expectedRoi)}</span>
+      ) : null}
+      {best ? <span className="block text-[10px] text-amber-400">best</span> : null}
+    </td>
+  );
+}
+
 function RoiGrid({
   breakdown,
   market,
@@ -422,40 +462,27 @@ function RoiGrid({
           </thead>
           <tbody>
             {MARKETS.map((m) => (
-              <tr key={m} className="border-t border-edge/60">
-                <td className="px-1 py-1.5 text-slate-300">{m}</td>
-                {LEAGUES.map((l) => {
-                  const c = breakdown.cells.find((x) => x.market === m && x.league === l)!;
-                  const highlighted = (market === m || market === "all") && (league === l || league === "all");
-                  const isBest = best?.market === m && best?.league === l;
-                  return (
-                    <td key={l} className={`px-1 py-1.5 text-right tabular ${highlighted ? "" : "opacity-40"}`}>
-                      <span
-                        className={
-                          c.state === "clears"
-                            ? "text-emerald-300"
-                            : c.state === "fails"
-                              ? "text-rose-300"
-                              : c.roi === null
-                                ? "text-slate-600"
-                                : "text-slate-200"
-                        }
-                      >
-                        {signedPct(c.roi)}
-                      </span>
-                      <span className="ml-1 text-[10px] text-slate-600">
-                        {c.games > 0 ? `n=${c.games}` : ""}
-                      </span>
-                      {c.expectedRoi !== null ? (
-                        <span className="block text-[10px] text-slate-600">
-                          predicted {signedPct(c.expectedRoi)}
-                        </span>
-                      ) : null}
-                      {isBest ? <span className="block text-[10px] text-amber-400">best</span> : null}
-                    </td>
-                  );
-                })}
-              </tr>
+              <Fragment key={m}>
+                <tr className="border-t border-edge/60">
+                  <td className="px-1 py-1.5 text-slate-300">{m}</td>
+                  {LEAGUES.map((l) => {
+                    const c = breakdown.cells.find((x) => x.market === m && x.league === l)!;
+                    const highlighted = (market === m || market === "all") && (league === l || league === "all");
+                    const isBest = best?.market === m && best?.league === l;
+                    return <RoiCellView key={l} cell={c} dim={!highlighted} best={isBest} signedPct={signedPct} />;
+                  })}
+                </tr>
+                {PARTS[m].map((part) => (
+                  <tr key={part}>
+                    <td className="px-1 py-1 pl-3 text-[11px] text-slate-500">↳ {part}</td>
+                    {LEAGUES.map((l) => {
+                      const c = breakdown.parts.find((x) => x.market === m && x.league === l && x.part === part)!;
+                      const highlighted = (market === m || market === "all") && (league === l || league === "all");
+                      return <RoiCellView key={l} cell={c} dim={!highlighted} best={false} signedPct={signedPct} small />;
+                    })}
+                  </tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -464,7 +491,9 @@ function RoiGrid({
         Each number is what $1 on every result would have made, at the prices taken &mdash; a
         +300 underdog only needs to win a quarter of the time. Green means the whole likely
         range is profit even after allowing for six cells being compared; red means the
-        whole range is a loss. Everything else is undecided.
+        whole range is a loss. Everything else is undecided. The split rows (over and under,
+        favourite and underdog) are judged as a family of twelve, so they need a stronger
+        result to turn a colour: cutting a record finer is more chances at a fluke.
       </p>
       {best && familyP !== null ? (
         <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
@@ -562,7 +591,9 @@ export default async function RecordPage({
   // Which rule these numbers describe. It was never named before, and a page called
   // "Track Record" showing only the line-movement rule reads as a verdict on the whole
   // app -- which is exactly how it was read.
-  const source: "movers" | "shop" = params.source === "shop" ? "shop" : "movers";
+  // Line shopping is the default, by the owner's choice (2026-09-26): it is the rule the
+  // app is built on. The line-move record is one tap away and still labelled.
+  const source: "movers" | "shop" = params.source === "movers" ? "movers" : "shop";
   const market: MarketFilter =
     params.market === "spread" || params.market === "total" || params.market === "moneyline"
       ? params.market

@@ -168,3 +168,30 @@ test("nothing graded is nothing to say", () => {
   assert.equal(breakdown.best, null);
   assert.equal(breakdown.familyP, null);
 });
+
+test("each pick knows its half of the market: over/under, favourite/underdog", async () => {
+  const { partOf } = await import("./shop-record.ts");
+  assert.equal(partOf("total", "over", 44.5, -110), "over");
+  assert.equal(partOf("total", "under", 44.5, -110), "under");
+  assert.equal(partOf("spread", "home", -6.5, -110), "favourite");
+  assert.equal(partOf("spread", "away", 6.5, -110), "underdog");
+  assert.equal(partOf("spread", "home", 0, -120), "favourite", "a pick'em goes by the price");
+  assert.equal(partOf("moneyline", "away", null, 295), "underdog");
+  assert.equal(partOf("moneyline", "home", null, -350), "favourite");
+  assert.equal(partOf("moneyline", "home", null, 100), null, "even money has no favourite");
+});
+
+test("the split cells add back up to their market", async () => {
+  const { buildRoiBreakdown } = await import("./shop-record.ts");
+  const row = (side: string, price: number, won: boolean, line: number | null) =>
+    ({ grade_id: side + price + won, pick_id: side + price + won, graded_at: "", rule_version_id: "r",
+       league: "nfl", market: "moneyline", side, line, price, fair_probability: 0.5, expected_roi: 0.02,
+       result_covered: won, result_push: false, replayed: false, event_id: side + price + won, book: "FanDuel" }) as never;
+  const rows = collapseByOutcome([row("home", -200, true, null), row("away", 250, false, null), row("away", 180, true, null)]);
+  const b = buildRoiBreakdown(rows);
+  const whole = b.cells.find((c) => c.market === "moneyline" && c.league === "nfl")!;
+  const fav = b.parts.find((c) => c.market === "moneyline" && c.league === "nfl" && c.part === "favourite")!;
+  const dog = b.parts.find((c) => c.market === "moneyline" && c.league === "nfl" && c.part === "underdog")!;
+  assert.equal(fav.games + dog.games, whole.games);
+  assert.ok(Math.abs(fav.profit + dog.profit - whole.profit) < 1e-9);
+});
