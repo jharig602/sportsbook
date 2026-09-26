@@ -16,7 +16,7 @@
  * GitHub, and a home connection). So any game the scoreboard did not return is read from
  * the core API instead, which has no such gate (noted in odds_poller.py): the
  * competition, its status and the two scores -- four small requests per game, for the
- * games you hold money on only, cached the same 45 seconds.
+ * games you hold money on only, cached the same 30 seconds.
  *
  * Fails soft, always: a timeout, a block or a changed schema returns an empty map, and
  * the page falls back to the pregame value with a note. Never a guessed score.
@@ -73,15 +73,32 @@ export function parseScoreboard(data: any): LiveGame[] {
 
 const CORE_API = "https://sports.core.api.espn.com/v2/sports/football/leagues";
 
+/**
+ * Fresh-or-fetch, never stale. Next's `revalidate` is stale-while-revalidate: the first
+ * visit after it lapses is served the OLD copy, which on the first live Saturday showed a
+ * clock minutes behind the game. This keeps each response 30 seconds per server instance
+ * and refetches past that, so ESPN still sees at most a couple of requests a minute from
+ * each instance and a score is never older than the TTL.
+ */
+const TTL_MS = 30_000;
+const cache = new Map<string, { at: number; body: unknown }>();
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function getJson(url: string, headers?: Record<string, string>): Promise<any> {
+  const hit = cache.get(url);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.body;
+  const response = await fetch(url, { headers, cache: "no-store", signal: AbortSignal.timeout(4000) });
+  if (!response.ok) throw new Error(`espn ${response.status}`);
+  const body = await response.json();
+  cache.set(url, { at: Date.now(), body });
+  if (cache.size > 200) cache.delete(cache.keys().next().value as string);
+  return body;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function coreJson(url: string): Promise<any> {
   // The API hands back its own links as http://; ask for https.
-  const response = await fetch(url.replace(/^http:/, "https:"), {
-    next: { revalidate: 45 },
-    signal: AbortSignal.timeout(4000),
-  });
-  if (!response.ok) throw new Error(`core ${response.status}`);
-  return response.json();
+  return getJson(url.replace(/^http:/, "https:"));
 }
 
 /** One game from the core API, or null. No abbreviations: those would cost two more calls. */
@@ -146,13 +163,7 @@ export async function liveGames(leagues: Iterable<string>): Promise<Map<string, 
       url.searchParams.set("limit", "300");
       if (target.group) url.searchParams.set("groups", target.group);
       try {
-        const response = await fetch(url, {
-          headers: HEADERS,
-          next: { revalidate: 45 },
-          signal: AbortSignal.timeout(4000),
-        });
-        if (!response.ok) return;
-        for (const game of parseScoreboard(await response.json())) out.set(game.eventId, game);
+        for (const game of parseScoreboard(await getJson(url.toString(), HEADERS))) out.set(game.eventId, game);
       } catch {
         // Soft by design: the pregame value stands, and the page says so.
       }

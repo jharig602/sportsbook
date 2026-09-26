@@ -275,6 +275,7 @@ export default async function BetsPage({
     if (liveByEvent.size === 0) return "ESPN's live scores could not be read";
     const game = liveByEvent.get(bet.event_id);
     if (!game) return "ESPN has no live score for this game";
+    if (game.state === "pre") return "ESPN does not show it as kicked off yet";
     if (!gamesById.get(bet.event_id)) return "its pregame line is not on the board";
     if (!(scoreModels as Record<string, ScoreModel>)[bet.league]) return "no fitted score model for the league";
     return "this bet type cannot be priced live";
