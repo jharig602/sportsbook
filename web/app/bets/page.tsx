@@ -14,6 +14,9 @@ import { activeBets, tally, type Bet, type GradedRow, type Score } from "@/lib/s
 import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
 import { ledgerSections } from "@/lib/ordering";
+import { liveGames } from "@/lib/live-scores";
+import { liveChance, scoreLine, type LiveGame } from "@/lib/live-value";
+import type { ScoreModel } from "@/lib/joint-score";
 import type { League, Side } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -52,19 +55,23 @@ function HeldInstead({ took, held }: { took: number; held: number }) {
  * What an open ticket is worth to hold: the line a cash-out offer has to clear.
  *
  * Books price cash-outs below this -- the offer carries their margin -- so an offer
- * under it is paying you to hand the book part of your ticket. Priced off the pregame
- * market; once the game is on, the score has moved the real value and this figure is
- * shown as the pregame one, not passed off as live.
+ * under it is paying you to hand the book part of your ticket. Before kickoff it is the
+ * other books' fair price; once a game is on it is re-priced from the live score and
+ * clock (`live-value.ts`). If the live score cannot be read, it says so and shows the
+ * pregame figure rather than passing a stale number off as live.
  */
-function HoldValue({ hold }: { hold?: { chance: number; value: number; started: boolean } }) {
+type Hold = { chance: number; value: number; started: boolean };
+function HoldValue({ hold, live }: { hold?: Hold; live?: string | null }) {
   if (!hold) return null;
+  const stale = hold.started && !live;
   return (
     <p className="mt-1 text-[11px] text-slate-500">
-      {hold.started ? "Pregame worth " : "Worth "}
+      {live ? <span className="font-medium text-emerald-300/90">Live · {live} · </span> : null}
+      {stale ? "Pregame worth " : live ? "Worth now " : "Worth "}
       <span className="tabular text-slate-300">${hold.value.toFixed(2)}</span> to hold (
       {Math.round(hold.chance * 100)}% to win)
-      {hold.started
-        ? " — the game is on, so the live value has moved; compare against a live line."
+      {stale
+        ? " — the live score could not be read, so this is the pregame figure."
         : " — only cash out above this."}
     </p>
   );
@@ -81,7 +88,7 @@ function money(value: number): string {
  * The tally already counts it once, so this only has to make it look like what it is:
  * a single stake on several results, any one of which can end it.
  */
-function ParlayRow({ bet, legs, hold }: { bet: GradedRow; legs: Bet[]; hold?: { chance: number; value: number; started: boolean } }) {
+function ParlayRow({ bet, legs, hold, live }: { bet: GradedRow; legs: Bet[]; hold?: Hold; live?: string | null }) {
   return (
     <Card className="px-3 py-2.5">
       <div className="flex items-start gap-2.5">
@@ -126,14 +133,14 @@ function ParlayRow({ bet, legs, hold }: { bet: GradedRow; legs: Bet[]; hold?: { 
           {bet.outcome === "cashed" && bet.heldProfit !== null ? (
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
-          <HoldValue hold={hold} />
+          <HoldValue hold={hold} live={live} />
         </div>
       </div>
     </Card>
   );
 }
 
-function BetRow({ bet, hold }: { bet: GradedRow; hold?: { chance: number; value: number; started: boolean } }) {
+function BetRow({ bet, hold, live }: { bet: GradedRow; hold?: Hold; live?: string | null }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
   const label =
     bet.market === "total"
@@ -177,7 +184,7 @@ function BetRow({ bet, hold }: { bet: GradedRow; hold?: { chance: number; value:
           {bet.outcome === "cashed" && bet.heldProfit !== null ? (
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
-          <HoldValue hold={hold} />
+          <HoldValue hold={hold} live={live} />
         </div>
       </div>
     </Card>
@@ -240,12 +247,43 @@ export default async function BetsPage({
 
   // What is riding on the open tickets, priced against the other books. See open-summary.ts.
   const gamesById = new Map(games.map((g) => [g.eventId, g]));
+  // Games under way with money on them get their live score -- one cached ESPN request
+  // per league, and only when there is such a game. See live-scores.ts.
+  const nowMs = Date.now();
+  const startedLegs = standing.filter(
+    (b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id),
+  );
+  const [liveByEvent, scoreModels] = startedLegs.length
+    ? await Promise.all([liveGames(startedLegs.map((b) => b.league)), data.scoreModels().catch(() => ({}))])
+    : [new Map<string, LiveGame>(), {} as Record<string, ScoreModel>];
+  const liveChanceOf = (bet: Bet): number | null => {
+    const game = liveByEvent.get(bet.event_id);
+    const board = gamesById.get(bet.event_id);
+    if (!game || game.state === "pre" || !board) return null;
+    return liveChance(
+      bet,
+      game,
+      { homeSpread: board.spread?.home?.line ?? null, total: board.total?.over?.line ?? null },
+      (scoreModels as Record<string, ScoreModel>)[bet.league],
+    );
+  };
   const open = openSummary(
     rows,
     parlayLegs,
-    (bet) => fairChance(bet, gamesById.get(bet.event_id), lines.get(bet.event_id) ?? [], models[bet.league] ?? null),
+    (bet) =>
+      liveChanceOf(bet) ??
+      fairChance(bet, gamesById.get(bet.event_id), lines.get(bet.event_id) ?? [], models[bet.league] ?? null),
     scores,
   );
+  // The score to show beside a ticket: every started leg must have been priced live, or
+  // the figure is partly pregame and is labelled as such instead.
+  const liveLabel = (row: GradedRow): string | null => {
+    const legs = row.parlay_id ? parlayLegs.get(row.parlay_id) ?? [row] : [row];
+    const started = legs.filter((b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id));
+    if (started.length === 0) return null;
+    if (started.some((b) => liveChanceOf(b) === null)) return null;
+    return started.map((b) => scoreLine(liveByEvent.get(b.event_id)!)).join(" | ");
+  };
 
   // Every game you might be logging, not the first eighty.
   //
@@ -416,9 +454,9 @@ export default async function BetsPage({
                     return (
                       <div key={bet.bet_id}>
                         {legs ? (
-                          <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} />
+                          <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} />
                         ) : (
-                          <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} />
+                          <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} />
                         )}
                         {legs ? null : <CorrectBet bet={bet} />}
                       </div>
