@@ -155,10 +155,71 @@ def apply_updates(pools: list[dict], updates: list[FieldUpdate]) -> tuple[list[d
     return out, report
 
 
+def apply_known(
+    pools: list[dict], known: dict, stored_sizes: list[int]
+) -> tuple[list[dict], list[str]]:
+    """Record rivals' already-made picks for the current week, per pool.
+
+    `known` maps a pool's size AS STORED BEFORE THIS RUN to {"week": n, "picks": {team:
+    count}}, or to null to clear it. Matched on the stored size for the same reason the
+    field is: a size changed earlier in the same run must not make this land on a
+    different pool, or on none.
+
+    Refuses rather than guesses: an unknown or ambiguous size, a week outside 1-30, a
+    count that is not a positive whole number, or more known picks than the pool has
+    rivals -- that last one is a sheet read wrongly, not a busy week.
+
+    Reports counts only. The team names are in the workflow input, not in anything this
+    prints.
+    """
+    out = [dict(p) for p in pools]
+    report: list[str] = []
+    for key, value in known.items():
+        try:
+            size = int(key)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"known picks keyed by {key!r}, which is not a pool size") from error
+        matches = [i for i, stored in enumerate(stored_sizes) if stored == size]
+        if len(matches) != 1:
+            raise ValueError(
+                f"{len(matches)} pools have size {size}; sizes as stored: "
+                f"{', '.join(str(n) for n in stored_sizes) or 'none'}"
+            )
+        pool = out[matches[0]]
+        if value is None:
+            pool.pop("thisWeek", None)
+            report.append(f"pool of {size}: this week's known picks cleared")
+            continue
+        try:
+            week = int(value["week"])
+            picks = {str(team).strip(): int(n) for team, n in dict(value["picks"]).items()}
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"pool of {size}: known picks must be {{week, picks}}") from error
+        if not 1 <= week <= 30:
+            raise ValueError(f"pool of {size}: week {week} is not a week of the season")
+        if any(not team or n < 1 for team, n in picks.items()):
+            raise ValueError(f"pool of {size}: every pick needs a team and a count of 1 or more")
+        rivals = int(pool.get("size") or 0) - 1
+        total = sum(picks.values())
+        if total > rivals:
+            raise ValueError(
+                f"pool of {size}: {total} known picks but only {rivals} rivals -- "
+                "the sheet was read wrongly"
+            )
+        pool["thisWeek"] = {"week": week, "picks": picks}
+        report.append(
+            f"pool of {size}: {total} of this week's picks known (week {week}, "
+            f"{len(picks)} teams)"
+        )
+    return out, report
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--set", dest="sets", action="append", default=[],
                         help="MATCH:FIELD:MYLOSSES, repeatable")
+    parser.add_argument("--known", default="",
+                        help='JSON: {"POOLSIZE": {"week": N, "picks": {"Team": count}}}')
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -167,10 +228,14 @@ def main(argv: list[str] | None = None) -> int:
     env_sets = os.environ.get("POOL_SETS", "").split()
     try:
         updates = [parse_update(text) for text in [*args.sets, *env_sets]]
-    except ValueError as error:
+        known_text = (args.known or os.environ.get("POOL_KNOWN", "")).strip()
+        known = json.loads(known_text) if known_text else {}
+        if not isinstance(known, dict):
+            raise ValueError("known picks must be a JSON object keyed by pool size")
+    except (ValueError, json.JSONDecodeError) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
-    if not updates:
+    if not updates and not known:
         print("refused: nothing to set", file=sys.stderr)
         return 2
 
@@ -189,8 +254,12 @@ def main(argv: list[str] | None = None) -> int:
             print("refused: no survivor pools are stored yet", file=sys.stderr)
             return 2
         pools = json.loads(row[0])
+        stored_sizes = [int(p.get("size") or 0) for p in pools]
         try:
             updated, report = apply_updates(pools, updates)
+            if known:
+                updated, known_report = apply_known(updated, known, stored_sizes)
+                report.extend(known_report)
         except ValueError as error:
             print(f"refused: {error}", file=sys.stderr)
             return 2

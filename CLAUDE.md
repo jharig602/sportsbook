@@ -515,6 +515,27 @@ because Actions logs are public and picks are strategy.
 season **opener** (`seasonOpener`), never from the first block returned — that bug showed
 "week 1" every week of the season and aimed pins at the wrong week.
 
+**Each pool's own sheet feeds the field model** (`StoredPool.crowd`, `StoredPool.thisWeek`,
+both set through `set-pool-field` as counts, never names):
+
+- **`crowd`** — how much the pool herds: the most-picked team's count summed over completed
+  weeks, over all picks. Measured 37% (big) and 50% (small) against the national feed's
+  ~28%. `poolCrowding` blends it with the national figure as if that were one more week
+  of the pool, so a small pool's two weeks cannot set the number alone.
+- **`thisWeek`** — rivals' picks already made this week (never the owner's), tagged with
+  the week so stale picks are ignored. `knownWeek` counts them exactly and, if they show
+  a clear clump (≥ `KNOWN_CLUMP_MIN` = 5, ahead of every other team), moves the week's
+  crowd team there, with unpicked rivals assumed to herd there at the pool's rate.
+  Getting the crowd's TEAM right matters more than the rate: taking the team a clump is
+  on is sharing its fate, and a planner that placed the crowd elsewhere scored it as
+  separation. Picks for teams not playing are reported as unmatched, never dropped.
+- **`Field.restProbabilities`** exists because one number used to do two jobs: the crowd
+  team's odds and every other rival's. Moving the clump from Buffalo (86%) to Kansas City
+  (80%) then marked the other 62% of the field down to 80% too, cancelling the very cost
+  the move exists to show. A test asserting that cost caught it.
+- Both fields must be kept by `parsePools`: the app re-saves the whole pool list on every
+  tap, and a dropped field would be erased the first time a team was marked used.
+
 **Two pools are kept off each other's team for the current week, by the owner's choice**
 (2026-09-25): one bad week must not cost both entries. It was argued the other way — the
 141-entry and 11-entry pools pay out separately, so the constraint can cost the better

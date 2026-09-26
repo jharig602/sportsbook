@@ -1,4 +1,6 @@
-import { lastStandingWin, prepareField, type PreparedField } from "./last-standing";
+import { crowdingAt, lastStandingWin, prepareField, type PreparedField } from "./last-standing";
+
+export { crowdingAt };
 import { fieldState } from "./pools";
 import { aliveCurve } from "./pool-odds";
 import {
@@ -68,7 +70,29 @@ export interface Field {
    * roughly doubles the measured edge, which is why it is not modelled that way.
    */
   crowding: number;
+  /**
+   * A different crowding for particular weeks, by position in the plan. Absent weeks use
+   * `crowding`.
+   *
+   * Exists for the current week, when some rivals' picks are already KNOWN from the
+   * pool's own sheet: that week's bloc is part counted and part estimated, and it is
+   * not the same number as the rate assumed for weeks nobody has picked yet.
+   */
+  crowdingByWeek?: number[];
+  /**
+   * How likely a rival NOT on the crowd's team is to survive each week. Absent means the
+   * same as `probabilities`, which is right when the crowd's team is the week's safest
+   * pick: everyone else is assumed to pick about as well as the greedy line.
+   *
+   * It has to be separate once known picks move the crowd onto a weaker team. With one
+   * number doing both jobs, moving the clump from Buffalo at 86% to Kansas City at 80%
+   * also marked the other 62% of the field down to 80% -- a weaker field for no reason,
+   * which cancelled the very cost of sharing Kansas City's fate that the move exists to
+   * show. The test that asserted that cost caught it.
+   */
+  restProbabilities?: number[];
 }
+
 
 /**
  * Above this many weeks where your plan departs from the crowd, the exact enumeration
@@ -121,7 +145,8 @@ export interface PoolWinInput {
  */
 function rivalSurvival(
   baseLose: Float64Array,
-  crowding: number,
+  /** Crowding per week; see `crowdingAt`. */
+  crowding: Float64Array,
   lost: boolean[],
   lossesAllowed: number,
   dp: Float64Array,
@@ -129,7 +154,7 @@ function rivalSurvival(
   dp.fill(0);
   dp[0] = 1;
   for (let i = 0; i < baseLose.length; i += 1) {
-    const lose = lost[i] ? baseLose[i] + crowding : baseLose[i];
+    const lose = lost[i] ? baseLose[i] + crowding[i] : baseLose[i];
     const win = 1 - lose;
     for (let j = lossesAllowed; j >= 0; j -= 1) {
       const here = dp[j];
@@ -230,8 +255,10 @@ export function poolWin(input: PoolWinInput): number {
   // chance, and one reusable scratch buffer for the survival DP.
   const baseLose = new Float64Array(weeks);
   for (let i = 0; i < weeks; i += 1) {
-    baseLose[i] = (1 - field.crowding) * (1 - field.probabilities[i]);
+    baseLose[i] = (1 - crowdingAt(field, i)) * (1 - (field.restProbabilities?.[i] ?? field.probabilities[i]));
   }
+  const crowdEach = new Float64Array(baseLose.length);
+  for (let i = 0; i < baseLose.length; i += 1) crowdEach[i] = crowdingAt(field, i);
   const dp = new Float64Array(lossesAllowed + 2);
 
   // Branches over the weeks you do not share: these move the field, never you.
@@ -261,7 +288,7 @@ export function poolWin(input: PoolWinInput): number {
     for (const i of flattened) lostFlags[i] = false;
 
     walkSolo(0, 1, (soloWeight) => {
-      const q = rivalSurvival(baseLose, field.crowding, lostFlags, lossesAllowed, dp);
+      const q = rivalSurvival(baseLose, crowdEach, lostFlags, lossesAllowed, dp);
       total += branch.weight * soloWeight * youSurvive * shareOfPot(rivals, q);
     });
   }
@@ -309,6 +336,8 @@ const SEPARATION_PENALTIES = [0, 0.02, 0.05, 0.1, 0.2, 0.35, 0.6, 1.0];
 
 export interface PoolWinRanking {
   candidate: Candidate;
+  /** What the pool's known picks did to this week's crowd, or null when none applied. */
+  knownWeek?: KnownWeek | null;
   /** P(take the pool) taking this team now, then planning optimally from next week. */
   poolWin: number;
   /** P(survive the season) on the same line. The number the page used to rank on. */
@@ -403,6 +432,88 @@ function bestSeparationPenalty(
   return best;
 }
 
+/** What the pool's own sheet says about this week, as the planner uses it. */
+export interface KnownWeek {
+  week: number;
+  /** Rivals whose pick this week is known and was counted. */
+  known: number;
+  /** Known picks naming no team that plays this week -- left out, and said so. */
+  unmatched: number;
+  /** The team the crowd is planned on this week. */
+  crowdTeam: string;
+  /** Known picks on that team. */
+  knownOnCrowd: number;
+  /** This week's crowding: the known bloc plus the estimated share of the rest. */
+  crowding: number;
+  /** True when the known picks moved the crowd off the team the planner assumed. */
+  moved: boolean;
+}
+
+/**
+ * Below this many matching picks, the known picks do not move the crowd's team.
+ *
+ * Five people on one team is a clump; two could be one family. Under the bar the
+ * favourite stays the crowd's team and any known picks on it are simply counted.
+ */
+export const KNOWN_CLUMP_MIN = 5;
+
+/**
+ * This week's crowd, from picks the pool's sheet already shows.
+ *
+ * The planner assumes the crowd is on the week's safest team at the pool's usual rate.
+ * Known picks replace part of that guess with a count. If they show a clear clump -- at
+ * least `KNOWN_CLUMP_MIN` on one team, ahead of every other -- that team becomes the
+ * week's crowd team, and the rivals who have not picked yet are assumed to herd there at
+ * the pool's usual rate: they are reading the same board the early pickers did, and the
+ * early picks are the only direct evidence of where this pool is going this week.
+ *
+ * Getting the TEAM right matters more than the rate. Taking the team a clump is on means
+ * sharing its fate with that clump; a planner that placed the crowd elsewhere would call
+ * that separation and score it as the opposite of what it is.
+ *
+ * Picks for teams not playing this week are left out and counted, so a misspelled team
+ * shows up as "unmatched" rather than quietly vanishing. Returns null when nothing known
+ * applies, which leaves the week exactly as it was.
+ */
+export function knownWeek(
+  week: number,
+  candidates: Candidate[],
+  picks: Record<string, number>,
+  rivals: number,
+  crowding: number,
+  favourite: string | null,
+): KnownWeek | null {
+  const playing = new Set(candidates.map((c) => c.team));
+  const counted = new Map<string, number>();
+  let unmatched = 0;
+  for (const [team, raw] of Object.entries(picks)) {
+    const n = Math.max(0, Math.floor(Number(raw) || 0));
+    if (n === 0) continue;
+    if (playing.has(team)) counted.set(team, (counted.get(team) ?? 0) + n);
+    else unmatched += n;
+  }
+  const known = [...counted.values()].reduce((a, b) => a + b, 0);
+  if (known === 0) return null;
+
+  const field = Math.max(rivals, known);
+  const unknown = field - known;
+  const ranked = [...counted.entries()].sort((a, b) => b[1] - a[1]);
+  const [leader, leaderCount] = ranked[0];
+  const clear = leaderCount >= KNOWN_CLUMP_MIN && (ranked.length === 1 || leaderCount > ranked[1][1]);
+  const crowdTeam = clear ? leader : favourite ?? leader;
+  const knownOnCrowd = counted.get(crowdTeam) ?? 0;
+
+  return {
+    week,
+    known,
+    unmatched,
+    crowdTeam,
+    knownOnCrowd,
+    crowding: Math.min(1, (knownOnCrowd + unknown * crowding) / field),
+    moved: crowdTeam !== favourite,
+  };
+}
+
 export function rankByPoolWin(
   weeks: Week[],
   options: {
@@ -428,6 +539,11 @@ export function rankByPoolWin(
     rivalLosses?: number[];
     /** Losses your own entry has taken; it plans on the lives it has left. */
     myLosses?: number;
+    /**
+     * Rivals' picks already made this week, from the pool's sheet. Applied only when
+     * `week` is the plan's opening week: last week's picks describe nothing now.
+     */
+    knownPicks?: { week: number; picks: Record<string, number> };
   },
 ): PoolWinRanking[] {
   const { lossesAllowed, poolSize, crowding } = options;
@@ -449,9 +565,37 @@ export function rankByPoolWin(
   // the full slate rather than from what YOU have spent — the field has its own
   // histories, and none of them are yours.
   const reference = buildPlan(planning);
-  const crowdPicks = reference.greedyPicks;
+  // This week's crowd from the pool's own sheet, when it has one for this week.
+  const first = planning[0];
+  const known =
+    options.knownPicks && options.knownPicks.week === first.week
+      ? knownWeek(
+          first.week,
+          first.candidates,
+          options.knownPicks.picks,
+          Math.max(0, poolSize - 1),
+          crowding,
+          reference.greedyPicks[0]?.team ?? null,
+        )
+      : null;
+  const movedTo = known?.moved
+    ? first.candidates.find((c) => c.team === known.crowdTeam) ?? null
+    : null;
+  // A copy, never the plan's own array: the greedy line is still what later weeks use.
+  const crowdPicks = movedTo
+    ? [movedTo, ...reference.greedyPicks.slice(1)]
+    : reference.greedyPicks;
   const crowdProbs = crowdPicks.map((c) => c?.winProbability ?? 1);
-  const field: Field = { probabilities: crowdProbs, crowding };
+  const field: Field = {
+    probabilities: crowdProbs,
+    crowding,
+    ...(known ? { crowdingByWeek: [known.crowding] } : {}),
+    // The rest of the field still picks about as well as the greedy line; only the
+    // clump's fate moved. See `Field.restProbabilities`.
+    ...(movedTo
+      ? { restProbabilities: reference.greedyPicks.map((c) => c?.winProbability ?? 1) }
+      : {}),
+  };
   // The crowd's seasons and the rivals' exit distributions inside them do not depend on
   // which team you take, so they are built once here rather than per candidate.
   const prepared = prepareField(field, planning.length, lossesAllowed, undefined, options.rivalLosses);
@@ -520,6 +664,7 @@ export function rankByPoolWin(
     const curve = livesLeft >= 0 ? aliveCurve(mine, livesLeft) : mine.map(() => 0);
     out.push({
       candidate,
+      knownWeek: known,
       poolWin: lastStandingWin({ mine, shared }, prepared, poolSize, myLosses),
       survival: curve.length ? curve[curve.length - 1] : 1,
       share: popularity[candidate.team] ?? null,
@@ -560,6 +705,7 @@ export function poolWinStability(
     popularity?: Record<string, number>;
     rivalLosses?: number[];
     myLosses?: number;
+    knownPicks?: { week: number; picks: Record<string, number> };
   },
 ): Array<{ horizon: number; team: string | null }> {
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
@@ -604,7 +750,7 @@ export function crossoverCrowding(
   const weeks = challenger.mine.length;
   const gap = (crowding: number) => {
     const prepared = prepareField(
-      { ...field, crowding }, weeks, lossesAllowed, CROSSOVER_SEASONS, rivalLosses,
+      { ...field, crowding, crowdingByWeek: undefined }, weeks, lossesAllowed, CROSSOVER_SEASONS, rivalLosses,
     );
     return (
       lastStandingWin(challenger, prepared, poolSize, myLosses) -
@@ -656,6 +802,8 @@ export interface PoolWinPlan {
   crossover: number | null;
   /** The crowding this pool was actually planned against: its own, or the national feed. */
   crowding: number;
+  /** What this week's known picks did, or null when the pool has none for this week. */
+  knownWeek: KnownWeek | null;
 }
 
 export interface PoolEntry {
@@ -677,6 +825,8 @@ export interface PoolEntry {
   myLosses?: number;
   /** This pool's own herding, measured from its sheets. See `StoredPool.crowd`. */
   crowd?: { top: number; picks: number };
+  /** Rivals' picks already made this week, from its sheet. See `StoredPool.thisWeek`. */
+  thisWeek?: { week: number; picks: Record<string, number> };
 }
 
 /**
@@ -754,6 +904,7 @@ export function buildPoolWinPlans(
       pinned,
       rivalLosses: state.rivalLosses,
       myLosses: state.myLosses,
+      knownPicks: pool.thisWeek,
     });
 
     // A pin on the opening week overrides the ranking: you asked for that team, so the
@@ -775,12 +926,24 @@ export function buildPoolWinPlans(
       pool,
       ranking,
       crowding,
+      knownWeek: ranking[0]?.knownWeek ?? null,
       crossover:
         top && safest && safest.candidate.team !== top.candidate.team
           ? crossoverCrowding(
               top.line,
               safest.line,
-              { probabilities: crowd.map((c) => c?.winProbability ?? 1), crowding },
+              {
+                probabilities: crowd.map((c) => c?.winProbability ?? 1),
+                crowding,
+                // Same correction as the ranking's field: when known picks moved the
+                // crowd, the rest of the field still picks at the greedy line's odds.
+                ...(ranking[0]?.knownWeek?.moved
+                  ? {
+                      restProbabilities: buildPlan(weeks.filter((w) => w.candidates.length > 0))
+                        .greedyPicks.map((c) => c?.winProbability ?? 1),
+                    }
+                  : {}),
+              },
               lossesAllowed,
               poolSize,
               state.rivalLosses,

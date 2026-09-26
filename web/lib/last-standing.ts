@@ -26,6 +26,16 @@ import type { Field, ScoredLine } from "./pool-win";
  */
 
 /**
+ * The crowding that applies in week `i` of the plan: the week's own override when one is
+ * set (a week with known picks), the field's rate otherwise. Lives here, beside the
+ * simulation that reads it, so the dependency runs one way.
+ */
+export function crowdingAt(field: Field, i: number): number {
+  const override = field.crowdingByWeek?.[i];
+  return override !== undefined && Number.isFinite(override) ? override : field.crowding;
+}
+
+/**
  * Expected share of the pot, given how many rivals finish level with you.
  *
  * With `A` = P(a rival is out before you) and `B` = P(a rival goes out in the very same
@@ -160,8 +170,12 @@ export function prepareField(
   const rivalAt = new Float64Array(seasons * span);
 
   const base = new Float64Array(weeks);
+  // Per week, so the current week can carry the bloc its KNOWN picks imply while later
+  // weeks keep the rate assumed for picks nobody has made yet. See `crowdingAt`.
+  const crowd = new Float64Array(weeks);
   for (let i = 0; i < weeks; i += 1) {
-    base[i] = (1 - field.crowding) * (1 - field.probabilities[i]);
+    crowd[i] = crowdingAt(field, i);
+    base[i] = (1 - crowd[i]) * (1 - (field.restProbabilities?.[i] ?? field.probabilities[i]));
   }
   const lose = new Float64Array(weeks);
   const pmf = new Float64Array(span);
@@ -178,7 +192,7 @@ export function prepareField(
     for (let i = 0; i < weeks; i += 1) {
       const lost = next() >= field.probabilities[i] ? 1 : 0;
       crowdLost[w0 + i] = lost;
-      lose[i] = lost ? base[i] + field.crowding : base[i];
+      lose[i] = lost ? base[i] + crowd[i] : base[i];
     }
     if (shares.length === 1) {
       exitPmf(lose, lossesAllowed, pmf, dp);

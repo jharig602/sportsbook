@@ -14,8 +14,13 @@ on:
   workflow_dispatch:
     inputs:
       sets:
-        description: "Space-separated MATCH:FIELD:MYLOSSES, e.g. 137:90,51:0 13:9,2:0"
-        required: true
+        description: "Space-separated MATCH:FIELD:MYLOSSES[:TOP/PICKS], e.g. 137:90,51:0 13:9,2:0:11/22"
+        required: false
+        default: ""
+      known:
+        description: 'Rivals'' picks already made this week, JSON keyed by pool size: {"120": {"week": 3, "picks": {"Kansas City Chiefs": 12}}}'
+        required: false
+        default: ""
       dry_run:
         description: "Report what would change without writing"
         type: boolean
@@ -34,6 +39,7 @@ jobs:
       # Passed through the environment, never interpolated into the run line below:
       # a dispatch input pasted into a shell command is a script injection.
       POOL_SETS: ${{ inputs.sets }}
+      POOL_KNOWN: ${{ inputs.known }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4

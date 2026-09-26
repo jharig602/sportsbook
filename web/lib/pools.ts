@@ -68,6 +68,14 @@ export interface StoredPool {
    * figure can weigh them by how much evidence they are -- see `poolCrowding`.
    */
   crowd?: { top: number; picks: number };
+  /**
+   * Rivals' picks already made for the current week, by team, from the pool's sheet.
+   *
+   * Counts only -- never names, and never your own pick, which is not a rival's. Tagged
+   * with the week so last week's picks cannot quietly steer this week's plan: the
+   * planner applies them only when `week` is the week it is planning.
+   */
+  thisWeek?: { week: number; picks: Record<string, number> };
   /** Losses your own entry has taken. Absent means none. */
   myLosses?: number;
 }
@@ -217,6 +225,20 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
               },
             }
           : {}),
+        // Kept on re-save for the same reason as `crowd`.
+        ...(() => {
+          const week = Math.floor(Number(p.thisWeek?.week));
+          const raw = p.thisWeek?.picks;
+          if (!(week >= 1 && week <= 30) || !raw || typeof raw !== "object") return {};
+          const picks: Record<string, number> = {};
+          for (const [team, n] of Object.entries(raw).slice(0, 40)) {
+            const count = Math.floor(Number(n));
+            if (team.trim() && team.length <= 60 && count > 0 && count <= 100000) {
+              picks[team.trim()] = count;
+            }
+          }
+          return Object.keys(picks).length ? { thisWeek: { week, picks } } : {};
+        })(),
         ...(Number(p.myLosses) > 0
           ? { myLosses: Math.min(5, Math.max(0, Math.floor(Number(p.myLosses)))) }
           : {}),

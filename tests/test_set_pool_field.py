@@ -137,3 +137,49 @@ def test_herding_in_the_report_names_no_team():
     _, report = apply_updates(pools(), [parse_update("137:42,82:0:105/282")])
     for team in ("Jacksonville", "Tampa", "Detroit", "Philadelphia", "Kansas"):
         assert team not in " ".join(report)
+
+
+# --- this week's known picks -------------------------------------------------------
+
+from set_pool_field import apply_known  # noqa: E402
+
+KNOWN = {"week": 3, "picks": {"Kansas City Chiefs": 12, "San Francisco 49ers": 4}}
+
+
+def test_known_picks_land_on_the_pool_they_name():
+    out, report = apply_known(pools(), {"137": KNOWN}, [13, 137])
+    big = next(p for p in out if p["size"] == 137)
+    assert big["thisWeek"] == KNOWN
+    assert "16 of this week's picks known (week 3, 2 teams)" in report[0]
+
+
+def test_known_picks_match_the_size_stored_before_this_run():
+    """A field update earlier in the same run must not move them onto another pool."""
+    updated, _ = apply_updates(pools(), [parse_update("137:41,79:0")])
+    out, _ = apply_known(updated, {"137": KNOWN}, [13, 137])
+    assert next(p for p in out if p["size"] == 120)["thisWeek"] == KNOWN
+
+
+def test_known_picks_can_be_cleared():
+    first, _ = apply_known(pools(), {"137": KNOWN}, [13, 137])
+    out, report = apply_known(first, {"137": None}, [13, 137])
+    assert "thisWeek" not in next(p for p in out if p["size"] == 137)
+    assert "cleared" in report[0]
+
+
+@pytest.mark.parametrize("known, why", [
+    ({"99": KNOWN}, "no such pool"),
+    ({"137": {"week": 0, "picks": {"A": 1}}}, "week 0"),
+    ({"137": {"week": 3, "picks": {"A": 0}}}, "a count of zero"),
+    ({"137": {"week": 3, "picks": {"": 2}}}, "no team"),
+    ({"137": {"week": 3}}, "no picks"),
+    ({"13": {"week": 3, "picks": {"A": 13}}}, "more picks than rivals"),
+])
+def test_known_picks_that_cannot_be_true_are_refused(known, why):
+    with pytest.raises(ValueError):
+        apply_known(pools(), known, [13, 137])
+
+
+def test_the_known_picks_report_names_no_team():
+    _, report = apply_known(pools(), {"137": KNOWN}, [13, 137])
+    assert "Kansas" not in " ".join(report) and "Francisco" not in " ".join(report)

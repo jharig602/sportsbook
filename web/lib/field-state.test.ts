@@ -277,3 +277,13 @@ test("an impossible crowd measurement is dropped, not stored", () => {
   );
   assert.equal(pool.crowd, undefined);
 });
+
+test("this week's known picks survive a re-save, and junk in them is dropped", () => {
+  const [pool] = parsePools(JSON.stringify([{
+    used: [], size: 120, lossesAllowed: 1, field: [41, 79],
+    thisWeek: { week: 3, picks: { "Kansas City Chiefs": 12, "": 3, "San Francisco 49ers": -2, "Seattle Seahawks": 2 } },
+  }]));
+  assert.deepEqual(pool.thisWeek, { week: 3, picks: { "Kansas City Chiefs": 12, "Seattle Seahawks": 2 } });
+  const [again] = parsePools(JSON.stringify([pool]));
+  assert.deepEqual(again.thisWeek, pool.thisWeek);
+});

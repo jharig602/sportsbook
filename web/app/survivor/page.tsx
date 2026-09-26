@@ -317,6 +317,7 @@ export default async function SurvivorPage({
     myLosses: hereState.myLosses,
     crowding: hereCrowding,
     popularity,
+    knownPicks: viewedPool?.thisWeek,
   });
   const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
   const stable = distinct.size <= 1;
@@ -715,6 +716,28 @@ export default async function SurvivorPage({
               </>
             )}
           </p>
+
+          {/* What the pool's own sheet changed this week, said out loud. A known pick
+              that named no team playing this week is counted as left out rather than
+              dropped silently -- a misspelling must not look like "nobody picked it". */}
+          {poolEntry?.knownWeek ? (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">
+              <span className="font-medium text-slate-300">
+                This week: {poolEntry.knownWeek.known} of {hereState.rivals} rivals&rsquo;
+                picks are known
+              </span>
+              , {poolEntry.knownWeek.knownOnCrowd} of them on {poolEntry.knownWeek.crowdTeam}.
+              Planned with the crowd on {poolEntry.knownWeek.crowdTeam} at{" "}
+              {Math.round(poolEntry.knownWeek.crowding * 100)}% of the field
+              {poolEntry.knownWeek.moved
+                ? " — moved there from the week's safest team, because that is where this pool is actually going"
+                : ""}
+              .
+              {poolEntry.knownWeek.unmatched > 0
+                ? ` ${poolEntry.knownWeek.unmatched} known pick${poolEntry.knownWeek.unmatched === 1 ? "" : "s"} named a team not playing this week and ${poolEntry.knownWeek.unmatched === 1 ? "was" : "were"} left out.`
+                : ""}
+            </p>
+          ) : null}
 
           <p className="mt-1.5 text-[11px] text-slate-600">
             Ranked on last-one-standing over {plan.weeksPlanned} weeks.{" "}
