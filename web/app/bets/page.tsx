@@ -64,6 +64,17 @@ type Hold = { chance: number; value: number; started: boolean };
 function HoldValue({ hold, live, why }: { hold?: Hold; live?: string | null; why?: string | null }) {
   if (!hold) return null;
   const stale = hold.started && !live;
+  // ESPN's short status for a finished game starts "Final" ("Final", "Final/OT").
+  const over = live ? /· Final/.test(live) : false;
+  if (over && live) {
+    return (
+      <p className="mt-1 text-[11px] text-slate-500">
+        <span className="font-medium text-slate-300">{live.replace(/ · Final.*$/, "")} · Final</span>{" "}
+        &mdash; {hold.chance >= 0.5 ? "a winner" : "a loser"}; it settles here once the collector
+        records the result.
+      </p>
+    );
+  }
   return (
     <p className="mt-1 text-[11px] text-slate-500">
       {live ? <span className="font-medium text-emerald-300/90">Live · {live} · </span> : null}
