@@ -210,7 +210,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **22**.
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **23** (v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.

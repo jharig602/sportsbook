@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 22
+ANALYTICS_SCHEMA_VERSION = 23
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS bets (
     CHECK (stake > 0),
     CHECK (price <= -100 OR price >= 100),
     CHECK (market IN ('spread', 'total', 'moneyline')),
-    CHECK (side IN ('home', 'away', 'over', 'under')),
+    -- odd/even: total points odd or even, a same-game parlay leg. See v23.
+    CHECK (side IN ('home', 'away', 'over', 'under', 'odd', 'even')),
     CHECK (team IS NULL OR team IN ('home', 'away'))
 );
 
@@ -705,6 +706,25 @@ ANALYTICS_MIGRATIONS = [
 ]
 
 
+#: v23: bets may be on a total's parity, "total points odd/even" -- a same-game parlay leg
+#: the ledger could not hold, so a ticket with one graded as a win on an even total.
+#:
+#: Widening a CHECK means replacing it, which DuckDB cannot do (the v20 note), so this
+#: runs on Postgres only. That is where the ledger lives; a fresh DuckDB file gets the
+#: widened constraint from the DDL, and an old local file simply keeps refusing odd/even,
+#: which it has never been asked to store.
+POSTGRES_MIGRATIONS = [
+    "ALTER TABLE bets DROP CONSTRAINT IF EXISTS bets_side_check",
+    "ALTER TABLE bets ADD CONSTRAINT bets_side_check "
+    "CHECK (side IN ('home', 'away', 'over', 'under', 'odd', 'even'))",
+]
+
+
+def _is_postgres(connection) -> bool:
+    """A ``Database.postgres`` wrapper rewrites to pyformat; nothing else here does."""
+    return getattr(connection, "paramstyle", None) == "pyformat"
+
+
 def ensure_analytics_schema(connection) -> None:
     """Create the analytics tables if absent and record the version.
 
@@ -728,6 +748,9 @@ def ensure_analytics_schema(connection) -> None:
         # EXISTS. A new COLUMN on an existing table is not, so those go here.
         for statement in ANALYTICS_MIGRATIONS:
             connection.execute(statement)
+        if _is_postgres(connection):
+            for statement in POSTGRES_MIGRATIONS:
+                connection.execute(statement)
         connection.execute("DELETE FROM analytics_meta")
         connection.execute("INSERT INTO analytics_meta VALUES (?)",
                            [ANALYTICS_SCHEMA_VERSION])
