@@ -518,7 +518,7 @@ Rules if this is picked up again:
 
 ## Survivor
 
-Objective is **P(last entrant standing)**, ties split — not P(survive). The season is
+Objective is **P(last entrant standing)**, ties split — not P(survive). The owner confirmed his pools' rule (2026-10-04): entrants still alive at the end of the season **split the pot** -- exactly what `lastStandingWin` scores. (Everyone busting in the same week is assumed split too; not yet confirmed.) The season is
 solved by charging the crowd's team a penalty λ in every week, assigning exactly, and
 sweeping λ to trace the survival/separation frontier. Pool size drives the answer: the
 recommended team changes at 50 entrants.
