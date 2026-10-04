@@ -893,3 +893,21 @@ test("two blocs on one game can never both win", () => {
   }
   assert.ok(Math.abs(aLost / 2000 - 0.4) < 0.04);
 });
+
+test("two pools pinned the opposite way round to the planner each get their own pin", () => {
+  // Unpinned, the first pool takes Alpha (the safer team) and the second is kept off it.
+  const free = buildPoolWinPlans(twoTeamWeek(), [
+    { used: [], size: 11, lossesAllowed: 1 },
+    { used: [], size: 120, lossesAllowed: 1 },
+  ], { crowding: 0.3 });
+  assert.deepEqual(free.map((p) => p.plan.picks[0]?.pick?.team), ["Alpha", "Charlie"]);
+
+  // The owner's case: Charlie in the first, Alpha in the second. Planned together, the
+  // first pool's pin frees Alpha for the second. (With only the second pinned -- what a
+  // tab switch used to leave -- the first pool reclaimed Alpha and the picks swapped.)
+  const both = buildPoolWinPlans(twoTeamWeek(), [
+    { used: [], size: 11, lossesAllowed: 1, pinned: new Map([[1, "Charlie"]]) },
+    { used: [], size: 120, lossesAllowed: 1, pinned: new Map([[1, "Alpha"]]) },
+  ], { crowding: 0.3 });
+  assert.deepEqual(both.map((p) => p.plan.picks[0]?.pick?.team), ["Charlie", "Alpha"]);
+});

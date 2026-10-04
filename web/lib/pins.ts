@@ -59,3 +59,16 @@ export function withPin(
   else next.set(week, team);
   return next;
 }
+
+/**
+ * The URL parameter holding one pool's pins: `pin` for the first, `pin1`, `pin2`... after.
+ *
+ * Per pool, because pins on one entry change what the other may take: entries are kept
+ * off each other's team for the current week, in order. With a single parameter for
+ * "the pool on screen", switching tabs dropped the first pool's pin, the first pool fell
+ * back to its own favourite -- the very team just pinned on the second -- and the two
+ * picks swapped. Every pool's pins now travel together and are planned together.
+ */
+export function pinKey(pool: number): string {
+  return pool === 0 ? "pin" : `pin${pool}`;
+}

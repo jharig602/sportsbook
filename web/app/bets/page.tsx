@@ -10,10 +10,11 @@ import { LedgerTransfer } from "@/components/LedgerTransfer";
 import { currentSession } from "@/lib/session";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
-import { activeBets, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
+import { activeBets, decimalOdds, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
 import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
 import { ledgerSections } from "@/lib/ordering";
+import { hedgeBestCase, type Hedge } from "@/lib/hedge";
 import { liveGamesFor } from "@/lib/live-scores";
 import { liveChance, scoreLine, type LiveGame } from "@/lib/live-value";
 import type { ScoreModel } from "@/lib/joint-score";
@@ -174,6 +175,86 @@ function ParlayRow({ bet, legs, hold, live, why }: { bet: GradedRow; legs: Bet[]
   );
 }
 
+/**
+ * Bets on opposite sides of one game, shown as the one position they are: each bet with
+ * its own result, and the net that the record counts. See hedge.ts.
+ */
+function HedgeRow({
+  hedge,
+  holds,
+  live,
+}: {
+  hedge: Hedge;
+  holds: Array<Hold | undefined>;
+  live?: string | null;
+}) {
+  const first = hedge.legs[0];
+  const label = (leg: GradedRow) =>
+    leg.market === "total"
+      ? formatLine("total", leg.side, leg.line)
+      : `${leg.side === "home" ? leg.home_team : leg.away_team} ${
+          leg.market === "spread" ? formatLine("spread", leg.side, leg.line) : "ML"
+        }`;
+  // Values of separate tickets add, so the position is worth the sum of its legs.
+  const priced = holds.every((h) => h !== undefined);
+  const worth = priced ? holds.reduce((acc, h) => acc + (h?.value ?? 0), 0) : null;
+  return (
+    <Card href={`/game/${first.event_id}`} className="px-3 py-2.5">
+      <div className="flex items-start gap-2.5">
+        <div
+          className={`flex h-11 w-16 shrink-0 flex-col items-center justify-center rounded-lg text-[11px] font-semibold uppercase tracking-wide ${
+            OUTCOME_TONE[hedge.outcome]
+          }`}
+        >
+          {hedge.outcome}
+          {hedge.outcome !== "open" ? (
+            <span className="tabular text-[11px] font-normal">{money(hedge.profit)}</span>
+          ) : null}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-medium text-slate-100">
+            Hedge <span className="text-slate-400">· {hedge.legs.length} bets, one game</span>
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-slate-500">
+            {first.away_team} <span className="text-slate-600">@</span> {first.home_team} ·{" "}
+            {formatKickoff(first.commence_time)}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {hedge.legs.map((leg) => (
+              <li key={leg.bet_id} className="flex justify-between gap-2 text-[11px] text-slate-400">
+                <span className="truncate">
+                  {label(leg)} <span className="tabular text-slate-500">{formatPrice(leg.price)}</span> ·
+                  ${leg.stake.toFixed(0)} · {leg.book}
+                </span>
+                <span className={`tabular shrink-0 ${leg.outcome === "won" ? "text-emerald-300/80" : leg.outcome === "lost" ? "text-rose-300/80" : "text-slate-500"}`}>
+                  {leg.outcome === "open" ? "open" : money(leg.profit)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {hedge.outcome === "open" ? (
+              <>
+                {live ? <span className="font-medium text-emerald-300/90">Live · {live} · </span> : null}
+                {worth !== null ? (
+                  <>
+                    Together worth <span className="tabular text-slate-300">${worth.toFixed(2)}</span> to hold
+                    on ${hedge.stake.toFixed(2)} staked.
+                  </>
+                ) : (
+                  "Counts as one result, by the net money, once both settle."
+                )}
+              </>
+            ) : (
+              <>Counted as one {hedge.outcome === "push" ? "push" : hedge.outcome === "won" ? "win" : "loss"}: net {money(hedge.profit)}.</>
+            )}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function BetRow({ bet, hold, live, why }: { bet: GradedRow; hold?: Hold; live?: string | null; why?: string | null }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
   const label =
@@ -274,10 +355,23 @@ export default async function BetsPage({
     parlayLegs.set(bet.parlay_id, [...(parlayLegs.get(bet.parlay_id) ?? []), bet]);
   }
   const corrections = bets.length - standing.length;
-  const { rows, totals } = tally(standing, scores);
+  const { rows, totals, hedges } = tally(standing, scores);
 
   // Live, then soonest kickoff, then won, lost and the rest. See ordering.ts.
-  const sections = ledgerSections(rows, parlayLegs);
+  // A hedge is shown as ONE card, as it is counted: its first bet stands in for the
+  // position (net money, net outcome) and the rest are folded into it. See hedge.ts.
+  const hedgeOf = new Map<string, Hedge>();
+  for (const h of hedges) for (const leg of h.legs) hedgeOf.set(leg.bet_id, h);
+  const display: GradedRow[] = [];
+  for (const row of rows) {
+    const h = hedgeOf.get(row.bet_id);
+    if (!h) display.push(row);
+    else if (h.legs[0].bet_id === row.bet_id) {
+      display.push({ ...row, bet_id: h.id, outcome: h.outcome, profit: h.profit, stake: h.stake, cashout: null });
+    }
+  }
+  const hedgeById = new Map(hedges.map((h) => [h.id, h]));
+  const sections = ledgerSections(display, parlayLegs);
 
   // What is riding on the open tickets, priced against the other books. See open-summary.ts.
   const gamesById = new Map(games.map((g) => [g.eventId, g]));
@@ -341,6 +435,18 @@ export default async function BetsPage({
     return miss ? whyNotLive(miss) : null;
   };
 
+  // "If all win" adds every ticket's winnings; for a hedge only one side can win, so
+  // swap its legs' sum for its best case.
+  let ifAllWin = open.ifAllWin;
+  for (const h of hedges) {
+    if (h.outcome !== "open") continue;
+    const sum = h.legs.reduce((acc, leg) => {
+      const d = decimalOdds(leg.price);
+      return acc + (d === null ? 0 : leg.stake * (d - 1));
+    }, 0);
+    ifAllWin += hedgeBestCase(h.legs) - sum;
+  }
+
   // Every game you might be logging, not the first eighty.
   //
   // The cap was a dropdown's limit, and on a college Saturday eighty upcoming games is
@@ -379,7 +485,7 @@ export default async function BetsPage({
           <Stats
             items={[
               { value: `$${open.atStake.toFixed(2)}`, label: `in play · ${open.tickets} open` },
-              { value: money(open.ifAllWin), label: "if all win" },
+              { value: money(ifAllWin), label: "if all win" },
               {
                 value: money(open.expected),
                 label: "expected",
@@ -520,12 +626,20 @@ export default async function BetsPage({
                     const legs = bet.parlay_id ? (parlayLegs.get(bet.parlay_id) ?? []) : null;
                     return (
                       <div key={bet.bet_id}>
-                        {legs ? (
+                        {hedgeById.has(bet.bet_id) ? (
+                          <HedgeRow
+                            hedge={hedgeById.get(bet.bet_id)!}
+                            holds={hedgeById.get(bet.bet_id)!.legs.map((l) => open.hold.get(l.bet_id))}
+                            live={liveLabel(bet)}
+                          />
+                        ) : legs ? (
                           <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} />
                         ) : (
                           <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} />
                         )}
-                        {legs ? null : <CorrectBet bet={bet} />}
+                        {hedgeById.has(bet.bet_id)
+                          ? hedgeById.get(bet.bet_id)!.legs.map((l) => <CorrectBet key={l.bet_id} bet={l} />)
+                          : legs ? null : <CorrectBet bet={bet} />}
                       </div>
                     );
                   })}

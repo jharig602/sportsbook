@@ -162,3 +162,12 @@ test("labels read the way a slip prints them", () => {
   assert.equal(legLabel(bet({ market: "total", side: "over", line: 56.5 })), "Over 56.5");
   assert.equal(money(-25), "−$25.00");
 });
+
+test("a hedge is announced once, by its net money, not as a win and a loss", () => {
+  const bills = bet({ bet_id: "h1", side: "away", price: -150, stake: 30 });
+  const pats = bet({ bet_id: "h2", side: "home", price: 200, stake: 15 });
+  const messages = resultsToAnnounce([bills, pats], niuWins, NOW, new Set());
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].title, "Hedge won +$5.00"); // +$20 on one side, -$15 on the other
+  assert.equal(resultsToAnnounce([bills, pats], niuWins, NOW, new Set([messages[0].key])).length, 0);
+});

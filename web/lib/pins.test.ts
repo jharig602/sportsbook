@@ -63,3 +63,10 @@ test("setting and clearing one week leaves the others alone", () => {
   // And the original is untouched: the page re-renders from it.
   assert.deepEqual(pins, new Map([[1, "A"], [2, "B"]]));
 });
+
+test("each pool keeps its pins under its own key, the first under the original one", async () => {
+  const { pinKey } = await import("./pins.ts");
+  assert.equal(pinKey(0), "pin", "old links keep working");
+  assert.equal(pinKey(1), "pin1");
+  assert.notEqual(pinKey(0), pinKey(1));
+});

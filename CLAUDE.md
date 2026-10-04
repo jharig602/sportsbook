@@ -250,6 +250,12 @@ a college Saturday's game or a bet logged late could simply be missing.
   up is a win, down is a loss, even is a push (`recordResult`), and the Bets page files it
   under Won or Lost the same way. It is still counted apart in `cashed`, and the
   held-instead comparison still runs.
+- A **hedge** -- bets on opposite sides of one game (home vs away in spread or moneyline,
+  in any mix, or over vs under on one total) -- is **one position** (`hedge.ts`, owner's
+  ask 2026-10-04). Detected, never declared: the record counts it once, by net money; the
+  Bets page shows one card with each bet inside; the win/loss push announces the net once
+  both settle; "if all win" uses its best case (one side winning), not both. Money totals
+  are untouched. Bets that merely share a game (a spread and an over) are not a hedge.
 
 ---
 
@@ -575,6 +581,10 @@ both set through `set-pool-field`, never with names and never with the owner's o
   rows and the owner's row, treat picks on games already played as spent (not live), and
   dispatch `set-pool-field` with `rivals` (dry run first). The input is visible in the
   public Actions log: histories and counts, no names.
+
+**Pins are per pool** (`pinKey`: `pin`, `pin1`, ...) and are planned together. With one
+`pin` for "the pool on screen", switching tabs dropped the other pool's pin; that pool fell
+back to its favourite -- the team just pinned on this one -- and the two picks swapped.
 
 **Two pools are kept off each other's team for the current week, by the owner's choice**
 (2026-09-25): one bad week must not cost both entries. It was argued the other way — the

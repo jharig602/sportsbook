@@ -18,7 +18,7 @@ import { getMyBooks, getPools, poolLabel } from "@/lib/settings-db";
 import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
-import { parsePins } from "@/lib/pins";
+import { parsePins, pinKey } from "@/lib/pins";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
@@ -43,9 +43,11 @@ function WeekRow({
   first,
   bettable,
   options,
+  pool,
   pinned,
 }: {
   entry: Pick;
+  pool: number;
   first: boolean;
   bettable: BettablePick | null;
   /** Teams playable this week that this entry has not already spent. */
@@ -81,6 +83,7 @@ function WeekRow({
 
           <PinPicker
             week={entry.week}
+            pool={pool}
             options={options}
             current={pick.team}
             pinned={pinned}
@@ -112,9 +115,12 @@ function WeekRow({
 export default async function SurvivorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ weeks?: string; pool?: string; pin?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { weeks: requested, pool: poolParam, pin: pinParam } = await searchParams;
+  const query = await searchParams;
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const requested = one(query.weeks);
+  const poolParam = one(query.pool);
   const data = getData();
   const postgres = data.backend === "postgres";
   const [models, games, board, quotes, myBooks, opener] = await Promise.all([
@@ -181,31 +187,39 @@ export default async function SurvivorPage({
   // costs, and without the baseline the page would just obey.
   const rawIndex = Math.max(0, Number(poolParam ?? 0) || 0);
   const viewing = Math.min(rawIndex, pools.length - 1);
-  const requestedPins = parsePins(pinParam);
+  // Every pool's pins, each validated against that pool's own spent teams. They are
+  // planned together because entries are kept off each other's team this week: a pin on
+  // one decides what the other can take. See `pinKey`.
+  const pinsByPool = pools.map((pool, i) => {
+    const spent = new Set(pool.used ?? []);
+    const valid = new Map<number, string>();
+    const unavailable: Array<{ week: number; team: string }> = [];
+    for (const [week, team] of parsePins(query[pinKey(i)])) {
+      const playable =
+        !spent.has(team) &&
+        (weeks.find((w) => w.week === week)?.candidates ?? []).some((c) => c.team === team);
+      if (playable) valid.set(week, team);
+      else unavailable.push({ week, team });
+    }
+    return { valid, unavailable };
+  });
+  const pins = pinsByPool[viewing]?.valid ?? new Map<number, string>();
+  const unavailablePins = pinsByPool[viewing]?.unavailable ?? [];
+  // Carried on every link on the page, so moving between tabs never drops a pin.
+  const pinQuery: Record<string, string> = {};
+  pools.forEach((_, i) => {
+    const raw = one(query[pinKey(i)]);
+    if (raw) pinQuery[pinKey(i)] = raw;
+  });
+  const href = (extra: Record<string, string>, keepPins = true) =>
+    `/survivor?${new URLSearchParams({ ...extra, ...(keepPins ? pinQuery : {}) }).toString()}`;
 
-  // A pin can name a team that is not playing that week, or one this entry has already
-  // spent. The planner refuses to substitute in that case and leaves the week empty,
-  // which is right for a library but wrong for a page: what you get back is a season
-  // with a hole in it and no explanation. So they are separated here -- only playable
-  // pins are planned, and the rest are reported as not available.
-  //
-  // Doing this the other way round is how the first version was wrong: an impossible
-  // pin on the opening week fell through to the planner's own pick and the page then
-  // announced the change was "at least as good", which was true only because nothing
-  // had happened.
-  const spentByViewer = new Set(pools[viewing]?.used ?? []);
-  const playableThatWeek = (week: number, team: string) =>
-    !spentByViewer.has(team) &&
-    (weeks.find((w) => w.week === week)?.candidates ?? []).some((c) => c.team === team);
-
-  const pins = new Map<number, string>();
-  const unavailablePins: Array<{ week: number; team: string }> = [];
-  for (const [week, team] of requestedPins) {
-    if (playableThatWeek(week, team)) pins.set(week, team);
-    else unavailablePins.push({ week, team });
-  }
-
-  const withPins = pools.map((pool, i) => (i === viewing ? { ...pool, pinned: pins } : pool));
+  const withPins = pools.map((pool, i) =>
+    pinsByPool[i]?.valid.size ? { ...pool, pinned: pinsByPool[i].valid } : pool,
+  );
+  // The baseline is the same field with only THIS pool's pins taken away, so the what-if
+  // card measures this entry's choice and nothing else.
+  const withoutMine = withPins.map((pool, i) => (i === viewing ? pools[i] : pool));
 
   const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, {
     crowding,
@@ -213,7 +227,7 @@ export default async function SurvivorPage({
     crowdingMeasured: measuredCrowding !== null,
   });
   const baseline =
-    pins.size > 0 ? buildPoolWinPlans(horizonWeeks, pools, {
+    pins.size > 0 ? buildPoolWinPlans(horizonWeeks, withoutMine, {
         crowding,
         popularity,
         crowdingMeasured: measuredCrowding !== null,
@@ -484,7 +498,7 @@ export default async function SurvivorPage({
             label: poolLabel(pools[i], i, pools),
           }))}
           active={String(poolIndex)}
-          hrefFor={(key) => `/survivor?pool=${key}&weeks=${chosen}`}
+          hrefFor={(key) => href({ pool: key, weeks: chosen })}
         />
       ) : null}
 
@@ -504,7 +518,7 @@ export default async function SurvivorPage({
           { key: "all", label: `All ${priced}` },
         ]}
         active={chosen === "all" ? "all" : String(horizon)}
-        hrefFor={(key) => `/survivor?pool=${poolIndex}&weeks=${key}`}
+        hrefFor={(key) => href({ pool: String(poolIndex), weeks: key })}
       />
 
       <Card className="mb-3 px-3.5 py-2.5">
@@ -544,6 +558,8 @@ export default async function SurvivorPage({
               href={`/survivor?${new URLSearchParams({
                 ...(requested !== undefined ? { weeks: chosen } : {}),
                 ...(poolIndex > 0 ? { pool: String(poolIndex) } : {}),
+                // Clears this pool's pins only; the other pool's stay.
+                ...Object.fromEntries(Object.entries(pinQuery).filter(([k]) => k !== pinKey(poolIndex))),
               }).toString()}`}
               className="text-[11px] text-slate-500 underline underline-offset-2"
             >
@@ -623,6 +639,7 @@ export default async function SurvivorPage({
               entry.pick ? toBettable(entry.pick, board, moneylines, myBooks) : null
             }
             options={optionsFor(entry.week)}
+            pool={poolIndex}
             pinned={pins.has(entry.week)}
           />
         ))}

@@ -24,7 +24,7 @@
  * When several tickets finish at once -- a college Saturday -- one summary replaces a
  * pile of separate buzzes.
  */
-import { activeBets, groupParlays, settle, settleParlay, type Bet, type Score } from "./settle";
+import { activeBets, groupParlays, settle, settleParlay, tally, type Bet, type Score } from "./settle";
 
 export const RESULT_WINDOW_HOURS = 36;
 /** More than this many results in one run become a single summary. */
@@ -112,9 +112,38 @@ export function resultsToAnnounce(
 ): ResultMessage[] {
   const out: ResultMessage[] = [];
 
+  // A hedge -- bets on opposite sides of one game -- is one position, announced once by
+  // its net money when both sides have settled, not as a win and a loss (hedge.ts).
+  const { hedges } = tally(activeBets(bets), scores);
+  const hedgedBets = new Set(hedges.flatMap((h) => h.legs.map((l) => l.bet_id)));
+  for (const h of hedges) {
+    if (h.outcome === "open") continue;
+    const first = h.legs[0];
+    const kickoff = kickoffOf(first);
+    if (!recent(kickoff, now)) continue;
+    const key = `hedge:${h.eventId}:${h.outcome}`;
+    if (sent.has(key)) continue;
+    const score = scores.get(h.eventId);
+    out.push({
+      key,
+      outcome: h.outcome,
+      eventId: h.eventId,
+      kickoff,
+      profit: h.profit,
+      title:
+        h.outcome === "won"
+          ? `Hedge won ${money(h.profit)}`
+          : h.outcome === "lost"
+            ? `Hedge lost ${money(h.profit)}`
+            : "Hedge broke even",
+      body: `${h.legs.map((l) => `${legLabel(l)} ${price(l.price)}`).join(" + ")}.${score ? ` ${finalScore(first, score)}` : ""}`,
+    });
+  }
+
   for (const ticket of groupParlays(activeBets(bets))) {
     if (ticket.kind === "single") {
       const { bet } = ticket;
+      if (hedgedBets.has(bet.bet_id)) continue;
       const score = scores.get(bet.event_id);
       const kickoff = kickoffOf(bet);
       if (!score || !recent(kickoff, now)) continue;

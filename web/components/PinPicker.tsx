@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 
-import { parsePins, serializePins, withPin } from "@/lib/pins";
+import { parsePins, pinKey, serializePins, withPin } from "@/lib/pins";
 
 /**
  * Fix one week to a team of your choosing and see what it costs.
@@ -21,11 +21,14 @@ import { parsePins, serializePins, withPin } from "@/lib/pins";
  */
 export function PinPicker({
   week,
+  pool,
   options,
   current,
   pinned,
 }: {
   week: number;
+  /** Which entry this pin belongs to; each keeps its own in the URL. */
+  pool: number;
   /** Teams playable this week, best first. Already filtered of teams you have spent. */
   options: Array<{ team: string; winProbability: number }>;
   /** The team the plan is currently on, pinned or not. */
@@ -37,14 +40,16 @@ export function PinPicker({
   const [busy, startTransition] = useTransition();
 
   function choose(team: string) {
-    const pins = parsePins(params.get("pin"));
+    const key = pinKey(pool);
+    const pins = parsePins(params.get(key));
     // Choosing the team the planner already wanted is a release, not a pin: it stops
     // the URL filling up with constraints that constrain nothing.
     const next = withPin(pins, week, team === "" ? null : team);
     const query = new URLSearchParams(params.toString());
     const encoded = serializePins(next);
-    if (encoded) query.set("pin", encoded);
-    else query.delete("pin");
+    if (encoded) query.set(key, encoded);
+    else query.delete(key);
+    query.set("pool", String(pool));
     startTransition(() => {
       router.push(`/survivor?${query.toString()}`, { scroll: false });
     });

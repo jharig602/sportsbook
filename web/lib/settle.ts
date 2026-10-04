@@ -10,6 +10,8 @@
  *
  * Mirrors collector/grading.py so the two cannot disagree about what a push is.
  */
+// Circular with hedge.ts, safely: each only calls the other inside functions.
+import { findHedges, type Hedge } from "./hedge";
 import type { Market, Side } from "./types";
 
 export interface Bet {
@@ -271,7 +273,7 @@ export function recordResult(row: { outcome: Outcome; profit: number }): "won" |
 export function tally(
   bets: Bet[],
   scores: Map<string, Score>,
-): { rows: GradedRow[]; totals: Tally } {
+): { rows: GradedRow[]; totals: Tally; hedges: Hedge[] } {
   // One row per TICKET, not per leg. A parlay's stake is repeated on each of its legs,
   // so counting rows would read a three-leg $5 ticket as $15 risked and three separate
   // results -- inflating the sample, the turnover and the record all at once.
@@ -302,18 +304,29 @@ export function tally(
   const profit = rows.reduce((sum, r) => sum + r.profit, 0);
   const bonusProfit = rows.filter((r) => r.bonus).reduce((sum, r) => sum + r.profit, 0);
 
+  // The record counts POSITIONS: bets on opposite sides of one game are one hedge, one
+  // result by the net money (hedge.ts). The money totals are untouched -- every stake was
+  // staked and every payout paid -- only how many results it counts as changes.
+  const hedges = findHedges(rows);
+  const hedged = new Set(hedges.flatMap((h) => h.legs.map((l) => l.bet_id)));
+  const results = [
+    ...rows.filter((r) => !hedged.has(r.bet_id)).map((r) => recordResult(r)),
+    ...hedges.map((h) => h.outcome),
+  ];
+
   return {
     rows,
+    hedges,
     totals: {
-      placed: rows.length,
-      settled: settled.length,
+      placed: results.length,
+      settled: results.filter((r) => r !== "open").length,
       // A cash-out counts by the money it made, by the owner's rule (2026-09-26): up is a
       // win, down is a loss, even is a push. It is still counted apart in `cashed`, and
       // `cashedHeld` still reports what holding would have paid.
-      won: rows.filter((r) => recordResult(r) === "won").length,
-      lost: rows.filter((r) => recordResult(r) === "lost").length,
-      push: rows.filter((r) => recordResult(r) === "push").length,
-      open: rows.filter((r) => r.outcome === "open").length,
+      won: results.filter((r) => r === "won").length,
+      lost: results.filter((r) => r === "lost").length,
+      push: results.filter((r) => r === "push").length,
+      open: results.filter((r) => r === "open").length,
       cashed: cashedRows.length,
       cashedGraded: cashedGraded.length,
       cashedTaken: cashedGraded.reduce((sum, r) => sum + r.profit, 0),
