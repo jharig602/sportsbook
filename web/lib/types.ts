@@ -1,6 +1,10 @@
 export type League = "ncaaf" | "nfl";
 export type Market = "spread" | "total" | "moneyline";
-export type Side = "home" | "away" | "over" | "under";
+/**
+ * `odd`/`even` are a total's parity -- "total points odd/even", a same-game parlay leg.
+ * No feed prices them; they are only ever typed in, and they carry no line.
+ */
+export type Side = "home" | "away" | "over" | "under" | "odd" | "even";
 export type AlertKind = "first_price" | "steam" | "key_number" | "drift";
 
 export interface Quote {

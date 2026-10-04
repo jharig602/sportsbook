@@ -144,6 +144,8 @@ export async function bookLinesFor(eventId: string): Promise<BookLineRow[]> {
 }
 
 const OPPOSITE: Record<Side, Side> = {
+  odd: "even",
+  even: "odd",
   home: "away",
   away: "home",
   over: "under",

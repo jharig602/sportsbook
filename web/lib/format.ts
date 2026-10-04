@@ -17,6 +17,7 @@ export function formatLine(
   side: Side,
   line: number | null | undefined,
 ): string {
+  if (market === "total" && (side === "odd" || side === "even")) return side === "odd" ? "Odd" : "Even";
   if (line === null || line === undefined) return EM_DASH;
   if (market === "total") return `${side === "under" ? "u" : "o"}${line}`;
   if (market === "moneyline") return EM_DASH;

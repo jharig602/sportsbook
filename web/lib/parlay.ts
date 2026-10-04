@@ -168,7 +168,7 @@ export function sameGameProblem(legs: TicketLeg[]): string | null {
   }
 
   const OPPOSITE: Record<string, string> = {
-    home: "away", away: "home", over: "under", under: "over",
+    home: "away", away: "home", over: "under", under: "over", odd: "even", even: "odd",
   };
   for (let i = 0; i < legs.length; i += 1) {
     for (let j = i + 1; j < legs.length; j += 1) {

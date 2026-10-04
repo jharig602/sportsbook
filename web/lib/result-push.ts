@@ -79,6 +79,7 @@ export function legLabel(bet: Bet): string {
   // A total with a team on it is that team's points, not the game's.
   const whose =
     bet.team === "home" ? `${bet.home_team} ` : bet.team === "away" ? `${bet.away_team} ` : "";
+  if (bet.side === "odd" || bet.side === "even") return `${whose}Total ${bet.side === "odd" ? "Odd" : "Even"}`;
   return `${whose}${bet.side === "over" ? "Over" : "Under"} ${bet.line ?? ""}`.trim();
 }
 

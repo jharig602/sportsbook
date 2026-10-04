@@ -135,6 +135,13 @@ export function didWin(bet: Bet, score: Score): boolean | null {
     return (margin > 0) === (bet.side === "home");
   }
 
+  // Total points odd or even: no line, never a push.
+  if (bet.market === "total" && (bet.side === "odd" || bet.side === "even")) {
+    const points =
+      bet.team === "home" ? score.home_score : bet.team === "away" ? score.away_score : total;
+    return (Math.abs(points) % 2 === 1) === (bet.side === "odd");
+  }
+
   if (bet.line === null) return null;
 
   if (bet.market === "spread") {

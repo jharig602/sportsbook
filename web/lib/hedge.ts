@@ -35,7 +35,13 @@ const SIDED = new Set(["spread", "moneyline"]);
 export function opposed(a: Bet, b: Bet): boolean {
   if (a.event_id !== b.event_id || a.side === b.side) return false;
   if (SIDED.has(a.market) && SIDED.has(b.market)) return true;
-  return a.market === "total" && b.market === "total" && (a.team ?? null) === (b.team ?? null);
+  // Over against under, or odd against even -- never an over against an odd, which
+  // can both win.
+  const pair = (x: string) => (x === "over" || x === "under" ? "ou" : x === "odd" || x === "even" ? "oe" : x);
+  return (
+    a.market === "total" && b.market === "total" &&
+    (a.team ?? null) === (b.team ?? null) && pair(a.side) === pair(b.side)
+  );
 }
 
 /** Every hedge in a ledger's graded rows: groups of 2+ opposed single bets on one game. */

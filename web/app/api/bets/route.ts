@@ -23,7 +23,9 @@ function readTeam(raw: unknown, market: string): "home" | "away" | null | undefi
   if (market !== "total") return undefined;
   return raw === "home" || raw === "away" ? raw : undefined;
 }
-const SIDES = new Set(["home", "away", "over", "under"]);
+const SIDES = new Set(["home", "away", "over", "under", "odd", "even"]);
+/** Total points odd/even: a total with no line. */
+const PARITY = new Set(["odd", "even"]);
 
 /**
  * Record a wager.
@@ -87,9 +89,10 @@ export async function POST(request: Request) {
       if (!MARKETS.has(market)) problems.push(`Leg ${i + 1}: bad market.`);
       if (!SIDES.has(side)) problems.push(`Leg ${i + 1}: bad side.`);
       if (!Number.isFinite(price) || Math.abs(price) < 100) problems.push(`Leg ${i + 1}: bad price.`);
-      if (market !== "moneyline" && (line === null || !Number.isFinite(line))) {
+      if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
         problems.push(`Leg ${i + 1}: a spread or total needs a line.`);
       }
+      if (PARITY.has(side) && market !== "total") problems.push(`Leg ${i + 1}: odd/even is a total.`);
       if (readTeam(leg.team, market) === undefined) {
         problems.push(`Leg ${i + 1}: a team total must name home or away.`);
       }
@@ -111,7 +114,7 @@ export async function POST(request: Request) {
       market: String(leg.market) as Bet["market"],
       side: String(leg.side) as Bet["side"],
       team: readTeam(leg.team, String(leg.market)) ?? null,
-      line: leg.market === "moneyline" ? null : Number(leg.line),
+      line: leg.market === "moneyline" || PARITY.has(String(leg.side)) ? null : Number(leg.line),
       price: Number(leg.price),
       // Repeated on every leg; the tally counts it once per ticket.
       stake,
@@ -174,13 +177,13 @@ export async function POST(request: Request) {
     problems.push("Price must be American odds of at least +100 or -100.");
   }
   if (!Number.isFinite(stake) || stake <= 0) problems.push("Stake must be more than zero.");
-  if (market !== "moneyline" && (line === null || !Number.isFinite(line))) {
+  if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
     problems.push("A spread or total needs a line.");
   }
   // A spread's side must be a team and a total's must be over/under; crossing them
   // would settle against the wrong question entirely.
-  if (market === "total" && side !== "over" && side !== "under") {
-    problems.push("A total is bet over or under.");
+  if (market === "total" && side !== "over" && side !== "under" && !PARITY.has(side)) {
+    problems.push("A total is bet over, under, odd or even.");
   }
   if (market !== "total" && side !== "home" && side !== "away") {
     problems.push("A spread or moneyline is bet on home or away.");

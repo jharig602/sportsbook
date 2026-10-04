@@ -85,6 +85,9 @@ export function liveChance(
     };
   };
 
+  // Parity is decided by the last score of the game; nothing before it says much.
+  if (bet.market === "total" && (bet.side === "odd" || bet.side === "even")) return null;
+
   if (bet.market === "total") {
     if (pregame.total === null || bet.line === null) return null;
     // Points never come off the board: past the line, an over has already won and an

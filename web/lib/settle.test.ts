@@ -615,3 +615,26 @@ test("a cash-out counts in the record by the money it made", async () => {
   assert.equal(totals.push, 1);
   assert.equal(totals.cashed, 3, "still counted apart as cash-outs");
 });
+
+test("total points odd/even grades on the final total's parity, with no line and no push", () => {
+  const odd = bet({ market: "total", side: "odd", line: null, price: -140 });
+  const even = bet({ market: "total", side: "even", line: null, price: 110 });
+  const score51 = { home_score: 27, away_score: 24 }; // 51, odd
+  const score52 = { home_score: 28, away_score: 24 }; // 52, even
+  assert.equal(settle(odd, score51).outcome, "won");
+  assert.equal(settle(odd, score52).outcome, "lost");
+  assert.equal(settle(even, score52).outcome, "won");
+});
+
+test("a same-game parlay with an odd leg settles on all three", async () => {
+  const { settleParlay } = await import("./settle.ts");
+  const legs = [
+    bet({ bet_id: "p1", market: "spread", side: "away", line: -3.5, price: -110, parlay_id: "S", parlay_price: 825, stake: 20 }),
+    bet({ bet_id: "p2", market: "total", side: "over", line: 51.5, price: -110, parlay_id: "S", parlay_price: 825, stake: 20 }),
+    bet({ bet_id: "p3", market: "total", side: "odd", line: null, price: -140, parlay_id: "S", parlay_price: 825, stake: 20 }),
+  ];
+  const scores = (home: number, away: number) => new Map([[legs[0].event_id, { home_score: home, away_score: away }]]);
+  assert.equal(settleParlay(legs, scores(24, 31)).outcome, "won"); // away by 7, 55, odd
+  assert.equal(settleParlay(legs, scores(24, 32)).outcome, "lost"); // 56 is even
+  assert.ok(Math.abs(settleParlay(legs, scores(24, 31)).profit - 165) < 1e-9);
+});
