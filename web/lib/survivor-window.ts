@@ -66,3 +66,46 @@ export function windowFor(now: Date): SurvivorWindow | null {
 export function windowLabel(window: SurvivorWindow): string {
   return window === "saturday" ? "Saturday night" : "Sunday morning";
 }
+
+/** The Sunday 10am Central lock for the week containing this kickoff, as an instant. */
+export function sundayLockFor(kickoffIso: string): Date | null {
+  const kickoff = new Date(kickoffIso);
+  if (Number.isNaN(kickoff.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  }).formatToParts(kickoff);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  // Only a Sunday or Monday game pins down the week's Sunday. A Thursday-to-Saturday game
+  // is before it, and that week's lock is still ahead.
+  const back = get("weekday") === "Sun" ? 0 : get("weekday") === "Mon" ? 1 : null;
+  if (back === null) return null;
+  const day = Date.UTC(Number(get("year")), Number(get("month")) - 1, Number(get("day")) - back);
+  // 10am Central is 15:00 UTC in daylight time and 16:00 in standard; take whichever
+  // reads as 10am there, so the November switch cannot move the lock an hour.
+  for (const utcHour of [15, 16]) {
+    const at = new Date(day + utcHour * 3_600_000);
+    const hour = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hourCycle: "h23" }).format(at);
+    if (Number(hour) === 10) return at;
+  }
+  return null;
+}
+
+/**
+ * Has this week's pick already locked?
+ *
+ * After the Sunday deadline a week's remaining games -- the Sunday and Monday night
+ * games -- are still on the schedule, and a planner that kept the week would offer only
+ * those few teams for a pick that was already made that morning. Locked weeks are
+ * history, and the plan starts from the next one.
+ */
+export function pickLocked(kickoffs: string[], now: Date): boolean {
+  for (const iso of kickoffs) {
+    const lock = sundayLockFor(iso);
+    if (lock) return now.getTime() >= lock.getTime();
+  }
+  return false;
+}

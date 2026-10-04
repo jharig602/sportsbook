@@ -46,3 +46,17 @@ test("labels read as the moment, not the code", () => {
   assert.equal(windowLabel("saturday"), "Saturday night");
   assert.equal(windowLabel("sunday"), "Sunday morning");
 });
+
+test("a week is locked from 10am Central on its Sunday, judged from the games still left", async () => {
+  const { pickLocked, sundayLockFor } = await import("./survivor-window.ts");
+  // Week 4: Sunday night and Monday night games left.
+  const left = ["2026-10-05T00:20:00Z", "2026-10-06T00:15:00Z"]; // Sun 7:20pm CT, Mon 7:15pm CT
+  assert.equal(sundayLockFor(left[0])?.toISOString(), "2026-10-04T15:00:00.000Z");
+  assert.equal(sundayLockFor(left[1])?.toISOString(), "2026-10-04T15:00:00.000Z", "Monday points back to Sunday");
+  assert.equal(pickLocked(left, new Date("2026-10-04T14:59:00Z")), false);
+  assert.equal(pickLocked(left, new Date("2026-10-04T20:43:00Z")), true, "Sunday afternoon: the pick is in");
+  // Standard time: 10am CST is 16:00 UTC.
+  assert.equal(sundayLockFor("2026-11-08T18:00:00Z")?.toISOString(), "2026-11-08T16:00:00.000Z");
+  // A week with only Thursday left has not reached its Sunday lock.
+  assert.equal(pickLocked(["2026-10-09T00:15:00Z"], new Date("2026-10-08T12:00:00Z")), false);
+});

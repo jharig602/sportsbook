@@ -23,6 +23,7 @@ import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
 import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
+import { pickLocked } from "@/lib/survivor-window";
 
 export const dynamic = "force-dynamic";
 
@@ -154,7 +155,14 @@ export default async function SurvivorPage({
     );
   }
 
-  const weeks = buildWeeks(games, models.nfl ?? null, opener);
+  // A week whose Sunday lock has passed is history: its pick is in, and its remaining
+  // Sunday-night and Monday games are not a choice. Without this, Sunday afternoon offered
+  // only those three or four teams for a pick made that morning.
+  const now = new Date();
+  const weeks = buildWeeks(games, models.nfl ?? null, opener).filter(
+    (w, i, all) => !(i === all.findIndex((x) => x.candidates.length > 0) &&
+      pickLocked(w.candidates.map((c) => c.commenceTime), now)),
+  );
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
 
   // The whole season by default. Capping it was a judgement about how much a
