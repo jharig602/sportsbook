@@ -148,8 +148,18 @@ function ParlayRow({ bet, legs, hold, live, why }: { bet: GradedRow; legs: Bet[]
           <ul className="mt-1 space-y-0.5">
             {legs.map((leg) => (
               <li key={leg.bet_id} className="truncate text-[11px] text-slate-500">
+                {/* A team's name only on a team's leg: a total belongs to the game (or,
+                    with `team`, to that team's points), not to whichever side is away. */}
                 <span className="text-slate-400">
-                  {leg.side === "home" ? leg.home_team : leg.away_team}
+                  {leg.market === "total"
+                    ? leg.team === "home"
+                      ? `${leg.home_team} team total`
+                      : leg.team === "away"
+                        ? `${leg.away_team} team total`
+                        : "Game total"
+                    : leg.side === "home"
+                      ? leg.home_team
+                      : leg.away_team}
                 </span>{" "}
                 {leg.market === "total"
                   ? formatLine("total", leg.side, leg.line)
