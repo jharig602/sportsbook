@@ -1,0 +1,54 @@
+name: results-now
+
+# Record final scores now, and send the win/loss push for anything they settle.
+#
+# Started by kickoff-watch when a game you hold money on should be over, and repeated
+# every ten minutes until its final lands. The collector's own schedule cannot do this
+# job: it has no Monday-night run at all, so a Monday bet sat unsettled until Tuesday
+# morning, and GitHub delivers its cron at arbitrary minutes anyway.
+#
+# Just the two steps from collect that settle a bet -- scores, then the push -- not the
+# odds polling, so it is a few cheap scoreboard requests and done in a minute.
+# Logs: counts only, as everywhere in this public repository.
+
+on:
+  workflow_dispatch:
+
+# The same single writer as collect: both write game_results.
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Capture final scores
+        run: |
+          for league in ncaaf nfl; do
+            python collector/results.py --league $league --start-date "$(date -u -d '1 day ago' +%F)" \
+              --days 2 --postgres || { code=$?; [ $code -eq 3 ] || exit $code; }
+          done
+      - name: Win and loss push
+        continue-on-error: true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          DISPATCH_SECRET: ${{ secrets.ALERT_DISPATCH_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$DISPATCH_SECRET" ]; then
+            echo "APP_URL / ALERT_DISPATCH_SECRET not set; skipping."
+            exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 -X POST \
+            "$APP_URL/api/dispatch-results" \
+            -H "Authorization: Bearer $DISPATCH_SECRET"

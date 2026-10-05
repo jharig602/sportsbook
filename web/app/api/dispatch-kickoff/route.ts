@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     const scores = new Map<string, Score>(
       results.map((r) => [r.event_id, { home_score: r.home_score, away_score: r.away_score }]),
     );
-    const { messages, next } = kickoffsToAnnounce(bets, scores, new Date(), sent);
+    const { messages, next, settle } = kickoffsToAnnounce(bets, scores, new Date(), sent);
 
     // Counts and a wait only: the watcher runs in GitHub Actions, whose logs are public
     // for this repository, and which games you have bet on is nobody's business.
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
         sent: 0,
         announced: messages.length,
         next,
+        settle,
         ...(dry ? { previews: messages } : {}),
       });
     }
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
     // Stamped only once something reached a device, so a failed send can retry on the
     // next call while the game is still inside its window.
     if (delivered > 0) await recordKickoffPushesSent(messages.map((m) => m.key));
-    return NextResponse.json({ sent: delivered, announced: messages.length, next });
+    return NextResponse.json({ sent: delivered, announced: messages.length, next, settle });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

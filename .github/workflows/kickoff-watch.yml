@@ -17,8 +17,13 @@ name: kickoff-watch
 # Minutes are free (the repository is public). The database is touched a few times an
 # hour while a watcher runs, and only on game days, when collect keeps it awake anyway.
 #
-# Nothing about the bets is printed: these logs are public. The loop reads `sent` and
-# `next` from the response and logs only how many pushes went out.
+# It also settles them. The response's `settle` says when a started game you hold money
+# on should be over; from then the loop starts results-now (scores + the win/loss push)
+# every ten minutes until its final is recorded. That is what settles a Monday night
+# bet on Monday night: the collector has no run then at all.
+#
+# Nothing about the bets is printed: these logs are public. The loop reads `sent`,
+# `next` and `settle` from the response and logs only counts.
 
 on:
   workflow_dispatch:
@@ -56,6 +61,7 @@ jobs:
           # Hand over with room to spare under the 350-minute timeout.
           deadline=$(( $(date +%s) + 330 * 60 ))
           failures=0
+          last_settle=0
           while :; do
             if ! body=$(curl --fail --silent --show-error --max-time 60 -X POST \
                 "$APP_URL/api/dispatch-kickoff" \
@@ -69,13 +75,20 @@ jobs:
             failures=0
             sent=$(jq -r '.sent // 0' <<<"$body")
             next=$(jq -r '.next // empty' <<<"$body")
+            settle=$(jq -r '.settle // empty' <<<"$body")
             [ "$sent" != "0" ] && echo "sent $sent"
-            if [ -z "$next" ]; then
-              echo "no kickoffs ahead; done"
+            if [ -z "$next" ] && [ -z "$settle" ]; then
+              echo "no kickoffs ahead and nothing waiting on a score; done"
               exit 0
             fi
-            wait=$next
-            [ "$wait" -gt 600 ] && wait=600
+            # A final is due: record scores, at most once every ten minutes.
+            if [ -n "$settle" ] && [ "$settle" -eq 0 ] && [ $(( $(date +%s) - last_settle )) -ge 600 ]; then
+              gh workflow run results-now.yml --ref main && echo "results check started"
+              last_settle=$(date +%s)
+            fi
+            wait=600
+            [ -n "$next" ] && [ "$next" -lt "$wait" ] && wait=$next
+            [ -n "$settle" ] && [ "$settle" -gt 0 ] && [ "$settle" -lt "$wait" ] && wait=$settle
             [ "$wait" -lt 15 ] && wait=15
             if [ $(( $(date +%s) + wait )) -ge "$deadline" ]; then
               echo "time cap reached with kickoffs ahead; starting a successor"

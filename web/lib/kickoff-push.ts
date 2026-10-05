@@ -48,7 +48,19 @@ export interface KickoffPlan {
   messages: KickoffMessage[];
   /** Seconds until the next kickoff still to announce, inside the horizon; null if none. */
   next: number | null;
+  /**
+   * Seconds until a game you hold money on should be over and its final score worth
+   * fetching: 0 when one is due now, null when no started game is waiting on a score.
+   * The watcher uses it to record finals within minutes rather than on the collector's
+   * schedule, which has no Monday-night run at all.
+   */
+  settle: number | null;
 }
+
+/** When to start looking for a final: earlier than nearly any game ends, so none waits. */
+export const SETTLE_AFTER_MINUTES = 165;
+/** Stop looking after this long; a score still missing then is not coming from polling. */
+export const SETTLE_GIVE_UP_HOURS = 8;
 
 function price(value: number): string {
   return `${value > 0 ? "+" : ""}${value}`;
@@ -96,6 +108,16 @@ export function kickoffsToAnnounce(
 
   const at = now.getTime();
   const quiet = quietHours(now);
+
+  // Started games with money on them and no final yet: when is a final worth fetching?
+  let settle: number | null = null;
+  for (const [eventId, { bet }] of byGame) {
+    const kickoff = kickoffOf(bet);
+    if (kickoff === null || kickoff > at || scores.has(eventId)) continue;
+    if (at - kickoff > SETTLE_GIVE_UP_HOURS * 3_600_000) continue;
+    const wait = Math.max(0, Math.ceil((kickoff + SETTLE_AFTER_MINUTES * 60_000 - at) / 1000));
+    if (settle === null || wait < settle) settle = wait;
+  }
   const messages: KickoffMessage[] = [];
   let next: number | null = null;
 
@@ -124,5 +146,5 @@ export function kickoffsToAnnounce(
     });
   }
 
-  return { messages: messages.sort((a, b) => a.kickoff - b.kickoff), next };
+  return { messages: messages.sort((a, b) => a.kickoff - b.kickoff), next, settle };
 }

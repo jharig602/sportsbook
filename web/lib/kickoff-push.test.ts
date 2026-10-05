@@ -115,3 +115,16 @@ test("overnight kickoffs are skipped, not saved for the morning", () => {
   const late = bet({ commence_time: "2026-09-27T06:00:00Z" }); // 1 AM Central
   assert.deepEqual(kickoffsToAnnounce([late], none, new Date("2026-09-27T06:00:30Z"), new Set()).messages, []);
 });
+
+test("a started game with no final says when its score is worth fetching", () => {
+  // An hour in: check again at 2 hours 45 minutes.
+  assert.equal(kickoffsToAnnounce([bet()], none, at(60), new Set()).settle, 105 * 60);
+  // Three hours in: due now.
+  assert.equal(kickoffsToAnnounce([bet()], none, at(180), new Set()).settle, 0);
+  // Final recorded: nothing to fetch.
+  const over = new Map<string, Score>([["USA-UK", { home_score: 31, away_score: 17 }]]);
+  assert.equal(kickoffsToAnnounce([bet()], over, at(180), new Set()).settle, null);
+  // Not started, or long past without a score: not this loop's job.
+  assert.equal(kickoffsToAnnounce([bet()], none, at(-30), new Set()).settle, null);
+  assert.equal(kickoffsToAnnounce([bet()], none, at(9 * 60), new Set()).settle, null);
+});

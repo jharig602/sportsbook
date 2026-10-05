@@ -326,6 +326,12 @@ remembering what they sent (GitHub delivers runs at arbitrary minutes):
   before to 20 after kickoff, then dropped, not sent late. Overnight (midnight–8 AM
   Central) kickoffs are skipped rather than held -- unlike a result, a kickoff is not
   news in the morning. A dead parlay's remaining legs and cash-outs are not announced.
+- **Settling on time** (2026-10-04): the same watcher also settles. The kickoff endpoint
+  returns `settle` -- seconds until a started game you hold money on should be over
+  (kickoff + 2h45m), 0 once due, null when nothing waits on a score, and it gives up 8
+  hours after kickoff -- and the loop starts `results-now.yml` (scores + the win/loss push,
+  no odds polling) every ten minutes until the final is recorded. Before this a Monday
+  night bet sat until Tuesday's 8 AM collect: the schedule has no Monday-night run.
 
 Every response lands in **public** Actions logs: counts only, never teams, results or
 money.
