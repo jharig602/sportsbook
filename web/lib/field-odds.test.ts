@@ -58,3 +58,28 @@ test("a known pick this week replaces the assumed one", () => {
   assert.equal(row.teams[0], "Team X");
   assert.equal(row.pick, "Team X");
 });
+
+test("habits come from the pool's own sheet: a player who always took the pool favourite is predicted on it", () => {
+  // Weeks 1-2: most of the pool took A then B. The follower did too; the contrarian never did.
+  const sheetPool = {
+    used: ["Team W"], size: 13, lossesAllowed: 1, field: [12, 1], myLosses: 1,
+    rivals: { week: 7, groups: [
+      { used: ["Team A", "Team B"], n: 8, losses: 0 },   // the crowd
+      { used: ["Team A", "Team B"], n: 1, losses: 0 },   // the follower (same history as the crowd)
+      { used: ["Team C", "Team D"], n: 1, losses: 0 },   // the contrarian
+      { used: ["Team E", "Team F"], n: 1, losses: 0 },
+    ] },
+  };
+  const weeks = season().map((w, i) => ({ ...w, week: 7 + i }));
+  const national = new Map([[7, { "Team X": 0.4, "Team Y": 0.35, "Team Z": 0.25 }]]);
+  const [mine] = buildPoolWinPlans(weeks, [sheetPool as never], { crowding: 0.4 });
+  const field = fieldOdds(weeks, sheetPool as never, {
+    crowding: 0.4, crowdingMeasured: true, national,
+    you: { teams: mine.plan.picks.map((x) => x.pick?.team ?? null), mine: mine.plan.picks.map((x) => x.pick?.winProbability ?? 1), poolWin: mine.poolWin, survival: mine.plan.survival },
+  });
+  assert.ok(field.poolFollow !== null && field.poolFollow > 0.7, `pool follow ${field.poolFollow}`);
+  const contrarian = field.rows.find((r) => r.used[0] === "Team C")!;
+  assert.equal(contrarian.follows, 0, "never took the pool's favourite");
+  const crowd = field.rows.find((r) => r.used[0] === "Team A" && r.n === 8)!;
+  assert.equal(crowd.follows, 1);
+});

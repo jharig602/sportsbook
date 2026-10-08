@@ -882,9 +882,10 @@ export default async function SurvivorPage({
                 Everyone&rsquo;s picks and chance to win · {field.rows.reduce((s, r) => s + r.n, 0)} entries
               </h3>
               <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                This week: each rival&rsquo;s pick if the sheet has it, otherwise a prediction
-                from their own habit -- whether they took the most popular team nationally in
-                past weeks{field.poolFollow !== null ? ` (this pool does ${Math.round(field.poolFollow * 100)}% of the time)` : ""}.
+                This week: each rival&rsquo;s pick if the sheet has it, otherwise this
+                week&rsquo;s national split tilted by their habit on your sheet -- how often
+                they took this pool&rsquo;s most popular team
+                {field.poolFollow !== null ? ` (${Math.round(field.poolFollow * 100)}% of picks here did)` : ""}.
                 Later weeks: their best team left. You: your plan. Rows are histories, not names; entries
                 with the same picks share a row. Adds up to {(field.total * 100).toFixed(0)}%
                 {field.total > 0.9 && field.total < 1.1 ? "" : " -- off 100%, so read these as rough"}.

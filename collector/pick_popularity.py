@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import timedelta, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -90,17 +90,33 @@ def parse(body: bytes) -> list[tuple[str, float, float]]:
     return out
 
 
+def nfl_week(opener: datetime, now: datetime) -> int:
+    """The NFL week ``now`` falls in, counting weeks Tuesday to Monday from the opener's.
+
+    Counting seven-day blocks from the opener's KICKOFF -- a Thursday night -- was wrong
+    for half of every week: from Tuesday until Thursday night it still said last week,
+    while survivorgrid already showed the new slate, so each week's early shares were
+    filed under the PREVIOUS week and overwrote its real ones. Every stored past week
+    held the following week's picks, which made every rival look like they never followed
+    the crowd. Weeks now turn over on Tuesday, 12:00 UTC (8 AM Eastern), after Monday
+    night's game.
+
+    The web side has the same rule in `currentNflWeek` (web/lib/season-db.ts); change
+    both together.
+    """
+    eastern_day = (opener - timedelta(hours=5)).date()
+    tuesday = eastern_day - timedelta(days=(eastern_day.weekday() - 1) % 7)
+    anchor = datetime(tuesday.year, tuesday.month, tuesday.day, 12, tzinfo=UTC)
+    if now <= anchor:
+        return 1
+    return int((now - anchor).total_seconds() // (7 * 86400)) + 1
+
+
 def current_week(database: Database | None, now: datetime) -> int:
-    """Which NFL week the page is describing.
+    """Which NFL week the page is describing: the week ``now`` is in (see `nfl_week`).
 
-    Counted from the first fixture the feed knows about rather than parsed off the
-    page, so it agrees with how the planner numbers its weeks. The two must match or
-    popularity attaches to the wrong slate.
-
-    The web side reads these rows back through `currentNflWeek` in
-    `web/lib/season-db.ts`, which reimplements this formula against the same column.
-    Change one and the other must change with it: a mismatch does not error, it returns
-    last week's pick shares against this week's teams.
+    The opener is the earliest fixture ``season_games`` holds -- it keeps the whole
+    season; only the web's `seasonGames` read filters to upcoming games.
     """
     if database is None:
         return 1
@@ -113,8 +129,7 @@ def current_week(database: Database | None, now: datetime) -> int:
         first = datetime.fromisoformat(first.replace("Z", "+00:00"))
     if first.tzinfo is None:
         first = first.replace(tzinfo=UTC)
-    # season_games holds only upcoming fixtures, so the earliest one IS this week.
-    return max(1, int((now - first).days // 7) + 1) if now > first else 1
+    return nfl_week(first, now)
 
 
 def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,

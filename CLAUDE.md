@@ -609,12 +609,19 @@ computed for the winning order only.
 **Everyone's chance to win** (`field-odds.ts`, an open table under each pool): every rival
 history group's line scored with the same last-one-standing arithmetic and seasons as
 yours; the column should sum to ~100% and the page shows the sum. This week's predicted
-pick comes from each rival's habit (`rival-habits.ts`): how often they took the most
-popular team NATIONALLY that they still had (stored `pick_popularity` per week), shrunk
-toward the pool's average with two weeks of prior. Followers are predicted on the
-national favourite they have left as the national shares over the teams they have left, the favourite weighted by their TILT -- the odds ratio of their follow rate against the rate picking by shares would have given (`followTilt`, both shrunk toward the pool) -- so an ordinary rival gets the national split (40% Cowboys if the country is 40%); predicted picks are then HANDED OUT (`allocatePicks`) so the column matches the expected head count per team. Taking each rival's likeliest team put everyone on one team twice (Cowboys, then Bengals). "Best team
-left" for everyone made every predicted pick the same team. Later weeks stay greedy:
-no national shares exist for weeks nobody has picked. Rows are histories, never names.
+pick: the NATIONAL split for this week over the teams each rival has left, with the
+favourite weighted by their habit LEARNED FROM THE POOL'S OWN SHEET (`rival-habits.ts`,
+owner's call 2026-10-08): how often they took this pool's most popular team they still
+had, as an odds ratio against what picking by the pool's split would have given, shrunk
+toward the pool. Picks are then HANDED OUT (`allocatePicks`) so the column matches the
+expected head count per team -- taking each rival's likeliest team put everyone on one
+team twice (Cowboys, then Bengals). Later weeks stay greedy.
+
+**National shares were filed a week early until 2026-10-08.** Week numbers counted 7-day
+blocks from the opener's Thursday kickoff, so Tuesday-Thursday said "last week" while
+survivorgrid showed the new slate: every stored week held the NEXT week's picks. Now both
+`nfl_week` (collector) and `nflWeek` (web) run Tuesday-Monday, turning at 12:00 UTC
+Tuesday. Stored weeks 1-4 are mislabelled; habits no longer read them. Rows are histories, never names.
 
 ---
 

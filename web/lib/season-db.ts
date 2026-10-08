@@ -102,8 +102,25 @@ export async function seasonOpener(league = "nfl"): Promise<string | null> {
 export async function currentNflWeek(league = "nfl"): Promise<number> {
   const opener = await seasonOpener(league);
   if (opener === null) return 1;
-  const days = (Date.now() - new Date(opener).getTime()) / 86400000;
-  return days > 0 ? Math.max(1, Math.floor(days / 7) + 1) : 1;
+  return nflWeek(opener, new Date());
+}
+
+/**
+ * The NFL week `now` falls in: weeks run Tuesday to Monday, turning over at 12:00 UTC
+ * Tuesday (8 AM Eastern), counted from the week of the opener.
+ *
+ * It used to count seven-day blocks from the opener's Thursday-night kickoff, which said
+ * "last week" from every Tuesday until Thursday night -- so the popularity collector
+ * (same formula) filed each new week's shares under the previous week and overwrote its
+ * real ones. Mirrors `nfl_week` in collector/pick_popularity.py; change both together.
+ */
+export function nflWeek(openerIso: string, now: Date): number {
+  const opener = new Date(openerIso);
+  const eastern = new Date(opener.getTime() - 5 * 3_600_000);
+  const sinceTuesday = (eastern.getUTCDay() - 2 + 7) % 7;
+  const anchor = Date.UTC(eastern.getUTCFullYear(), eastern.getUTCMonth(), eastern.getUTCDate() - sinceTuesday, 12);
+  if (now.getTime() <= anchor) return 1;
+  return Math.floor((now.getTime() - anchor) / (7 * 86_400_000)) + 1;
 }
 
 export async function pickPopularity(week: number, league = "nfl"): Promise<Record<string, number>> {

@@ -87,7 +87,19 @@ export function fieldOdds(
 
   const national = options.national ?? new Map<number, Shares>();
   // Each rival's habit, and the pool's, from their weeks so far.
-  const records = (sheet?.groups ?? []).map((g) => followRecord(g.used, national));
+  // Habits come from the pool's OWN sheet: each past week's split of picks across the
+  // pool's rivals, from their histories in week order. "Followed" means took the pool's
+  // most popular team they still had -- the crowd that matters is this pool's, and the
+  // sheet records it exactly, where the stored national history was mislabelled.
+  const poolWeeks = new Map<number, Shares>();
+  for (const g of sheet?.groups ?? []) {
+    g.used.forEach((team, i) => {
+      const week = poolWeeks.get(i + 1) ?? {};
+      week[team] = (week[team] ?? 0) + g.n;
+      poolWeeks.set(i + 1, week);
+    });
+  }
+  const records = (sheet?.groups ?? []).map((g) => followRecord(g.used, poolWeeks));
   const scoredAll = records.reduce((a, r, i) => a + r.scored * (sheet?.groups[i].n ?? 1), 0);
   const followedAll = records.reduce((a, r, i) => a + r.followed * (sheet?.groups[i].n ?? 1), 0);
   const poolFollow = scoredAll > 0 ? followedAll / scoredAll : null;
