@@ -20,7 +20,7 @@ import { lastStandingWin, prepareField } from "./last-standing";
 import { aliveCurve } from "./pool-odds";
 import { fieldFromRivals, poolCrowding, type Field, type PoolEntry } from "./pool-win";
 import { fieldState } from "./pools";
-import { followRate, followRecord, predictPick, type Shares } from "./rival-habits";
+import { allocatePicks, followRate, followRecord, pickChances, type Shares } from "./rival-habits";
 import { buildPlan, type Candidate, type Week } from "./survivor";
 
 /** Seasons for this table: a ranking of entries, not a headline number. */
@@ -92,12 +92,23 @@ export function fieldOdds(
   const followedAll = records.reduce((a, r, i) => a + r.followed * (sheet?.groups[i].n ?? 1), 0);
   const poolFollow = scoredAll > 0 ? followedAll / scoredAll : null;
   const thisWeekShares = national.get(planning[0].week);
+  // This week's predicted picks, handed out so the column matches the expected spread.
+  const predicted = allocatePicks(
+    (sheet?.groups ?? []).map((g, gi) => ({
+      n: g.n,
+      chances: pickChances(
+        planning[0].candidates,
+        new Set(g.used),
+        thisWeekShares,
+        followRate(records[gi], poolFollow ?? 0.5),
+      ),
+    })),
+  );
 
   const rows: FieldRow[] = [];
   let unknownLosses = 0;
   for (const [gi, g] of (sheet?.groups ?? []).entries()) {
     const record = records[gi];
-    const rate = followRate(record, poolFollow ?? 0.5);
     if (g.losses === undefined) unknownLosses += g.n;
     const losses = g.losses ?? 0;
     const spent = new Set(g.used);
@@ -109,7 +120,7 @@ export function fieldOdds(
       const choice =
         pick ??
         (i === 0
-          ? predictPick(week.candidates, spent, thisWeekShares, rate)
+          ? week.candidates.find((c) => c.team === predicted[gi]) ?? null
           : [...week.candidates]
               .sort((a, b) => b.winProbability - a.winProbability)
               .find((c) => !spent.has(c.team)) ?? null);

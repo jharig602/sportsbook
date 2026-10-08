@@ -39,3 +39,22 @@ test("a follower is predicted on the national favourite they have, an independen
 test("with no national shares this week it falls back to their best team left", () => {
   assert.equal((predictPick(week5, new Set(), undefined, 0.2) as any).team, "Dallas Cowboys");
 });
+
+test("predicted picks spread across the pool in line with the expected counts", async () => {
+  const { allocatePicks, pickChances } = await import("./rival-habits.ts");
+  // Ten single-entry rivals, all independent-ish (rate 0.3), nobody has spent anything.
+  const groups = Array.from({ length: 10 }, () => ({ n: 1, chances: pickChances(week5, new Set(), shares5, 0.3) }));
+  const picks = allocatePicks(groups);
+  const count = (t: string) => picks.filter((p) => p === t).length;
+  // Expected: Dallas 3, Houston ~4.7, Cincinnati ~2.3 -- not all ten on one team.
+  assert.ok(count("Dallas Cowboys") >= 2 && count("Dallas Cowboys") <= 4, `Dallas ${count("Dallas Cowboys")}`);
+  assert.ok(count("Houston Texans") >= 4 && count("Houston Texans") <= 6, `Houston ${count("Houston Texans")}`);
+  assert.ok(count("Cincinnati Bengals") >= 1 && count("Cincinnati Bengals") <= 3, `Cincinnati ${count("Cincinnati Bengals")}`);
+  assert.equal(picks.filter(Boolean).length, 10, "everyone gets a team");
+});
+
+test("a team a rival has spent is never predicted for them", async () => {
+  const { allocatePicks, pickChances } = await import("./rival-habits.ts");
+  const groups = [{ n: 5, chances: pickChances(week5, new Set(["Dallas Cowboys"]), shares5, 0.9) }];
+  assert.notEqual(allocatePicks(groups)[0], "Dallas Cowboys");
+});

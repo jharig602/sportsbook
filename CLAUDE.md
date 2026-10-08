@@ -612,7 +612,7 @@ yours; the column should sum to ~100% and the page shows the sum. This week's pr
 pick comes from each rival's habit (`rival-habits.ts`): how often they took the most
 popular team NATIONALLY that they still had (stored `pick_popularity` per week), shrunk
 toward the pool's average with two weeks of prior. Followers are predicted on the
-national favourite they have left, independents on the next most popular. "Best team
+national favourite they have left with probability = their rate, the rest spread over the other teams in proportion to national shares; predicted picks are then HANDED OUT (`allocatePicks`) so the column matches the expected head count per team. Taking each rival's likeliest team put everyone on one team twice (Cowboys, then Bengals). "Best team
 left" for everyone made every predicted pick the same team. Later weeks stay greedy:
 no national shares exist for weeks nobody has picked. Rows are histories, never names.
 

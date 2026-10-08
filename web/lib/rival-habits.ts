@@ -66,3 +66,71 @@ export function predictPick(
   if ((shares[byShare[0].team] ?? 0) === 0) return safest;
   return rate >= 0.5 ? byShare[0] : byShare[1] ?? byShare[0];
 }
+
+/** Each team's chance for one rival this week: their habit over the shares they have left. */
+export function pickChances(
+  candidates: Candidate[],
+  spent: Set<string>,
+  shares: Shares | undefined,
+  rate: number,
+): Map<string, number> {
+  const available = candidates.filter((c) => !spent.has(c.team));
+  const out = new Map<string, number>();
+  if (available.length === 0) return out;
+  const total = available.reduce((sum, c) => sum + (shares?.[c.team] ?? 0), 0);
+  if (!shares || total <= 0) {
+    // No national picture: their best team left, as before.
+    const safest = [...available].sort((a, b) => b.winProbability - a.winProbability)[0];
+    out.set(safest.team, 1);
+    return out;
+  }
+  const byShare = [...available].sort((a, b) => (shares[b.team] ?? 0) - (shares[a.team] ?? 0));
+  const top = byShare[0].team;
+  const rest = total - (shares[top] ?? 0);
+  for (const c of available) {
+    const s = shares[c.team] ?? 0;
+    // A follower takes the favourite they have; otherwise they go where the public's
+    // other picks go, in proportion. With nobody else on the board, all on the favourite.
+    const p = c.team === top ? rate + (rest > 0 ? 0 : 1 - rate) : rest > 0 ? (1 - rate) * (s / rest) : 0;
+    if (p > 0) out.set(c.team, p);
+  }
+  return out;
+}
+
+/**
+ * One predicted team per rival group, handed out so the totals match the expected spread.
+ *
+ * Taking each rival's single likeliest team bunches everyone onto one or two teams -- the
+ * likeliest pick for every independent is the same "next most popular" team -- when what
+ * is expected is a spread. So the expected head count on each team is worked out first
+ * (each group's chances times its size), and teams are handed to the groups that most
+ * want them until each team's expected count is used up. Everyone still lands on a team
+ * they could plausibly take; the column now looks like the pool will.
+ */
+export function allocatePicks(
+  groups: Array<{ n: number; chances: Map<string, number> }>,
+): (string | null)[] {
+  const expected = new Map<string, number>();
+  for (const g of groups) {
+    for (const [team, p] of g.chances) expected.set(team, (expected.get(team) ?? 0) + g.n * p);
+  }
+  const room = new Map([...expected].map(([team, e]) => [team, e]));
+  const pairs = groups
+    .flatMap((g, i) => [...g.chances].map(([team, p]) => ({ i, team, p })))
+    .sort((a, b) => b.p - a.p);
+  const out: (string | null)[] = groups.map(() => null);
+  for (const { i, team } of pairs) {
+    if (out[i] !== null) continue;
+    const left = room.get(team) ?? 0;
+    // Half a head of slack, so a team expected to draw 1.6 people can take two.
+    if (left + 0.5 >= groups[i].n) {
+      out[i] = team;
+      room.set(team, left - groups[i].n);
+    }
+  }
+  // Anyone left over goes to their own likeliest team.
+  groups.forEach((g, i) => {
+    if (out[i] === null) out[i] = [...g.chances].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  });
+  return out;
+}
