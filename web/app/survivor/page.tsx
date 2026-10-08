@@ -22,6 +22,7 @@ import { parsePins, pinKey } from "@/lib/pins";
 import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
+import { entryFor, parseUsed } from "@/lib/check-entry";
 import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
 import { pickLocked } from "@/lib/survivor-window";
 
@@ -234,6 +235,26 @@ export default async function SurvivorPage({
     popularity,
     crowdingMeasured: measuredCrowding !== null,
   });
+
+  // Somebody else's entry in one of these pools: ?check=<pool>&used=Team,Team&losses=N.
+  // Planned alone against the same field, with you as one of their rivals (check-entry.ts).
+  const checkIndex = Number(one(query.check));
+  const checkUsed = parseUsed(one(query.used));
+  const checked =
+    Number.isInteger(checkIndex) && pools[checkIndex] && checkUsed.length > 0
+      ? {
+          index: checkIndex,
+          used: checkUsed,
+          losses: Math.max(0, Math.floor(Number(one(query.losses)) || 0)),
+        }
+      : null;
+  const checkedPlan = checked
+    ? buildPoolWinPlans(horizonWeeks, [entryFor(pools[checked.index], checked.used, checked.losses)], {
+        crowding,
+        popularity,
+        crowdingMeasured: measuredCrowding !== null,
+      })[0] ?? null
+    : null;
   const baseline =
     pins.size > 0 ? buildPoolWinPlans(horizonWeeks, withoutMine, {
         crowding,
@@ -365,6 +386,45 @@ export default async function SurvivorPage({
   return (
     <>
       <PageHeader title="Survivor" subtitle="One team a week, each team only once" />
+
+      {checked && checkedPlan ? (
+        <Card className="mb-3 border-sky-700/40 px-3.5 py-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-sky-300">
+            Checking another entry · {poolLabel(pools[checked.index], checked.index, pools)}
+          </h2>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+            Used {checked.used.join(", ")} · {checked.losses} loss{checked.losses === 1 ? "" : "es"}. Planned
+            alone against the same field, with your entry counted as one of their rivals.
+          </p>
+          <div className="tabular mt-2 grid grid-cols-3 gap-2 text-center text-[12px]">
+            <div>
+              <p className="text-[15px] font-semibold text-slate-100">{(checkedPlan.poolWin * 100).toFixed(1)}%</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">win the pool</p>
+            </div>
+            <div>
+              <p className="text-[15px] font-semibold text-slate-100">{(checkedPlan.plan.survival * 100).toFixed(1)}%</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">survive all</p>
+            </div>
+            <div>
+              <p className="text-[15px] font-semibold text-slate-100">
+                {checkedPlan.plan.picks[0]?.pick?.team.split(" ").pop() ?? "—"}
+              </p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">this week</p>
+            </div>
+          </div>
+          <ol className="mt-2 space-y-0.5 text-[11px] text-slate-400">
+            {checkedPlan.plan.picks.slice(0, 6).map((p) => (
+              <li key={p.week}>
+                Week {p.week}: <span className="text-slate-200">{p.pick?.team ?? "—"}</span>
+                {p.pick ? ` (${Math.round(p.pick.winProbability * 100)}%)` : ""}
+              </li>
+            ))}
+          </ol>
+          <Link href={`/survivor?pool=${checked.index}`} className="mt-2 inline-block text-[11px] text-slate-500 underline underline-offset-2">
+            back to your entries
+          </Link>
+        </Card>
+      ) : null}
 
       <Stats
         items={[
