@@ -192,3 +192,11 @@ def test_the_report_names_no_team():
     _, report = apply_rivals(pools(), {"137": RIVALS}, [13, 137])
     text = " ".join(report)
     assert not any(word in text for word in ("Kansas", "Francisco", "Jacksonville", "Chargers"))
+
+
+def test_a_group_may_carry_its_losses_and_bad_ones_are_refused():
+    ok = {"week": 5, "groups": [{"used": ["A"], "n": 2, "losses": 1}]}
+    out, _ = apply_rivals(pools(), {"137": ok}, [13, 137])
+    assert next(p for p in out if p["size"] == 137)["rivals"]["groups"][0]["losses"] == 1
+    with pytest.raises(ValueError):
+        apply_rivals(pools(), {"137": {"week": 5, "groups": [{"used": ["A"], "n": 2, "losses": 9}]}}, [13, 137])

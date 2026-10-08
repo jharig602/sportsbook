@@ -23,6 +23,7 @@ import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
 import { entryFor, parseUsed } from "@/lib/check-entry";
+import { fieldOdds } from "@/lib/field-odds";
 import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
 import { pickLocked } from "@/lib/survivor-window";
 
@@ -272,6 +273,19 @@ export default async function SurvivorPage({
   const plan = multi.pools[poolIndex]?.plan ?? multi.pools[0].plan;
   // Named apart from the `entry` prop WeekRow takes, and from the map below.
   const poolEntry = poolPlans[poolIndex] ?? poolPlans[0];
+  // Everyone in this pool, by history: see field-odds.ts. Cheap (~60 ms for 108 entries).
+  const field = poolEntry?.pool.rivals
+    ? fieldOdds(horizonWeeks, withPins[poolIndex] ?? pools[poolIndex], {
+        crowding,
+        crowdingMeasured: measuredCrowding !== null,
+        you: {
+          teams: poolEntry.plan.picks.map((x) => x.pick?.team ?? null),
+          mine: poolEntry.plan.picks.map((x) => x.pick?.winProbability ?? 1),
+          poolWin: poolEntry.poolWin,
+          survival: poolEntry.plan.survival,
+        },
+      })
+    : null;
 
   // The odds that actually matter: survival with a spare life, and what surviving is
   // worth against a field of this size.
@@ -845,6 +859,45 @@ export default async function SurvivorPage({
                 ? `${(hereCrowding * 100).toFixed(0)}% crowding measured this week, assumed to hold.`
                 : "No popularity collected, so no crowding is assumed."}
           </p>
+
+          {field && field.rows.length > 1 ? (
+            <details className="mt-3 rounded-lg border border-edge/70 px-2.5 py-2">
+              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Everyone&rsquo;s chance to win · {field.rows.reduce((s, r) => s + r.n, 0)} entries
+              </summary>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                Each rival assumed to take their pick this week if the sheet has it, then the
+                best team they have left; you, on your plan. By history, not name. Adds up to{" "}
+                {(field.total * 100).toFixed(0)}%{field.total > 0.9 && field.total < 1.1 ? "" : " -- off 100%, so read these as rough"}.
+                {field.unknownLosses > 0
+                  ? ` ${field.unknownLosses} without a recorded loss count, taken as unbeaten.`
+                  : ""}
+              </p>
+              <ol className="mt-2 space-y-1">
+                {field.rows.map((r, i) => (
+                  <li
+                    key={`${r.you ? "you" : r.used.join("|")}-${i}`}
+                    className={`flex items-start justify-between gap-2 text-[11px] ${r.you ? "text-sky-200" : "text-slate-400"}`}
+                  >
+                    <span className="min-w-0">
+                      {r.you ? <span className="font-semibold">You · </span> : r.n > 1 ? `${r.n} entries · ` : ""}
+                      {r.losses === 0 ? "unbeaten" : r.losses === 1 ? "last life" : `${r.losses} losses`} · used{" "}
+                      {r.used.map((t) => t.split(" ").pop()).join(", ") || "none"}
+                      {r.teams[0] ? (
+                        <span className="text-slate-500">
+                          {" "}
+                          · {r.you ? "plan" : r.pick ? "picked" : "likely"} {r.teams[0].split(" ").pop()}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="tabular shrink-0 font-medium">
+                      {(r.win * 100).toFixed(r.win < 0.01 ? 2 : 1)}%{r.n > 1 ? " each" : ""}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          ) : null}
         </Card>
       ) : null}
 

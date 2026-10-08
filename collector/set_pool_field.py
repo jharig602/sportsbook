@@ -224,6 +224,14 @@ def apply_rivals(
             group = {"used": used, "n": n}
             if pick is not None:
                 group["pick"] = team(pick)
+            if g.get("losses") is not None:
+                try:
+                    losses = int(g["losses"])
+                except (TypeError, ValueError) as error:
+                    raise ValueError(f"pool of {size}: losses must be a whole number") from error
+                if not 0 <= losses <= 5:
+                    raise ValueError(f"pool of {size}: losses {losses} is out of range")
+                group["losses"] = losses
             groups.append(group)
         count = int(pool.get("size") or 0) - 1
         total = sum(g["n"] for g in groups)

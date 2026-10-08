@@ -78,7 +78,7 @@ export interface StoredPool {
    * Tagged with the week so a sheet read last week still counts as history but its
    * picks are never mistaken for this week's.
    */
-  rivals?: { week: number; groups: Array<{ used: string[]; pick?: string; n: number }> };
+  rivals?: { week: number; groups: Array<{ used: string[]; pick?: string; n: number; /** Losses taken, when the sheet says. */ losses?: number }> };
   /** Losses your own entry has taken. Absent means none. */
   myLosses?: number;
 }
@@ -236,7 +236,7 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
           if (!(week >= 1 && week <= 30) || !Array.isArray(raw)) return {};
           const name = (t: unknown) =>
             typeof t === "string" && t.trim() && t.length <= 60 ? t.trim() : null;
-          const groups: Array<{ used: string[]; pick?: string; n: number }> = [];
+          const groups: Array<{ used: string[]; pick?: string; n: number; losses?: number }> = [];
           for (const g of raw.slice(0, 500)) {
             const n = Math.floor(Number(g?.n));
             if (!(n > 0 && n <= 100000)) continue;
@@ -244,7 +244,8 @@ export function parsePools(raw: string | null | undefined): StoredPool[] {
               ? g.used.slice(0, 20).map(name).filter((t: string | null): t is string => t !== null)
               : [];
             const pick = name(g.pick);
-            groups.push({ used, ...(pick ? { pick } : {}), n });
+            const losses = Math.floor(Number(g.losses));
+            groups.push({ used, ...(pick ? { pick } : {}), n, ...(losses >= 0 && losses <= 5 ? { losses } : {}) });
           }
           return groups.length ? { rivals: { week, groups } } : {};
         })(),

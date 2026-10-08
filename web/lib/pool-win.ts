@@ -462,6 +462,8 @@ export interface RivalGroup {
   pick?: string | null;
   /** How many live rivals have exactly this history. */
   n: number;
+  /** Losses they have taken, when the sheet says. */
+  losses?: number;
 }
 
 /** The pool's sheet as the planner reads it, tagged with the week it was read for. */
