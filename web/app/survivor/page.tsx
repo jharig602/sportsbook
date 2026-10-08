@@ -138,7 +138,15 @@ export default async function SurvivorPage({
   ]);
   // The real NFL week, not the planner's index: the collector files pick shares under
   // the season week, and asking for 1 every week reads September's crowd in November.
-  const popularity = postgres ? await pickPopularity(await currentNflWeek()) : {};
+  const nflWeek = postgres ? await currentNflWeek() : 0;
+  const popularity = postgres ? await pickPopularity(nflWeek) : {};
+  // Every week's national shares so far, to learn how each rival picks (rival-habits.ts).
+  const national = new Map<number, Record<string, number>>();
+  if (postgres) {
+    const weeksSoFar = Array.from({ length: Math.max(0, nflWeek) }, (_, i) => i + 1);
+    const shares = await Promise.all(weeksSoFar.map((w) => pickPopularity(w).catch(() => ({}))));
+    weeksSoFar.forEach((w, i) => national.set(w, shares[i]));
+  }
   const pools = postgres
     ? await getPools()
     : [{ used: [] as string[], size: 1, lossesAllowed: 0 }];
@@ -285,6 +293,7 @@ export default async function SurvivorPage({
           poolWin: poolEntry.poolWin,
           survival: poolEntry.plan.survival,
         },
+        national,
       })
     : null;
 
@@ -873,8 +882,10 @@ export default async function SurvivorPage({
                 Everyone&rsquo;s picks and chance to win · {field.rows.reduce((s, r) => s + r.n, 0)} entries
               </h3>
               <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-                Each rival takes their pick this week if the sheet has it, otherwise the best
-                team they have left; you, your plan. Rows are histories, not names; entries
+                This week: each rival&rsquo;s pick if the sheet has it, otherwise a prediction
+                from their own habit -- whether they took the most popular team nationally in
+                past weeks{field.poolFollow !== null ? ` (this pool does ${Math.round(field.poolFollow * 100)}% of the time)` : ""}.
+                Later weeks: their best team left. You: your plan. Rows are histories, not names; entries
                 with the same picks share a row. Adds up to {(field.total * 100).toFixed(0)}%
                 {field.total > 0.9 && field.total < 1.1 ? "" : " -- off 100%, so read these as rough"}.
                 {field.unknownLosses > 0

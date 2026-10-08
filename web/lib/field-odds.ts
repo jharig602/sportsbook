@@ -20,6 +20,7 @@ import { lastStandingWin, prepareField } from "./last-standing";
 import { aliveCurve } from "./pool-odds";
 import { fieldFromRivals, poolCrowding, type Field, type PoolEntry } from "./pool-win";
 import { fieldState } from "./pools";
+import { followRate, followRecord, predictPick, type Shares } from "./rival-habits";
 import { buildPlan, type Candidate, type Week } from "./survivor";
 
 /** Seasons for this table: a ranking of entries, not a headline number. */
@@ -39,6 +40,8 @@ export interface FieldRow {
   win: number;
   /** Chance each survives every remaining week. */
   survival: number;
+  /** How often they took the most popular team they had (0-1), when it could be measured. */
+  follows: number | null;
 }
 
 export function fieldOdds(
@@ -49,10 +52,12 @@ export function fieldOdds(
     crowdingMeasured: boolean;
     /** Your own entry's planned line and its value, from the plan above it. */
     you: { teams: (string | null)[]; mine: number[]; poolWin: number; survival: number };
+    /** National pick shares by week number, past weeks and this one. See rival-habits.ts. */
+    national?: Map<number, Shares>;
   },
-): { rows: FieldRow[]; total: number; unknownLosses: number } {
+): { rows: FieldRow[]; total: number; unknownLosses: number; poolFollow: number | null } {
   const planning = weeks.filter((w) => w.candidates.length > 0);
-  if (planning.length === 0) return { rows: [], total: 0, unknownLosses: 0 };
+  if (planning.length === 0) return { rows: [], total: 0, unknownLosses: 0, poolFollow: null };
   const lossesAllowed = pool.lossesAllowed ?? 0;
   const state = fieldState(pool);
   const poolSize = state.rivals + 1;
@@ -80,21 +85,34 @@ export function fieldOdds(
     };
   };
 
+  const national = options.national ?? new Map<number, Shares>();
+  // Each rival's habit, and the pool's, from their weeks so far.
+  const records = (sheet?.groups ?? []).map((g) => followRecord(g.used, national));
+  const scoredAll = records.reduce((a, r, i) => a + r.scored * (sheet?.groups[i].n ?? 1), 0);
+  const followedAll = records.reduce((a, r, i) => a + r.followed * (sheet?.groups[i].n ?? 1), 0);
+  const poolFollow = scoredAll > 0 ? followedAll / scoredAll : null;
+  const thisWeekShares = national.get(planning[0].week);
+
   const rows: FieldRow[] = [];
   let unknownLosses = 0;
-  for (const g of sheet?.groups ?? []) {
+  for (const [gi, g] of (sheet?.groups ?? []).entries()) {
+    const record = records[gi];
+    const rate = followRate(record, poolFollow ?? 0.5);
     if (g.losses === undefined) unknownLosses += g.n;
     const losses = g.losses ?? 0;
     const spent = new Set(g.used);
     const line: (Candidate | null)[] = planning.map((week, i) => {
       const pick =
         i === 0 && live && g.pick ? week.candidates.find((c) => c.team === g.pick) ?? null : null;
+      // This week: their known pick, else what their habit predicts. Later weeks: their
+      // best team left -- national shares do not exist for weeks nobody has picked yet.
       const choice =
         pick ??
-        [...week.candidates]
-          .sort((a, b) => b.winProbability - a.winProbability)
-          .find((c) => !spent.has(c.team)) ??
-        null;
+        (i === 0
+          ? predictPick(week.candidates, spent, thisWeekShares, rate)
+          : [...week.candidates]
+              .sort((a, b) => b.winProbability - a.winProbability)
+              .find((c) => !spent.has(c.team)) ?? null);
       if (choice) spent.add(choice.team);
       return choice;
     });
@@ -107,6 +125,7 @@ export function fieldOdds(
       losses,
       pick: live ? g.pick ?? null : null,
       teams,
+      follows: record.scored > 0 ? record.followed / record.scored : null,
       ...score(teams, mine, losses),
     });
   }
@@ -120,9 +139,10 @@ export function fieldOdds(
     teams: options.you.teams,
     win: options.you.poolWin,
     survival: options.you.survival,
+    follows: null,
   });
 
   rows.sort((a, b) => b.win - a.win);
   const total = rows.reduce((sum, r) => sum + r.n * r.win, 0);
-  return { rows, total, unknownLosses };
+  return { rows, total, unknownLosses, poolFollow };
 }

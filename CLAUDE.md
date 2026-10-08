@@ -606,6 +606,16 @@ keeps the one with the most `pot x P(win)` summed across entries. Pot = `entered
 size): the owner confirmed both pools have the same buy-in (2026-10-08), so pot is proportional to entrants. ~0.5 s for 2 pools x 14 weeks; the crossover is
 computed for the winning order only.
 
+**Everyone's chance to win** (`field-odds.ts`, an open table under each pool): every rival
+history group's line scored with the same last-one-standing arithmetic and seasons as
+yours; the column should sum to ~100% and the page shows the sum. This week's predicted
+pick comes from each rival's habit (`rival-habits.ts`): how often they took the most
+popular team NATIONALLY that they still had (stored `pick_popularity` per week), shrunk
+toward the pool's average with two weeks of prior. Followers are predicted on the
+national favourite they have left, independents on the next most popular. "Best team
+left" for everyone made every predicted pick the same team. Later weeks stay greedy:
+no national shares exist for weeks nobody has picked. Rows are histories, never names.
+
 ---
 
 ## Access
