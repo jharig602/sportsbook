@@ -603,7 +603,7 @@ the Cowboys on both entries a few weeks out). `buildPoolWinPlans` plans each ent
 every team the earlier ones hold in every week (`reservedByWeek`, honoured by `buildPlan`,
 `refineForLives` and the separation sweep), tries every order (exact for 2-3 entries) and
 keeps the one with the most `pot x P(win)` summed across entries. Pot = `entered` (else
-size): buy-ins unknown, taken as equal. ~0.5 s for 2 pools x 14 weeks; the crossover is
+size): the owner confirmed both pools have the same buy-in (2026-10-08), so pot is proportional to entrants. ~0.5 s for 2 pools x 14 weeks; the crossover is
 computed for the winning order only.
 
 ---
