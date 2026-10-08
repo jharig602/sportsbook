@@ -18,7 +18,7 @@
  */
 import { lastStandingWin, prepareField } from "./last-standing";
 import { aliveCurve } from "./pool-odds";
-import { fieldFromRivals, poolCrowding, type Field, type PoolEntry } from "./pool-win";
+import { fieldFromRivals, poolCrowding, type Field, type PoolEntry, type WeekZero } from "./pool-win";
 import { fieldState } from "./pools";
 import { allocatePicks, followRecord, followTilt, pickChances, type Shares } from "./rival-habits";
 import { buildPlan, type Candidate, type Week } from "./survivor";
@@ -54,6 +54,8 @@ export function fieldOdds(
     you: { teams: (string | null)[]; mine: number[]; poolWin: number; survival: number };
     /** National pick shares by week number, past weeks and this one. See rival-habits.ts. */
     national?: Map<number, Shares>;
+    /** This week mid-week: locked games and teams closed to rivals still to pick. */
+    week0?: WeekZero;
   },
 ): { rows: FieldRow[]; total: number; unknownLosses: number; poolFollow: number | null } {
   const planning = weeks.filter((w) => w.candidates.length > 0);
@@ -65,7 +67,7 @@ export function fieldOdds(
   const reference = buildPlan(planning);
   const sheet = pool.rivals && pool.rivals.week <= planning[0].week ? pool.rivals : null;
   const fromSheet = sheet
-    ? fieldFromRivals(planning, sheet, poolSize - 1, crowding, reference.greedyPicks[0]?.team ?? null)
+    ? fieldFromRivals(planning, sheet, poolSize - 1, crowding, reference.greedyPicks[0]?.team ?? null, options.week0)
     : null;
   const crowdPicks = fromSheet?.crowdPicks ?? reference.greedyPicks;
   const field: Field = fromSheet?.field ?? {
@@ -111,7 +113,7 @@ export function fieldOdds(
     (sheet?.groups ?? []).map((g, gi) => ({
       n: g.n,
       chances: pickChances(
-        planning[0].candidates,
+        planning[0].candidates.filter((c) => !options.week0?.closedToUnpicked?.has(c.team)),
         new Set(g.used),
         thisWeekShares,
         followTilt(records[gi], poolRecord),
@@ -128,7 +130,9 @@ export function fieldOdds(
     const spent = new Set(g.used);
     const line: (Candidate | null)[] = planning.map((week, i) => {
       const pick =
-        i === 0 && live && g.pick ? week.candidates.find((c) => c.team === g.pick) ?? null : null;
+        i === 0 && live && g.pick
+          ? week.candidates.find((c) => c.team === g.pick) ?? options.week0?.locked?.get(g.pick) ?? null
+          : null;
       // This week: their known pick, else what their habit predicts. Later weeks: their
       // best team left -- national shares do not exist for weeks nobody has picked yet.
       const choice =

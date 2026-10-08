@@ -454,6 +454,20 @@ function bestSeparationPenalty(
   return best;
 }
 
+/**
+ * The current week as it stands mid-week, for rivals' picks.
+ *
+ * `locked`: games of this week already under way (or final), by team, priced at their
+ * pregame chance -- or 1/0 once final. A rival's pick on one is still this week's pick.
+ * `closedToUnpicked`: teams a rival who has NOT picked yet can no longer take: a
+ * Thursday-to-Saturday game within twelve hours of kickoff. Someone without a pick by
+ * then is a Sunday picker (the owner's read of his own pool, 2026-10-08).
+ */
+export interface WeekZero {
+  locked?: Map<string, Candidate>;
+  closedToUnpicked?: Set<string>;
+}
+
 /** Live rivals who share one history on the pool's sheet. Counts only, never names. */
 export interface RivalGroup {
   /** Teams spent before the week the sheet was read for. */
@@ -514,6 +528,7 @@ export function fieldFromRivals(
   rivalCount: number,
   crowding: number,
   favourite: string | null,
+  week0: WeekZero = {},
 ): { field: Field; crowdPicks: (Candidate | null)[]; summary: RivalSummary } {
   const opener = planning[0];
   const live = sheet.week === opener.week;
@@ -535,7 +550,9 @@ export function fieldFromRivals(
       if (strange) unknownUsed += g.n;
       let pick: Candidate | null = null;
       if (g.pick && live) {
-        pick = onOpener.get(g.pick) ?? null;
+        // A pick on a game already under way is locked to it: still this week's bloc,
+        // riding that game, not a pick for "a team not playing".
+        pick = onOpener.get(g.pick) ?? week0.locked?.get(g.pick) ?? null;
         if (pick) known += g.n;
         else unmatched += g.n;
       } else if (g.pick && scheduled.has(g.pick)) {
@@ -572,7 +589,10 @@ export function fieldFromRivals(
         g.spent.add(g.pick.team);
         continue;
       }
-      const best = ranked.find((c) => !g.spent.has(c.team));
+      // Rivals still to pick this week cannot take a game about to start or under way.
+      const best = ranked.find(
+        (c) => !g.spent.has(c.team) && !(i === 0 && week0.closedToUnpicked?.has(c.team)),
+      );
       if (!best) continue;
       bloc(best).herd += g.n / rivals;
       // Those who do not follow the board are assumed to pick about as well as it.
@@ -648,6 +668,8 @@ export function rankByPoolWin(
      * ignored.
      */
     rivals?: RivalPicks;
+    /** This week mid-week: locked games and teams closed to unpicked rivals. */
+    week0?: WeekZero;
   },
 ): PoolWinRanking[] {
   const { lossesAllowed, poolSize, crowding } = options;
@@ -675,7 +697,7 @@ export function rankByPoolWin(
   const reference = buildPlan(planning);
   const sheet = options.rivals && options.rivals.week <= planning[0].week ? options.rivals : null;
   const fromSheet = sheet
-    ? fieldFromRivals(planning, sheet, Math.max(0, poolSize - 1), crowding, reference.greedyPicks[0]?.team ?? null)
+    ? fieldFromRivals(planning, sheet, Math.max(0, poolSize - 1), crowding, reference.greedyPicks[0]?.team ?? null, options.week0)
     : null;
   const crowdPicks = fromSheet?.crowdPicks ?? reference.greedyPicks;
   const field: Field = fromSheet?.field ?? {
@@ -794,6 +816,7 @@ export function poolWinStability(
     rivalLosses?: number[];
     myLosses?: number;
     rivals?: RivalPicks;
+    week0?: WeekZero;
   },
 ): Array<{ horizon: number; team: string | null }> {
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
@@ -972,6 +995,7 @@ export function buildPoolWinPlans(
      * of being blended toward a zero nobody measured.
      */
     crowdingMeasured?: boolean;
+    week0?: WeekZero;
   },
 ): PoolWinPlan[] {
   const orders = pools.length <= 3 ? permutations(pools.map((_, i) => i)) : [pools.map((_, i) => i)];
@@ -1038,7 +1062,7 @@ function planInOrder(
   weeks: Week[],
   pools: PoolEntry[],
   order: number[],
-  options: { crowding: number; popularity?: Record<string, number>; crowdingMeasured?: boolean },
+  options: { crowding: number; popularity?: Record<string, number>; crowdingMeasured?: boolean; week0?: WeekZero },
 ): PoolWinPlan[] {
   const reservedByWeek = new Map<number, Set<string>>();
   const byIndex = new Map<number, PoolWinPlan>();
@@ -1071,6 +1095,7 @@ function planInOrder(
       rivalLosses: state.rivalLosses,
       myLosses: state.myLosses,
       rivals: pool.rivals,
+      week0: options.week0,
     });
 
     // A pin on the opening week overrides the ranking: you asked for that team, so the

@@ -27,6 +27,7 @@ import { entryFor, parseUsed } from "@/lib/check-entry";
 import { fieldOdds } from "@/lib/field-odds";
 import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
 import { pickLocked } from "@/lib/survivor-window";
+import { winProbabilityFromSpread } from "@/lib/probability";
 
 export const dynamic = "force-dynamic";
 
@@ -240,10 +241,50 @@ export default async function SurvivorPage({
   // card measures this entry's choice and nothing else.
   const withoutMine = withPins.map((pool, i) => (i === viewing ? pools[i] : pool));
 
+  // This week mid-week (pool-win.ts WeekZero). Games already under way are dropped from
+  // the schedule, but rivals' picks on them still stand, so they are kept as locked games
+  // -- at their pregame chance, or the result once final. And a rival with no pick yet
+  // cannot take a Thursday-to-Saturday game twelve hours or less from kickoff.
+  const finals = new Map((await data.results().catch(() => [])).map((r) => [r.event_id, r]));
+  const nowMs = Date.now();
+  const locked = new Map<string, Candidate>();
+  for (const g of board) {
+    const start = Date.parse(g.commenceTime);
+    if (g.league !== "nfl" || !(start <= nowMs) || nowMs - start > 5 * 86_400_000) continue;
+    const final = finals.get(g.eventId);
+    const homeSpread = g.spread?.home?.line ?? null;
+    const homeChance = final
+      ? final.home_score > final.away_score ? 1 : final.home_score < final.away_score ? 0 : 0.5
+      : models.nfl && homeSpread !== null
+        ? winProbabilityFromSpread(models.nfl, homeSpread, "home") ?? 0.5
+        : 0.5;
+    for (const [team, opponent, chance, home] of [
+      [g.homeTeam, g.awayTeam, homeChance, true],
+      [g.awayTeam, g.homeTeam, 1 - homeChance, false],
+    ] as const) {
+      if (!team || !opponent) continue;
+      locked.set(team, {
+        team, opponent, home, winProbability: chance, spread: 0,
+        commenceTime: g.commenceTime, eventId: g.eventId,
+      });
+    }
+  }
+  const openerCandidates = horizonWeeks.find((w) => w.candidates.length > 0)?.candidates ?? [];
+  const closedToUnpicked = new Set(
+    openerCandidates
+      .filter((c) => {
+        const day = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(new Date(c.commenceTime));
+        return ["Thu", "Fri", "Sat"].includes(day) && Date.parse(c.commenceTime) - nowMs < 12 * 3_600_000;
+      })
+      .map((c) => c.team),
+  );
+  const week0 = { locked, closedToUnpicked };
+
   const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, {
     crowding,
     popularity,
     crowdingMeasured: measuredCrowding !== null,
+    week0,
   });
 
   // Somebody else's entry in one of these pools: ?check=<pool>&used=Team,Team&losses=N.
@@ -263,6 +304,7 @@ export default async function SurvivorPage({
         crowding,
         popularity,
         crowdingMeasured: measuredCrowding !== null,
+        week0,
       })[0] ?? null
     : null;
   const baseline =
@@ -270,6 +312,7 @@ export default async function SurvivorPage({
         crowding,
         popularity,
         crowdingMeasured: measuredCrowding !== null,
+        week0,
       }) : poolPlans;
   const hasWhatIf = pins.size > 0 || unavailablePins.length > 0;
   const survivals = poolPlans.map((p) => p.plan.survival).filter((s) => s > 0);
@@ -294,6 +337,7 @@ export default async function SurvivorPage({
           survival: poolEntry.plan.survival,
         },
         national,
+        week0,
       })
     : null;
 
@@ -385,6 +429,7 @@ export default async function SurvivorPage({
     crowding: hereCrowding,
     popularity,
     rivals: viewedPool?.rivals,
+    week0,
   });
   const distinct = new Set(stability.map((s) => s.team).filter(Boolean));
   const stable = distinct.size <= 1;

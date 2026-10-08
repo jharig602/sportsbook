@@ -617,6 +617,13 @@ toward the pool. Picks are then HANDED OUT (`allocatePicks`) so the column match
 expected head count per team -- taking each rival's likeliest team put everyone on one
 team twice (Cowboys, then Bengals). Later weeks stay greedy.
 
+**Mid-week** (`WeekZero`, 2026-10-08): games already under way drop off the schedule, but
+rivals' picks on them stand -- 49 of the big pool's 60 early week-5 picks were on Thursday
+night's Cowboys. Such games are kept as `locked` blocs at their pregame chance (1/0 once
+final), so those picks are not "teams not playing"; and a rival with no pick yet cannot be
+put on a Thursday-Saturday game within 12 hours of kickoff (`closedToUnpicked`) -- the
+owner's read: anyone unpicked by then is a Sunday picker.
+
 **National shares were filed a week early until 2026-10-08.** Week numbers counted 7-day
 blocks from the opener's Thursday kickoff, so Tuesday-Thursday said "last week" while
 survivorgrid showed the new slate: every stored week held the NEXT week's picks. Now both

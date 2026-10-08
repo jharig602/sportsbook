@@ -957,3 +957,28 @@ test("the order is chosen for the entries together, by each pool's win chance ti
   assert.equal(potOf({ used: [], size: 113 } as never), 113);
   assert.equal(potOf({ used: [], size: 8, entered: 11 } as never), 11, "the pot is who entered, not who is left");
 });
+
+test("a pick on a game already under way stays locked to it, not 'a team not playing'", () => {
+  const dallas = { team: "Dallas Cowboys", opponent: "Tampa Bay Buccaneers", home: true, commenceTime: "2026-09-25T00:15:00Z",
+    winProbability: 0.8, spread: -7, eventId: "TNF" } as never;
+  const { field, summary } = fieldFromRivals(
+    season(),
+    { week: 3, groups: [{ used: [], pick: "Dallas Cowboys", n: 49 }, blank(70)] },
+    R, 0.344, "Buffalo Bills",
+    { locked: new Map([["Dallas Cowboys", dallas]]) },
+  );
+  assert.equal(summary.known, 49);
+  assert.equal(summary.unmatched, 0);
+  const bloc = field.blocs![0].find((b) => b.team === "Dallas Cowboys")!;
+  assert.ok(near(bloc.fixed, 49 / R));
+  assert.equal(bloc.probability, 0.8);
+});
+
+test("a rival who has not picked cannot be put on a game about to start", () => {
+  const { field } = fieldFromRivals(
+    season(), { week: 3, groups: [blank()] }, R, 0.344, "Buffalo Bills",
+    { closedToUnpicked: new Set(["Buffalo Bills"]) },
+  );
+  assert.equal(herdOn(field, 0, "Buffalo Bills"), 0);
+  assert.ok(herdOn(field, 0, "Kansas City Chiefs") > 0.99, "they move to their best team still open");
+});
