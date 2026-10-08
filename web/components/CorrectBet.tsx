@@ -37,7 +37,7 @@ import type { Bet } from "@/lib/settle";
  * reaching back into the old one. It is not a mistake being fixed, but the mechanism is
  * identical and a second one would only be a second thing to keep in step.
  */
-export function CorrectBet({ bet }: { bet: Bet }) {
+export function CorrectBet({ bet, label }: { bet: Bet; /** Which bet, when several share a card. */ label?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState(String(bet.price));
@@ -132,7 +132,7 @@ export function CorrectBet({ bet }: { bet: Bet }) {
         onClick={() => setOpen(true)}
         className="mt-1 text-[10px] uppercase tracking-wide text-slate-600 underline underline-offset-2"
       >
-        edit or remove
+        edit or remove{label ? ` · ${label}` : ""}
       </button>
     );
   }

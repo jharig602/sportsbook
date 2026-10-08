@@ -648,7 +648,23 @@ export default async function BetsPage({
                           <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} />
                         )}
                         {hedgeById.has(bet.bet_id)
-                          ? hedgeById.get(bet.bet_id)!.legs.map((l) => <CorrectBet key={l.bet_id} bet={l} />)
+                          ? (
+                              // One link per bet in the hedge, each named, stacked rather than
+                              // run together on one line.
+                              <div className="flex flex-col items-start">
+                                {hedgeById.get(bet.bet_id)!.legs.map((l) => (
+                                  <CorrectBet
+                                    key={l.bet_id}
+                                    bet={l}
+                                    label={
+                                      l.market === "total"
+                                        ? `${l.side === "over" ? "Over" : l.side === "under" ? "Under" : l.side} ${l.line ?? ""}`.trim()
+                                        : `${l.side === "home" ? l.home_team : l.away_team} ${l.market === "moneyline" ? "ML" : l.line}`
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            )
                           : legs ? null : <CorrectBet bet={bet} />}
                       </div>
                     );
