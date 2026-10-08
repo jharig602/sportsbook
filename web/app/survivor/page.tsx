@@ -868,42 +868,65 @@ export default async function SurvivorPage({
           </p>
 
           {field && field.rows.length > 1 ? (
-            <details className="mt-3 rounded-lg border border-edge/70 px-2.5 py-2">
-              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Everyone&rsquo;s chance to win · {field.rows.reduce((s, r) => s + r.n, 0)} entries
-              </summary>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                Each rival assumed to take their pick this week if the sheet has it, then the
-                best team they have left; you, on your plan. By history, not name. Adds up to{" "}
-                {(field.total * 100).toFixed(0)}%{field.total > 0.9 && field.total < 1.1 ? "" : " -- off 100%, so read these as rough"}.
+            <div className="mt-3 rounded-lg border border-edge/70 px-2.5 py-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                Everyone&rsquo;s picks and chance to win · {field.rows.reduce((s, r) => s + r.n, 0)} entries
+              </h3>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                Each rival takes their pick this week if the sheet has it, otherwise the best
+                team they have left; you, your plan. Rows are histories, not names; entries
+                with the same picks share a row. Adds up to {(field.total * 100).toFixed(0)}%
+                {field.total > 0.9 && field.total < 1.1 ? "" : " -- off 100%, so read these as rough"}.
                 {field.unknownLosses > 0
                   ? ` ${field.unknownLosses} without a recorded loss count, taken as unbeaten.`
                   : ""}
               </p>
-              <ol className="mt-2 space-y-1">
-                {field.rows.map((r, i) => (
-                  <li
-                    key={`${r.you ? "you" : r.used.join("|")}-${i}`}
-                    className={`flex items-start justify-between gap-2 text-[11px] ${r.you ? "text-sky-200" : "text-slate-400"}`}
-                  >
-                    <span className="min-w-0">
-                      {r.you ? <span className="font-semibold">You · </span> : r.n > 1 ? `${r.n} entries · ` : ""}
-                      {r.losses === 0 ? "unbeaten" : r.losses === 1 ? "last life" : `${r.losses} losses`} · used{" "}
-                      {r.used.map((t) => t.split(" ").pop()).join(", ") || "none"}
-                      {r.teams[0] ? (
-                        <span className="text-slate-500">
-                          {" "}
-                          · {r.you ? "plan" : r.pick ? "picked" : "likely"} {r.teams[0].split(" ").pop()}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="tabular shrink-0 font-medium">
-                      {(r.win * 100).toFixed(r.win < 0.01 ? 2 : 1)}%{r.n > 1 ? " each" : ""}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </details>
+              {(() => {
+                const short = (t: string | null | undefined) => (t ? t.split(" ").pop() : "");
+                const cols = Math.max(...field.rows.map((r) => r.used.length));
+                return (
+                  <div className="-mx-1 mt-2 overflow-x-auto">
+                    <table className="w-full min-w-[420px] text-[11px]">
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wider text-slate-500">
+                          <th className="px-1 py-1 text-left font-medium">#</th>
+                          {Array.from({ length: cols }, (_, i) => (
+                            <th key={i} className="px-1 py-1 text-left font-medium">Wk {i + 1}</th>
+                          ))}
+                          <th className="px-1 py-1 text-left font-medium">Wk {plan.picks[0]?.week ?? cols + 1}</th>
+                          <th className="px-1 py-1 text-left font-medium">Lives</th>
+                          <th className="px-1 py-1 text-right font-medium">Win</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {field.rows.map((r, i) => (
+                          <tr
+                            key={`${r.you ? "you" : r.used.join("|")}-${i}`}
+                            className={`border-t border-edge/50 ${r.you ? "bg-sky-500/10 text-sky-200" : "text-slate-300"}`}
+                          >
+                            <td className="px-1 py-1 text-slate-500">{r.you ? "You" : r.n > 1 ? `×${r.n}` : ""}</td>
+                            {Array.from({ length: cols }, (_, c) => (
+                              <td key={c} className="px-1 py-1">{short(r.used[c])}</td>
+                            ))}
+                            <td className={`px-1 py-1 ${r.you || r.pick ? "" : "italic text-slate-500"}`}>
+                              {short(r.teams[0])}
+                            </td>
+                            <td className="px-1 py-1">{Math.max(0, (pools[poolIndex]?.lossesAllowed ?? 0) + 1 - r.losses)}</td>
+                            <td className="tabular px-1 py-1 text-right font-medium">
+                              {(r.win * 100).toFixed(r.win < 0.01 ? 2 : 1)}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+              <p className="mt-1.5 text-[10px] text-slate-600">
+                This week&rsquo;s column in italics is a guess (their best team left); plain is a
+                pick the sheet shows. Win is each entry&rsquo;s chance.
+              </p>
+            </div>
           ) : null}
         </Card>
       ) : null}
