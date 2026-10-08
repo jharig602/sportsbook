@@ -84,9 +84,13 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Locked." }, { status: 401 });
   }
+  // The query string travels too: a link like /survivor?check=1&used=... used to come
+  // back from the passcode as plain /survivor, which looked like the link did nothing.
+  // Still a path on this site -- the unlock page refuses anything not starting with "/".
+  const back = pathname + request.nextUrl.search;
   const url = request.nextUrl.clone();
   url.pathname = "/unlock";
-  url.search = `?from=${encodeURIComponent(pathname)}`;
+  url.search = `?from=${encodeURIComponent(back)}`;
   return NextResponse.redirect(url);
 }
 

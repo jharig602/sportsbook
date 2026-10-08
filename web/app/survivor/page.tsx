@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LogPickButton } from "@/components/LogPickButton";
 import { PinPicker } from "@/components/PinPicker";
 import { PoolPicker } from "@/components/PoolPicker";
+import { CheckEntryForm } from "@/components/CheckEntryForm";
 import {
   Card,
   Empty,
@@ -439,6 +440,12 @@ export default async function SurvivorPage({
           </Link>
         </Card>
       ) : null}
+
+      <CheckEntryForm
+        pools={pools.map((pool, i) => ({ index: i, label: poolLabel(pool, i, pools) }))}
+        teams={[...new Set(weeks.flatMap((w) => w.candidates.map((c) => c.team)))].sort()}
+        current={checked ? { pool: checked.index, used: checked.used, losses: checked.losses } : null}
+      />
 
       <Stats
         items={[
