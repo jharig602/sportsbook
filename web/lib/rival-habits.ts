@@ -26,24 +26,47 @@ export function followRecord(
   usedInOrder: string[],
   /** National shares by week number; week i+1 is the week of `usedInOrder[i]`. */
   national: Map<number, Shares>,
-): { followed: number; scored: number } {
+): { followed: number; scored: number; expected: number } {
   const spent = new Set<string>();
   let followed = 0;
   let scored = 0;
+  // How often picking in proportion to the national shares would have hit the favourite:
+  // the bar a rival's own rate is measured against, so "follows" means MORE than chance.
+  let expected = 0;
   usedInOrder.forEach((pick, i) => {
     const shares = national.get(i + 1);
     if (shares && Object.keys(shares).length > 0) {
-      const top = Object.entries(shares)
-        .filter(([team]) => !spent.has(team))
-        .sort((a, b) => b[1] - a[1])[0]?.[0];
-      if (top) {
+      const left = Object.entries(shares).filter(([team]) => !spent.has(team));
+      const total = left.reduce((sum, [, share]) => sum + share, 0);
+      const [top, topShare] = left.sort((a, b) => b[1] - a[1])[0] ?? [undefined, 0];
+      if (top && total > 0) {
         scored += 1;
+        expected += topShare / total;
         if (top === pick) followed += 1;
       }
     }
     spent.add(pick);
   });
-  return { followed, scored };
+  return { followed, scored, expected };
+}
+
+/**
+ * How much more (above 1) or less (below 1) than the national split this rival takes the
+ * favourite, as an odds ratio: their follow rate against the rate picking by the shares
+ * would have given. Both rates are shrunk toward the pool's, two weeks of prior each, so
+ * a rival with one week of history sits close to the pool and the pool close to 1.
+ */
+export function followTilt(
+  record: { followed: number; scored: number; expected: number },
+  pool: { followed: number; expected: number; scored: number },
+): number {
+  if (pool.scored === 0) return 1;
+  const poolRate = pool.followed / pool.scored;
+  const poolExpected = pool.expected / pool.scored;
+  const rate = (record.followed + 2 * poolRate) / (record.scored + 2);
+  const base = (record.expected + 2 * poolExpected) / (record.scored + 2);
+  const odds = (p: number) => Math.min(0.97, Math.max(0.03, p)) / (1 - Math.min(0.97, Math.max(0.03, p)));
+  return odds(rate) / odds(base);
 }
 
 /** Their follow rate, shrunk toward the pool's: `(followed + 2*prior) / (scored + 2)`. */
@@ -67,12 +90,17 @@ export function predictPick(
   return rate >= 0.5 ? byShare[0] : byShare[1] ?? byShare[0];
 }
 
-/** Each team's chance for one rival this week: their habit over the shares they have left. */
+/**
+ * Each team's chance for one rival this week: the national shares over the teams they
+ * have left, with the favourite weighted by their tilt (`followTilt`). A rival who follows
+ * the crowd exactly as often as the shares would predict gets the national split -- if
+ * 40% of the country is on the Cowboys, so is 40% of their chance.
+ */
 export function pickChances(
   candidates: Candidate[],
   spent: Set<string>,
   shares: Shares | undefined,
-  rate: number,
+  tilt: number,
 ): Map<string, number> {
   const available = candidates.filter((c) => !spent.has(c.team));
   const out = new Map<string, number>();
@@ -84,14 +112,11 @@ export function pickChances(
     out.set(safest.team, 1);
     return out;
   }
-  const byShare = [...available].sort((a, b) => (shares[b.team] ?? 0) - (shares[a.team] ?? 0));
-  const top = byShare[0].team;
-  const rest = total - (shares[top] ?? 0);
+  const top = [...available].sort((a, b) => (shares[b.team] ?? 0) - (shares[a.team] ?? 0))[0].team;
+  const weight = (team: string) => (shares[team] ?? 0) * (team === top ? tilt : 1);
+  const sum = available.reduce((acc, c) => acc + weight(c.team), 0);
   for (const c of available) {
-    const s = shares[c.team] ?? 0;
-    // A follower takes the favourite they have; otherwise they go where the public's
-    // other picks go, in proportion. With nobody else on the board, all on the favourite.
-    const p = c.team === top ? rate + (rest > 0 ? 0 : 1 - rate) : rest > 0 ? (1 - rate) * (s / rest) : 0;
+    const p = weight(c.team) / sum;
     if (p > 0) out.set(c.team, p);
   }
   return out;

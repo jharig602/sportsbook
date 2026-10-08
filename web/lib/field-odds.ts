@@ -20,7 +20,7 @@ import { lastStandingWin, prepareField } from "./last-standing";
 import { aliveCurve } from "./pool-odds";
 import { fieldFromRivals, poolCrowding, type Field, type PoolEntry } from "./pool-win";
 import { fieldState } from "./pools";
-import { allocatePicks, followRate, followRecord, pickChances, type Shares } from "./rival-habits";
+import { allocatePicks, followRecord, followTilt, pickChances, type Shares } from "./rival-habits";
 import { buildPlan, type Candidate, type Week } from "./survivor";
 
 /** Seasons for this table: a ranking of entries, not a headline number. */
@@ -91,6 +91,8 @@ export function fieldOdds(
   const scoredAll = records.reduce((a, r, i) => a + r.scored * (sheet?.groups[i].n ?? 1), 0);
   const followedAll = records.reduce((a, r, i) => a + r.followed * (sheet?.groups[i].n ?? 1), 0);
   const poolFollow = scoredAll > 0 ? followedAll / scoredAll : null;
+  const expectedAll = records.reduce((a, r, i) => a + r.expected * (sheet?.groups[i].n ?? 1), 0);
+  const poolRecord = { followed: followedAll, expected: expectedAll, scored: scoredAll };
   const thisWeekShares = national.get(planning[0].week);
   // This week's predicted picks, handed out so the column matches the expected spread.
   const predicted = allocatePicks(
@@ -100,7 +102,7 @@ export function fieldOdds(
         planning[0].candidates,
         new Set(g.used),
         thisWeekShares,
-        followRate(records[gi], poolFollow ?? 0.5),
+        followTilt(records[gi], poolRecord),
       ),
     })),
   );
