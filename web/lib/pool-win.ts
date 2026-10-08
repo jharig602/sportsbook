@@ -415,9 +415,10 @@ function bestSeparationPenalty(
     poolSize: number;
     pinned: Map<number, string>;
     myLosses: number;
+    reservedByWeek: Map<number, Set<string>>;
   },
 ): number {
-  const { used, lossesAllowed, poolSize, pinned, myLosses } = options;
+  const { used, lossesAllowed, poolSize, pinned, myLosses, reservedByWeek } = options;
   const livesLeft = Math.max(0, lossesAllowed - myLosses);
   const crowdByWeek = new Map<number, string>();
   planning.forEach((w, i) => {
@@ -432,10 +433,11 @@ function bestSeparationPenalty(
       team === (crowdByWeek.get(week) ?? null) ? lambda : 0;
     const plan = refineForLives(
       planning,
-      buildPlan(planning, planning.length, used, new Map(), pinned, avoid),
+      buildPlan(planning, planning.length, used, reservedByWeek, pinned, avoid),
       livesLeft,
       used,
       pinned,
+      reservedByWeek,
     );
     const mine = plan.picks.map((p) => p.pick?.winProbability ?? 1);
     const shared = plan.picks.map(
@@ -615,6 +617,11 @@ export function rankByPoolWin(
     used?: Set<string>;
     /** Teams another entry has reserved this week, so two entries never share a game. */
     excludeThisWeek?: Set<string>;
+    /**
+     * Teams other entries hold in EVERY week of their plans, so this entry is planned
+     * around them for the whole season, not just the current week. See buildPoolWinPlans.
+     */
+    reservedByWeek?: Map<number, Set<string>>;
     lossesAllowed: number;
     poolSize: number;
     crowding: number;
@@ -648,7 +655,11 @@ export function rankByPoolWin(
   const livesLeft = lossesAllowed - myLosses;
   const pinned = options.pinned ?? new Map<number, string>();
   const used = options.used ?? new Set<string>();
-  const reserved = options.excludeThisWeek ?? new Set<string>();
+  const reservedByWeek = options.reservedByWeek ?? new Map<number, Set<string>>();
+  const reserved = new Set([
+    ...(options.excludeThisWeek ?? []),
+    ...(reservedByWeek.get(weeks.find((w) => w.candidates.length > 0)?.week ?? -1) ?? []),
+  ]);
   const popularity = options.popularity ?? {};
 
   // Filter once, up front, so week indices line up with the crowd's sequence. Leaving
@@ -700,7 +711,7 @@ export function rankByPoolWin(
     planning,
     crowdPicks,
     prepared,
-    { used, lossesAllowed, poolSize, pinned, myLosses },
+    { used, lossesAllowed, poolSize, pinned, myLosses, reservedByWeek },
   );
   const avoid = (week: number, team: string) =>
     team === (crowdByWeek.get(week) ?? null) ? lambda : 0;
@@ -710,10 +721,11 @@ export function rankByPoolWin(
     const excluded = new Set([...used, candidate.team]);
     const tail = refineForLives(
       rest,
-      buildPlan(rest, rest.length, excluded, new Map(), pinned, avoid),
+      buildPlan(rest, rest.length, excluded, reservedByWeek, pinned, avoid),
       Math.max(0, livesLeft),
       excluded,
       pinned,
+      reservedByWeek,
     );
 
     const best = opener.candidates[0] ?? null;
@@ -929,13 +941,22 @@ export function poolCrowding(
 }
 
 /**
- * Plan every entry on the pool-win objective, keeping them off each other's games.
+ * Plan every entry on the pool-win objective, as ONE plan across all of them.
  *
- * Mirrors `buildPlans`, including the part that matters most about it: only the
- * CURRENT week is reserved across entries. Two entries on the same team this week is
- * one bet paid for twice, and that is the only risk a second entry exists to avoid —
- * constraining December as well would cost real probability to insure against
- * something that re-planning next week removes anyway.
+ * The entries never share a team in the same week -- not just this week but every week
+ * of the season. It used to reserve only the current week (one bad week must not cost
+ * both entries, the owner's rule from 2026-09-25), and planned later weeks independently,
+ * so both seasons could lean on the same favourite in week 9: the owner noticed the
+ * Cowboys on both and asked for them to be planned as one (2026-10-08). Two entries on
+ * one team is one bet paid for twice, in any week.
+ *
+ * Planned in turn -- each entry around every team the ones before it hold, week by week
+ * -- and EVERY order is tried, keeping the one worth most across the entries together:
+ * the sum of each pool's chance of winning times its pot. Whoever goes first gets first
+ * call on the strong weeks, so the order is the whole question, and trying each is
+ * exact for two or three entries. The pot is stood in for by how many entered (the buy-in
+ * is unknown and taken as equal), which is what makes a 141-entry pool's 0.4% comparable
+ * with an 11-entry pool's 10%.
  */
 export function buildPoolWinPlans(
   weeks: Week[],
@@ -951,13 +972,82 @@ export function buildPoolWinPlans(
     crowdingMeasured?: boolean;
   },
 ): PoolWinPlan[] {
-  const reservedThisWeek = new Set<string>();
-  const out: PoolWinPlan[] = [];
+  const orders = pools.length <= 3 ? permutations(pools.map((_, i) => i)) : [pools.map((_, i) => i)];
+  let best: PoolWinPlan[] | null = null;
+  let bestValue = -Infinity;
+  for (const order of orders) {
+    const plans = planInOrder(weeks, pools, order, options);
+    const value = plans.reduce((sum, plan) => sum + potOf(plan.pool) * plan.poolWin, 0);
+    if (value > bestValue + 1e-12) {
+      bestValue = value;
+      best = plans;
+    }
+  }
+  return (best ?? []).map((plan) => withCrossover(plan, options));
+}
 
+/** The crowding at which the top pick and the safest swap places, for one finished plan. */
+function withCrossover(
+  plan: PoolWinPlan,
+  options: { crowding: number; crowdingMeasured?: boolean },
+): PoolWinPlan {
+  const pin = [...(plan.pool.pinned ?? new Map<number, string>()).entries()].find(
+    ([week]) => week === plan.plan.picks[0]?.week,
+  )?.[1];
+  const top = (pin !== undefined ? plan.ranking.find((r) => r.candidate.team === pin) : undefined) ?? plan.ranking[0];
+  const safest = [...plan.ranking].sort((a, b) => b.survival - a.survival)[0];
+  if (!top || !safest || safest.candidate.team === top.candidate.team) return plan;
+  const state = fieldState(plan.pool);
+  const crowding = poolCrowding(plan.pool, options.crowding, options.crowdingMeasured ?? options.crowding > 0);
+  return {
+    ...plan,
+    crossover: crossoverCrowding(
+      top.line,
+      safest.line,
+      // The very field the ranking used, re-scored at other herding rates: the sheet's
+      // blocs, or the greedy crowd when there is no sheet.
+      top.field ?? {
+        probabilities: (top.plan.greedyPicks ?? []).map((c) => c?.winProbability ?? 1),
+        crowding,
+      },
+      plan.pool.lossesAllowed ?? 0,
+      state.rivals + 1,
+      state.rivalLosses,
+      state.myLosses,
+    ),
+  };
+}
+
+/** What a pool pays, relatively: its entrants, the buy-in being unknown and equal. */
+export function potOf(pool: PoolEntry): number {
+  const field = pool.field?.length ? pool.field.reduce((a, b) => a + b, 0) : 0;
+  return Math.max(1, (pool as { entered?: number }).entered ?? pool.size ?? field ?? 1);
+}
+
+function permutations(items: number[]): number[][] {
+  if (items.length <= 1) return [items];
+  return items.flatMap((item, i) =>
+    permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]),
+  );
+}
+
+/** Plan the entries in this order, each around every team the earlier ones hold. */
+function planInOrder(
+  weeks: Week[],
+  pools: PoolEntry[],
+  order: number[],
+  options: { crowding: number; popularity?: Record<string, number>; crowdingMeasured?: boolean },
+): PoolWinPlan[] {
+  const reservedByWeek = new Map<number, Set<string>>();
+  const byIndex = new Map<number, PoolWinPlan>();
+
+  const openerWeek = weeks.find((w) => w.candidates.length > 0)?.week;
   const openerCandidates = weeks.find((w) => w.candidates.length > 0)?.candidates ?? [];
   const thisWeekTeams = new Set(openerCandidates.map((c) => c.team));
 
-  for (const pool of pools) {
+  for (const index of order) {
+    const pool = pools[index];
+    const reservedThisWeek = new Set(openerWeek === undefined ? [] : reservedByWeek.get(openerWeek) ?? []);
     const used = new Set(pool.used);
     const lossesAllowed = pool.lossesAllowed ?? 0;
     const pinned = pool.pinned ?? new Map<number, string>();
@@ -970,7 +1060,7 @@ export function buildPoolWinPlans(
     const crowding = poolCrowding(pool, options.crowding, options.crowdingMeasured ?? options.crowding > 0);
     const ranking = rankByPoolWin(weeks, {
       used,
-      excludeThisWeek: reservedThisWeek,
+      reservedByWeek: new Map([...reservedByWeek].map(([w, t]) => [w, new Set(t)])),
       lossesAllowed,
       poolSize,
       crowding,
@@ -984,7 +1074,6 @@ export function buildPoolWinPlans(
     // A pin on the opening week overrides the ranking: you asked for that team, so the
     // plan is built on it. The ranking is still returned in full, so the page can show
     // what it cost rather than just obeying.
-    const openerWeek = weeks.find((w) => w.candidates.length > 0)?.week;
     const openerPin = openerWeek === undefined ? undefined : pinned.get(openerWeek);
     const top =
       (openerPin !== undefined
@@ -994,28 +1083,14 @@ export function buildPoolWinPlans(
       null;
     // What surviving alone would have chosen, for the page to show the disagreement.
     const safest = [...ranking].sort((a, b) => b.survival - a.survival)[0] ?? null;
-    out.push({
+    byIndex.set(index, {
       pool,
       ranking,
       crowding,
       rivals: ranking[0]?.rivals ?? null,
-      crossover:
-        top && safest && safest.candidate.team !== top.candidate.team
-          ? crossoverCrowding(
-              top.line,
-              safest.line,
-              // The very field the ranking used, re-scored at other herding rates: the
-              // sheet's blocs, or the greedy crowd when there is no sheet.
-              top.field ?? {
-                probabilities: (top.plan.greedyPicks ?? []).map((c) => c?.winProbability ?? 1),
-                crowding,
-              },
-              lossesAllowed,
-              poolSize,
-              state.rivalLosses,
-              state.myLosses,
-            )
-          : null,
+      // Filled in for the winning order only (`withCrossover`): it is among the costliest
+      // numbers on the page, and the orders that lose are never shown.
+      crossover: null,
       plan: top?.plan ?? {
         picks: [],
         survival: 0,
@@ -1034,8 +1109,15 @@ export function buildPoolWinPlans(
       ),
     });
 
-    if (top) reservedThisWeek.add(top.candidate.team);
+    // Everything this entry's season holds is off-limits to the ones planned after it.
+    const chosen = byIndex.get(index)!;
+    for (const pick of chosen.plan.picks) {
+      if (!pick.pick) continue;
+      const held = reservedByWeek.get(pick.week) ?? new Set<string>();
+      held.add(pick.pick.team);
+      reservedByWeek.set(pick.week, held);
+    }
   }
 
-  return out;
+  return pools.map((_, i) => byIndex.get(i)!);
 }

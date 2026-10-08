@@ -598,6 +598,14 @@ back to its favourite -- the team just pinned on this one -- and the two picks s
 pick in one of them — and the owner decided diversification is worth that. Do not reopen
 it. The page states which team an entry was kept off and why.
 
+**The pools are planned as ONE plan, every week** (owner's ask, 2026-10-08, after seeing
+the Cowboys on both entries a few weeks out). `buildPoolWinPlans` plans each entry around
+every team the earlier ones hold in every week (`reservedByWeek`, honoured by `buildPlan`,
+`refineForLives` and the separation sweep), tries every order (exact for 2-3 entries) and
+keeps the one with the most `pot x P(win)` summed across entries. Pot = `entered` (else
+size): buy-ins unknown, taken as equal. ~0.5 s for 2 pools x 14 weeks; the crossover is
+computed for the winning order only.
+
 ---
 
 ## Access

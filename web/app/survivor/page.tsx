@@ -402,7 +402,8 @@ export default async function SurvivorPage({
             ))}
           </div>
           <p className="mt-1.5 text-[11px] text-slate-600">
-            Different teams on purpose &mdash; at least one survives{" "}
+            Planned as one: never the same team in the same week, all season, split
+            whichever way is worth most across both pools. At least one survives{" "}
             {percent(multi.atLeastOne)} against {percent(multi.single)} alone.
           </p>
         </Card>
@@ -690,9 +691,9 @@ export default async function SurvivorPage({
               </span>{" "}
               {pools.length > 1 ? "Another of your entries" : "Another entry"} has{" "}
               {poolEntry.keptOff.length === 1 ? "that team" : "those teams"}, and two
-              entries on one team is a single bet paid for twice. Only this week is
-              reserved &mdash; the rest of the season is planned freely, because
-              re-planning next week undoes any cost.
+              entries on one team is a single bet paid for twice. Your entries are
+              planned as one, every week of the season: whichever split of the teams is
+              worth most across both pools.
             </p>
           ) : null}
 

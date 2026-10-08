@@ -911,3 +911,49 @@ test("two pools pinned the opposite way round to the planner each get their own 
   ], { crowding: 0.3 });
   assert.deepEqual(both.map((p) => p.plan.picks[0]?.pick?.team), ["Charlie", "Alpha"]);
 });
+
+// --- the entries planned as one -------------------------------------------------------
+
+/** A season where one team (Dallas) is the best pick in a late week for everybody. */
+function sharedFavouriteSeason(): Week[] {
+  const c = (team: string, p: number, week: number) => ({
+    team, opponent: `${team} opp ${week}`, home: true, commenceTime: "2026-10-11T17:00:00Z",
+    winProbability: p, spread: -7, eventId: `${team}-${week}`,
+  }) as never;
+  return [
+    { week: 5, startsAt: "2026-10-11T17:00:00Z", candidates: [c("Cincinnati Bengals", 0.78, 5), c("Houston Texans", 0.74, 5), c("Denver Broncos", 0.7, 5)] },
+    { week: 6, startsAt: "2026-10-18T17:00:00Z", candidates: [c("Los Angeles Rams", 0.8, 6), c("Buffalo Bills", 0.76, 6), c("Green Bay Packers", 0.7, 6)] },
+    { week: 7, startsAt: "2026-10-25T17:00:00Z", candidates: [c("Dallas Cowboys", 0.88, 7), c("Detroit Lions", 0.74, 7), c("Atlanta Falcons", 0.68, 7)] },
+    { week: 8, startsAt: "2026-11-01T17:00:00Z", candidates: [c("Philadelphia Eagles", 0.8, 8), c("Seattle Seahawks", 0.77, 8), c("Chicago Bears", 0.7, 8)] },
+  ];
+}
+
+test("the entries never share a team in ANY week, not just this one", () => {
+  const plans = buildPoolWinPlans(sharedFavouriteSeason(), [
+    { used: [], size: 8, lossesAllowed: 1, field: [1, 7], myLosses: 1 },
+    { used: [], size: 113, lossesAllowed: 1, field: [33, 80], myLosses: 1 },
+  ], { crowding: 0.35 });
+  const [a, b] = plans.map((p) => p.plan.picks.map((pick) => pick.pick?.team ?? null));
+  assert.equal(a.length, 4);
+  for (let i = 0; i < a.length; i += 1) {
+    assert.notEqual(a[i], b[i], `week ${5 + i}: both entries on ${a[i]}`);
+  }
+  // Dallas at 88% goes to exactly one of them.
+  assert.equal([...a, ...b].filter((t) => t === "Dallas Cowboys").length, 1);
+});
+
+test("the order is chosen for the entries together, by each pool's win chance times its pot", async () => {
+  const { potOf } = await import("./pool-win.ts");
+  const pools = [
+    { used: [], size: 8, lossesAllowed: 1, field: [1, 7], myLosses: 1 },
+    { used: [], size: 113, lossesAllowed: 1, field: [33, 80], myLosses: 1 },
+  ];
+  const chosen = buildPoolWinPlans(sharedFavouriteSeason(), pools, { crowding: 0.35 });
+  const value = (plans: { pool: { size?: number }; poolWin: number }[]) =>
+    plans.reduce((s, p) => s + potOf(p.pool as never) * p.poolWin, 0);
+  assert.ok(value(chosen) > 0);
+  // The plans come back in the pools' own order, whichever order planned them.
+  assert.deepEqual(chosen.map((p) => p.pool.size), [8, 113]);
+  assert.equal(potOf({ used: [], size: 113 } as never), 113);
+  assert.equal(potOf({ used: [], size: 8, entered: 11 } as never), 11, "the pot is who entered, not who is left");
+});

@@ -558,6 +558,8 @@ export function refineForLives(
   excludeTeams: Set<string> = new Set(),
   /** Weeks fixed by hand, which the local search must leave alone. */
   pinned: Map<number, string> = new Map(),
+  /** Teams another entry holds in a given week, which this one may not swap into. */
+  excludeByWeek: Map<number, Set<string>> = new Map(),
 ): Plan {
   if (lossesAllowed <= 0 || plan.picks.length === 0) return plan;
 
@@ -595,6 +597,7 @@ export function refineForLives(
       );
       for (const candidate of byWeek.get(week) ?? []) {
         if (spent.has(candidate.team) || excludeTeams.has(candidate.team)) continue;
+        if (excludeByWeek.get(week)?.has(candidate.team)) continue;
         if (candidate.team === current[i]?.team) continue;
         const trial = [...current];
         trial[i] = candidate;
