@@ -585,7 +585,14 @@ export default async function BetsPage({
           <span className="font-medium text-slate-300">Tax, {taxYear.year}:</span> about{" "}
           <span className="tabular text-rose-300">{money(-taxYear.tax).replace("-", "")}</span> owed on{" "}
           <span className="tabular text-slate-300">{money(taxYear.winnings)}</span> of winnings at{" "}
-          {Math.round(tax.rate * 100)}%
+          {Math.round(tax.rate * 10000) / 100}%
+          {taxYear.state > 0 ? (
+            <>
+              {" "}(federal{" "}
+              <span className="tabular text-slate-300">{money(taxYear.federal).replace("+", "")}</span>, state{" "}
+              <span className="tabular text-slate-300">{money(taxYear.state).replace("+", "")}</span>)
+            </>
+          ) : null}
           {tax.losses === "itemize"
             ? `, after ${money(taxYear.deducted).replace("+", "")} of losses come off (90%, itemizing)`
             : ", with losses not coming off (standard deduction)"}

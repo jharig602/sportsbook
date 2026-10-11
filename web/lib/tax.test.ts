@@ -37,14 +37,18 @@ test("the year's tax: winnings taxed in full, losses off only when itemizing (90
   assert.equal(plain.losses, 60);
   assert.ok(near(plain.tax, 0.24 * 120));
   assert.ok(near(plain.afterTax, 60 - 28.8), "net +$60, less $28.80 of tax");
+  const split = yearTax(rows, { rate: 0.2625, losses: "none", state: 0.0425 }, 2026);
+  assert.ok(near(split.federal, 0.22 * 120) && near(split.state, 0.0425 * 120), "22% federal, 4.25% Michigan");
   const item = yearTax(rows, { rate: 0.24, losses: "itemize" }, 2026);
   assert.ok(near(item.tax, 0.24 * (120 - 54)));
 });
 
 test("settings are clamped and default sensibly", () => {
-  assert.deepEqual(parseTax({ rate: 0.3, losses: "itemize" }), { rate: 0.3, losses: "itemize" });
-  assert.deepEqual(parseTax({ rate: 9 }), { rate: 0.24, losses: "none" });
-  assert.deepEqual(parseTax(null), { rate: 0.24, losses: "none" });
+  assert.deepEqual(parseTax({ rate: 0.3, losses: "itemize" }), { rate: 0.3, losses: "itemize", state: 0 });
+  assert.deepEqual(parseTax({ rate: 9 }), { rate: 0.24, losses: "none", state: 0 });
+  assert.deepEqual(parseTax(null), { rate: 0.24, losses: "none", state: 0 });
+  assert.deepEqual(parseTax({ rate: 0.2625, state: 0.0425 }), { rate: 0.2625, losses: "none", state: 0.0425 });
+  assert.equal(parseTax({ rate: 0.03, state: 0.0425 }).state, 0.03, "state never exceeds the combined rate");
 });
 
 test("the boost a bet needs: Chargers +310 at 23.4% needs ~43% at 26.25%, at 26.1% ~24%", async () => {

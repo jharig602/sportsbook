@@ -26,6 +26,8 @@ export interface TaxSetting {
   rate: number;
   /** Whether losses come off winnings (itemizing): none, or 90% from 2026. */
   losses: "none" | "itemize";
+  /** The state's share of `rate` (Michigan 0.0425); the rest is federal. Only splits the bill. */
+  state?: number;
 }
 
 export const DEFAULT_TAX: TaxSetting = { rate: 0.24, losses: "none" };
@@ -33,11 +35,14 @@ export const DEFAULT_TAX: TaxSetting = { rate: 0.24, losses: "none" };
 export const LOSS_SHARE = 0.9;
 
 export function parseTax(raw: unknown): TaxSetting {
-  const v = (raw ?? {}) as { rate?: unknown; losses?: unknown };
-  const rate = Number(v.rate);
+  const v = (raw ?? {}) as { rate?: unknown; losses?: unknown; state?: unknown };
+  const r = Number(v.rate);
+  const rate = Number.isFinite(r) && r >= 0 && r <= 0.6 ? r : DEFAULT_TAX.rate;
+  const st = Number(v.state);
   return {
-    rate: Number.isFinite(rate) && rate >= 0 && rate <= 0.6 ? rate : DEFAULT_TAX.rate,
+    rate,
     losses: v.losses === "itemize" ? "itemize" : "none",
+    state: Number.isFinite(st) && st > 0 ? Math.min(st, rate) : 0,
   };
 }
 
@@ -81,6 +86,9 @@ export interface YearTax {
   /** Losses that come off, given the setting. */
   deducted: number;
   tax: number;
+  /** `tax` split by where it is paid: federal (IRS) and state. */
+  federal: number;
+  state: number;
   /** Net profit in the year, before and after the estimated tax. */
   net: number;
   afterTax: number;
@@ -102,7 +110,8 @@ export function yearTax(rows: GradedRow[], tax: TaxSetting, year: number): YearT
   }
   const deducted = tax.losses === "itemize" ? Math.min(winnings, LOSS_SHARE * losses) : 0;
   const owed = Math.max(0, tax.rate * (winnings - deducted));
-  return { year, winnings, losses, deducted, tax: owed, net, afterTax: net - owed };
+  const state = tax.rate > 0 ? owed * Math.min(tax.state ?? 0, tax.rate) / tax.rate : 0;
+  return { year, winnings, losses, deducted, tax: owed, federal: owed - state, state, net, afterTax: net - owed };
 }
 
 /**

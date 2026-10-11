@@ -8,20 +8,23 @@ import type { TaxSetting } from "@/lib/tax";
 /** Rate on winnings and whether losses come off, saved for the whole app (tax.ts). */
 export function TaxSettings({ initial }: { initial: TaxSetting }) {
   const router = useRouter();
-  const [rate, setRate] = useState(String(Math.round(initial.rate * 1000) / 10));
+  const pct = (v: number) => String(Math.round(v * 10000) / 100);
+  const [federal, setFederal] = useState(pct(initial.rate - (initial.state ?? 0)));
+  const [state, setState] = useState(pct(initial.state ?? 0));
   const [losses, setLosses] = useState(initial.losses);
   const [status, setStatus] = useState<string | null>(null);
 
   async function save() {
-    const pct = Number(rate);
-    if (!(pct >= 0 && pct <= 60)) {
-      setStatus("Enter a rate between 0 and 60%.");
+    const f = Number(federal);
+    const st = Number(state);
+    if (!(f >= 0 && st >= 0 && f + st <= 60)) {
+      setStatus("Enter rates of 0 or more, together at most 60%.");
       return;
     }
     const response = await fetch("/api/tax", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rate: pct / 100, losses }),
+      body: JSON.stringify({ rate: (f + st) / 100, state: st / 100, losses }),
     });
     setStatus(response.ok ? "Saved." : "Could not save.");
     if (response.ok) router.refresh();
@@ -31,20 +34,27 @@ export function TaxSettings({ initial }: { initial: TaxSetting }) {
     <div>
       <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Tax on winnings</h2>
       <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-        Winnings are taxed as income at your rate (federal bracket plus state). Losses only
+        Winnings are taxed as income at your federal bracket plus your state&rsquo;s rate
+        (Michigan: a flat 4.25%). The two are added for what bets are worth, and kept apart
+        for the bill so you know what to pay each. Losses only
         come off if you itemize -- and from 2026 only 90% of them. Used to show what bets and
         boosts are worth after tax, and an estimate of the year&rsquo;s bill. Not tax advice.
       </p>
       <div className="mt-2 flex items-end gap-2">
-        <label className="flex-1 text-[10px] uppercase tracking-wide text-slate-500">
-          Your rate (%)
-          <input
-            value={rate}
-            onChange={(e) => setRate(e.target.value)}
-            inputMode="decimal"
-            className="tabular mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100"
-          />
-        </label>
+        {([
+          ["Federal (%)", federal, setFederal],
+          ["State (%)", state, setState],
+        ] as const).map(([label, value, set]) => (
+          <label key={label} className="flex-1 text-[10px] uppercase tracking-wide text-slate-500">
+            {label}
+            <input
+              value={value}
+              onChange={(e) => set(e.target.value)}
+              inputMode="decimal"
+              className="tabular mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100"
+            />
+          </label>
+        ))}
         <label className="flex-[2] text-[10px] uppercase tracking-wide text-slate-500">
           Losses
           <select
