@@ -113,7 +113,9 @@ export function rankConfidence(games: ConfidenceGame[], top = TOP_POINTS) {
  * how this pool picks is not known yet, so they are assumed to be ordinary players --
  * they take the favourite more often than its chance alone would say (a 55% favourite
  * gets ~60% of picks, a 65% one ~78%, a 75% one 90%), and rank their picks by chance
- * with a fair amount of noise. Tried tighter and looser fields too: the plain ranking
+ * with a fair amount of noise. The owner's pool matched this on its week-5 sheet: 70% took
+ * the favourite in 55-63% games (this gives 68%), points tracked the odds at a median
+ * correlation of ~0.75 (this gives 0.77), and 69%+ favourites were near-unanimous. Tried tighter and looser fields too: the plain ranking
  * wins 4-11% against nine of them, and one underdog at mid-range points beat it every
  * time -- a 3-point flip barely moves you, a 14-point one costs too often; the slot
  * that pays is big enough to leapfrog a field that all scored the same chalk. Ties for first split the prize. Only games not yet

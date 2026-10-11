@@ -41,8 +41,10 @@ export default async function ConfidencePage() {
   }
 
   const { picks, expected, possible, sd } = rankConfidence(week);
-  // Weekly winner, ten players (the owner's pool). See `weeklyWin` for what is assumed.
-  const weekly = weeklyWin(picks, { rivals: 9, now: now.getTime() });
+  // Weekly winner, eleven players (the owner's pool, from its week-5 sheet). See
+  // `weeklyWin` for what is assumed about rivals -- that sheet matched it: 70% took the
+  // favourite in 55-63% games (model 68%), points followed the odds at r ~ 0.75 (0.77).
+  const weekly = weeklyWin(picks, { rivals: 10, now: now.getTime() });
   const bestFlip = weekly.flips[0] && weekly.flips[0].win > weekly.plain + 0.015 ? weekly.flips[0] : null;
   const started = picks.filter((p) => Date.parse(p.game.commenceTime) <= now.getTime()).length;
 
@@ -93,7 +95,7 @@ export default async function ConfidencePage() {
           wins a week outright. One underdog in a middle slot is big enough to jump the pack when
           it hits; a low slot barely moves you, the top slots cost too much. Fair share is{" "}
           {percent(1 / weekly.players)}. It costs {bestFlip ? bestFlip.pick.flipCost.toFixed(1) : "0"} expected
-          points. Rivals are assumed to be ordinary players until we have this pool&rsquo;s sheets.
+          points. Rivals are modelled on this pool&rsquo;s week-5 sheet: big favourites near-unanimous, 70% on the favourite in closer games, points loosely in order.
         </p>
         {weekly.flips.length > 1 ? (
           <p className="mt-1 text-[11px] text-slate-500">
