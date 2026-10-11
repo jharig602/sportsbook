@@ -60,6 +60,8 @@ export default async function ConfidencePage() {
           Each game&rsquo;s likelier winner, ranked by how likely: {TOP_POINTS} points on the surest
           pick, one fewer on each after. No other order scores more on average. Chances are the
           books&rsquo; moneylines with their cut taken out (the spread model where none is posted).
+          {" "}&ldquo;Dog &minus;X pts&rdquo; is what taking the underdog there costs on average; under
+          1 point (amber) is a cheap way to differ from a pool that all takes the favourite.
           {started > 0 ? ` ${started} game${started === 1 ? " has" : "s have"} already kicked off; if your picks are in, those points are set.` : ""}
           {week.length < 16 ? ` ${week.length} games priced this week.` : ""}
         </p>
@@ -90,7 +92,9 @@ export default async function ConfidencePage() {
               </div>
               <div className="text-right">
                 <p className="tabular text-[14px] text-slate-200">{percent(p.chance)}</p>
-                <p className="text-[10px] text-slate-600">{p.game.source === "market" ? `${p.game.books} books` : "model"}</p>
+                <p className={`text-[10px] ${p.flipCost < 1 ? "text-amber-300/80" : "text-slate-600"}`}>
+                  {kicked ? (p.game.source === "market" ? `${p.game.books} books` : "model") : `dog −${p.flipCost.toFixed(1)} pts`}
+                </p>
               </div>
             </Card>
           );

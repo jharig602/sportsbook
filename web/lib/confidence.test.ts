@@ -39,3 +39,9 @@ test("the week runs Tuesday 12:00 UTC to Tuesday", () => {
   const tuesdayNoon = weekWindow(new Date("2026-10-13T13:00:00Z"));
   assert.equal(new Date(tuesdayNoon.start).toISOString(), "2026-10-13T12:00:00.000Z");
 });
+
+test("taking the underdog costs points x (fav - dog)", () => {
+  const { picks } = rankConfidence([g("1", 0.55), g("2", 0.9)]);
+  assert.ok(Math.abs(picks[1].flipCost - 15 * 0.1) < 1e-9, "55/45 at 15 points costs 1.5");
+  assert.ok(Math.abs(picks[0].flipCost - 16 * 0.8) < 1e-9);
+});

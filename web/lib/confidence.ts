@@ -35,6 +35,12 @@ export interface ConfidencePick {
   opponent: string;
   chance: number;
   points: number;
+  /**
+   * Expected points given up by taking the underdog in this slot instead:
+   * points x (chance - (1 - chance)). Near-coin-flips at low points cost almost nothing
+   * -- the cheap way to differ from a pool that all takes the favourite.
+   */
+  flipCost: number;
 }
 
 /** The NFL week `now` falls in: Tuesday 12:00 UTC to the next, as `nflWeek` counts it. */
@@ -87,10 +93,11 @@ export function rankConfidence(games: ConfidenceGame[], top = TOP_POINTS) {
         opponent: home ? game.away : game.home,
         chance: home ? game.homeChance : 1 - game.homeChance,
         points: 0,
+        flipCost: 0,
       };
     })
     .sort((a, b) => b.chance - a.chance || a.game.commenceTime.localeCompare(b.game.commenceTime))
-    .map((p, i) => ({ ...p, points: highest - i }));
+    .map((p, i) => ({ ...p, points: highest - i, flipCost: (highest - i) * (2 * p.chance - 1) }));
   const expected = picks.reduce((sum, p) => sum + p.chance * p.points, 0);
   const possible = picks.reduce((sum, p) => sum + p.points, 0);
   // Spread of the week's score: each pick is an independent coin with its own weight.
