@@ -559,6 +559,16 @@ export default async function BetsPage({
               value: totals.roi === null ? "—" : formatPercent(totals.roi, 1),
               label: totals.bonusProfit !== 0 ? "roi · your money" : "roi",
             },
+            // The year's estimated tax, beside the profit it comes out of (tax.ts).
+            ...(tax.rate > 0 && taxYear.winnings > 0
+              ? [
+                  {
+                    value: `−$${taxYear.tax.toFixed(2)}`,
+                    label: `est. tax ${taxYear.year}`,
+                    tone: "bad" as const,
+                  },
+                ]
+              : []),
           ]}
         />
       ) : null}
