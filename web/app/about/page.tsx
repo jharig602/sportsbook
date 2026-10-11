@@ -3,7 +3,9 @@ import { FavouriteTeams } from "@/components/FavouriteTeams";
 import { PushSettings } from "@/components/PushSettings";
 import { StakeSettings } from "@/components/StakeSettings";
 import { currentSession } from "@/lib/session";
-import { getFavourites } from "@/lib/settings-db";
+import { getFavourites, getTax } from "@/lib/settings-db";
+import { TaxSettings } from "@/components/TaxSettings";
+import { DEFAULT_TAX } from "@/lib/tax";
 
 export const metadata = { title: "Settings · Dissent" };
 
@@ -32,9 +34,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * rather than only a card on one page.
  */
 export default async function AboutPage() {
-  const [session, favourites] = await Promise.all([
+  const [session, favourites, tax] = await Promise.all([
     currentSession(),
     getFavourites().catch(() => [] as string[]),
+    getTax().catch(() => DEFAULT_TAX),
   ]);
   // Teams are a shared setting, written by the owner. A guest would see the picker and
   // then have every save refused, so a guest simply does not get one.
@@ -50,9 +53,15 @@ export default async function AboutPage() {
         <StakeSettings />
       </Card>
 
-      <Card className="mb-8 px-3 py-3">
+      <Card className="mb-4 px-3 py-3">
         <PushSettings />
       </Card>
+
+      {owner ? (
+        <Card className="mb-8 px-3 py-3">
+          <TaxSettings initial={tax} />
+        </Card>
+      ) : null}
 
       <h1 className="mb-1 text-lg font-semibold text-slate-100">About</h1>
       <p className="mb-5 text-sm text-slate-500">What this measures, and what it refuses to claim.</p>
@@ -143,6 +152,17 @@ export default async function AboutPage() {
           whether its edges hold up is measured on every line the app sees, win or lose,
           and the discount it applies to its own estimates only switches on once that
           measurement is clear of luck.
+        </p>
+      </Section>
+
+      <Section title="Tax: the biggest cut of all">
+        <p>
+          Winnings are taxed as income at your own rate, and on the standard deduction
+          your losses don&rsquo;t come off at all (itemizers get 90% of them, from 2026).
+          At a combined 26%, a plain &minus;110 bet needs to win about 60% just to break
+          even, not 52.4%. Boosts and bonus bets still come out ahead; plain bets mostly
+          don&rsquo;t. Set your rate in Settings and the Bets page and Boost finder show
+          values after tax. Not tax advice.
         </p>
       </Section>
 

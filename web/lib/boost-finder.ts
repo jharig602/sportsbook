@@ -31,7 +31,10 @@ import { betsAgainst } from "./favourites";
 import type { ScoreModel } from "./joint-score";
 import { deVig, normalCdf, winProbabilityFromSpread, type MarginModel } from "./probability";
 import { boostedPrice, profitPerDollar } from "./profit-boost";
+import { afterTaxEv, type TaxSetting } from "./tax";
 import type { Game, Side } from "./types";
+
+const NO_TAX: TaxSetting = { rate: 0, losses: "none" };
 
 export const MIN_OTHER_BOOKS = 2;
 /** A total this far from the other books is a stale or mistyped line. */
@@ -59,6 +62,8 @@ export interface BoostPick {
   /** Expected profit on the stake, boosted and not. */
   boosted: number;
   plain: number;
+  /** `boosted` after tax on winnings (tax.ts), when a setting is given; else equal to it. */
+  afterTax: number;
   /** Two other books, and (for a total) within MAX_TOTAL_GAP of them. */
   checked: boolean;
 }
@@ -71,6 +76,8 @@ export interface BoostOptions {
   favourites?: string[];
   maxSpread: number;
   now?: Date;
+  /** Tax on winnings: ranks by what a bet is worth AFTER it. */
+  tax?: TaxSetting;
   horizonDays?: number;
 }
 
@@ -158,6 +165,7 @@ export function findBoosts(
             : win === model ? `spread model (lower than ${fairs.length} other books)` : `${fairs.length} other books (lower than the model)`,
         boosted: stake * evPerDollar(win, 0, price, boost),
         plain: stake * evPerDollar(win, 0, price, 0),
+        afterTax: stake * afterTaxEv(win, price, options.tax ?? NO_TAX, { boost }),
         checked: fairs.length >= MIN_OTHER_BOOKS,
       });
     }
@@ -198,12 +206,15 @@ export function findBoosts(
         basis: `others' fair total ${consensus.toFixed(1)}, finals land ${score.totalMean >= 0 ? "+" : ""}${score.totalMean.toFixed(1)} over it`,
         boosted: stake * evPerDollar(win, push, price, boost),
         plain: stake * evPerDollar(win, push, price, 0),
+        afterTax: stake * afterTaxEv(win, price, options.tax ?? NO_TAX, { boost, push }),
         checked: fairTotals.length >= MIN_OTHER_BOOKS && Math.abs(line - consensus) <= MAX_TOTAL_GAP,
       });
     }
   }
 
-  picks.sort((a, b) => b.boosted - a.boosted);
+  // Ranked on what a bet is worth after tax: it moves the order, not just the level,
+  // because tax takes a share of winnings while a loss costs the whole stake.
+  picks.sort((a, b) => b.afterTax - a.afterTax);
   return {
     checked: picks.filter((p) => p.checked),
     unchecked: picks.filter((p) => !p.checked),

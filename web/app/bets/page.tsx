@@ -13,6 +13,8 @@ import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } f
 import { activeBets, decimalOdds, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
 import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
+import { DEFAULT_TAX, yearTax } from "@/lib/tax";
+import { getTax } from "@/lib/settings-db";
 import { ledgerSections } from "@/lib/ordering";
 import { hedgeBestCase, type Hedge } from "@/lib/hedge";
 import { liveGamesFor } from "@/lib/live-scores";
@@ -333,6 +335,9 @@ export default async function BetsPage({
     // Only for pricing the open tickets; a failure costs the "expected" figure, not the page.
     data.backend === "postgres" ? allBookLines().catch(() => new Map()) : Promise.resolve(new Map()),
   ]);
+  // The owner's tax setting; a guest sees the default rather than the owner's numbers.
+  const tax =
+    session.role === "owner" && data.backend === "postgres" ? await getTax().catch(() => DEFAULT_TAX) : DEFAULT_TAX;
 
   let bets: Bet[] = [];
   let loadError: string | null = null;
@@ -425,7 +430,10 @@ export default async function BetsPage({
       liveChanceOf(bet) ??
       fairChance(bet, gamesById.get(bet.event_id), lines.get(bet.event_id) ?? [], models[bet.league] ?? null),
     scores,
+    tax,
   );
+  // This year's estimated tax from the settled tickets (tax.ts). Owner's setting.
+  const taxYear = yearTax(rows, tax, new Date().getUTCFullYear());
   // The score to show beside a ticket: every started leg must have been priced live, or
   // the figure is partly pregame and is labelled as such instead.
   const liveLabel = (row: GradedRow): string | null => {
@@ -497,9 +505,15 @@ export default async function BetsPage({
               { value: `$${open.atStake.toFixed(2)}`, label: `in play · ${open.tickets} open` },
               { value: money(ifAllWin), label: "if all win" },
               {
-                value: money(open.expected),
-                label: "expected",
-                tone: open.expected > 0.005 ? ("good" as const) : open.expected < -0.005 ? ("bad" as const) : ("plain" as const),
+                // After tax when a rate is set: a win keeps (1 - rate) of its profit, and a
+                // loss may not come off at all. That is the number that ends up in your pocket.
+                value: money(tax.rate > 0 ? open.expectedAfterTax : open.expected),
+                label: tax.rate > 0 ? "expected · after tax" : "expected",
+                tone: (tax.rate > 0 ? open.expectedAfterTax : open.expected) > 0.005
+                  ? ("good" as const)
+                  : (tax.rate > 0 ? open.expectedAfterTax : open.expected) < -0.005
+                    ? ("bad" as const)
+                    : ("plain" as const),
               },
             ]}
           />
@@ -554,6 +568,22 @@ export default async function BetsPage({
           from bonus bets, which risked none of your money. On your own money you are{" "}
           <span className="tabular text-slate-300">{money(totals.profit - totals.bonusProfit)}</span>
           {totals.roi === null ? "" : `, a ${formatPercent(totals.roi, 1)} return on what you staked`}.
+        </p>
+      ) : null}
+      {tax.rate > 0 && taxYear.winnings > 0 ? (
+        <p className="-mt-1 mb-3 text-[11px] leading-relaxed text-slate-500">
+          <span className="font-medium text-slate-300">Tax, {taxYear.year}:</span> about{" "}
+          <span className="tabular text-rose-300">{money(-taxYear.tax).replace("-", "")}</span> owed on{" "}
+          <span className="tabular text-slate-300">{money(taxYear.winnings)}</span> of winnings at{" "}
+          {Math.round(tax.rate * 100)}%
+          {tax.losses === "itemize"
+            ? `, after ${money(taxYear.deducted).replace("+", "")} of losses come off (90%, itemizing)`
+            : ", with losses not coming off (standard deduction)"}
+          . After it, the year is{" "}
+          <span className={`tabular ${taxYear.afterTax >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+            {money(taxYear.afterTax)}
+          </span>
+          . An estimate, not tax advice; change the rate in Settings.
         </p>
       ) : null}
 

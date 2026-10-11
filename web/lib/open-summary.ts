@@ -22,6 +22,7 @@ import { quotesForGame, type BookLineRow } from "./book-lines";
 import type { MarginModel } from "./probability";
 import { decimalOdds, settleOnScore, type Bet, type GradedRow, type Score } from "./settle";
 import { shopSide } from "./shop";
+import { lossCost, type TaxSetting } from "./tax";
 import type { Game } from "./types";
 
 const TICKET = "__ticket__";
@@ -66,6 +67,8 @@ export interface OpenSummary {
   ifAllWin: number;
   /** Expected profit across the open tickets. */
   expected: number;
+  /** The same after tax on winnings (tax.ts): a win keeps 1 - rate; a loss may not come off. */
+  expectedAfterTax: number;
   /** Tickets with no market to price them, counted at break-even. */
   unpriced: number;
   /**
@@ -81,8 +84,9 @@ export function openSummary(
   legsByParlay: Map<string, Bet[]>,
   chance: (bet: Bet) => number | null,
   scores: Map<string, Score>,
+  tax: TaxSetting = { rate: 0, losses: "none" },
 ): OpenSummary {
-  const out: OpenSummary = { tickets: 0, atStake: 0, bonusStake: 0, ifAllWin: 0, expected: 0, unpriced: 0, hold: new Map() };
+  const out: OpenSummary = { tickets: 0, atStake: 0, bonusStake: 0, ifAllWin: 0, expected: 0, expectedAfterTax: 0, unpriced: 0, hold: new Map() };
   const now = Date.now();
 
   for (const row of rows) {
@@ -133,6 +137,7 @@ export function openSummary(
       continue; // break-even: contributes nothing either way
     }
     out.expected += p * profit - (1 - p) * (row.bonus ? 0 : row.stake);
+    out.expectedAfterTax += p * profit * (1 - tax.rate) - (1 - p) * (row.bonus ? 0 : row.stake * lossCost(tax));
     // What comes back on a win: stake and profit, or the profit alone on a bonus bet.
     const back = row.bonus ? profit : row.stake + profit;
     const kickoffs = (legs ?? [row]).map((b) => (b.commence_time ? Date.parse(b.commence_time) : NaN));

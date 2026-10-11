@@ -1,3 +1,4 @@
+import { DEFAULT_TAX, parseTax, type TaxSetting } from "./tax";
 import { DEFAULT_MAX_SPREAD, parseMaxSpread } from "./blowout";
 import { parseFavourites, serializeFavourites } from "./favourites";
 import { databaseUrl } from "./env";
@@ -414,4 +415,32 @@ export async function recordKickoffPushesSent(keys: string[]): Promise<void> {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
     [KICKOFF_SENT_KEY, JSON.stringify(next)],
   );
+}
+
+export const TAX_KEY = "tax";
+
+/** The owner's tax setting (tax.ts). Absent means the default: 24%, losses not deducted. */
+export async function getTax(): Promise<TaxSetting> {
+  if (!databaseUrl()) return DEFAULT_TAX;
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [TAX_KEY]);
+    const raw = result.rows[0]?.value;
+    return raw ? parseTax(JSON.parse(raw)) : DEFAULT_TAX;
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return DEFAULT_TAX;
+    if (error instanceof SyntaxError) return DEFAULT_TAX;
+    throw error;
+  }
+}
+
+export async function setTax(value: unknown): Promise<TaxSetting> {
+  const tax = parseTax(value);
+  const db = await getPool();
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [TAX_KEY, JSON.stringify(tax)],
+  );
+  return tax;
 }

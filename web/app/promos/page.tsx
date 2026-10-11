@@ -4,7 +4,8 @@ import { DEFAULT_MAX_SPREAD } from "@/lib/blowout";
 import { allBookLines } from "@/lib/book-lines";
 import { findBoosts } from "@/lib/boost-finder";
 import { getData } from "@/lib/data";
-import { getFavourites } from "@/lib/settings-db";
+import { getFavourites, getTax } from "@/lib/settings-db";
+import { DEFAULT_TAX } from "@/lib/tax";
 import { PromoList } from "@/components/PromoList";
 import { Banner, NotAdvice, PageHeader } from "@/components/ui";
 import { databaseUrl } from "@/lib/env";
@@ -36,12 +37,13 @@ export default async function PromosPage({
   const stakeValue = Number(params.stake);
   const stake = stakeValue > 0 && stakeValue <= 1000 ? stakeValue : 25;
   const data = getData();
-  const [games, lines, models, scoreModels, favourites] = await Promise.all([
+  const [games, lines, models, scoreModels, favourites, tax] = await Promise.all([
     data.games(),
     data.backend === "postgres" ? allBookLines().catch(() => new Map()) : Promise.resolve(new Map()),
     data.marginModels(),
     data.scoreModels().catch(() => ({})),
     data.backend === "postgres" ? getFavourites().catch(() => [] as string[]) : Promise.resolve([] as string[]),
+    data.backend === "postgres" ? getTax().catch(() => DEFAULT_TAX) : Promise.resolve(DEFAULT_TAX),
   ]);
   const books = [...new Set([...lines.values()].flat().map((r) => r.book as string))].sort();
   if (!books.includes("FanDuel")) books.unshift("FanDuel");
@@ -52,6 +54,7 @@ export default async function PromosPage({
     stake,
     favourites,
     maxSpread: DEFAULT_MAX_SPREAD,
+    tax,
   });
 
   let promos: Promo[] = [];

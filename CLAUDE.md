@@ -385,6 +385,20 @@ number the over outranks the under, but a point better on the under beats the le
 apart; moneylines against My teams are skipped; each row links to the ledger with the
 boosted price filled in. The Actions workflow still exists but prints to public logs.
 
+## Tax
+
+`tax.ts` (owner's ask, 2026-10-11: "the biggest vig there is"). US gambling winnings are
+taxable income at the owner's marginal rate; losses only come off when itemizing, capped
+at winnings, and only 90% of them from tax year 2026. 24% is the federal WITHHOLDING rate,
+not the tax; the owner chose it as his planning rate and it is a setting (`app_settings`
+key `tax`, `/api/tax`, owner-only; Settings page). A win keeps `1 - rate` of its profit; a
+loss costs the full stake, or `1 - 0.9 x rate` when itemizing. So -110 breaks even at ~60%
+at 26% with no loss deduction (tested). Applied where it changes decisions: the Boost
+finder ranks on after-tax value; the Bets page shows expected value after tax and the
+year's estimated bill (`yearTax`: profit on every winning ticket, losses off only when
+itemizing). The Shop's edges and bet of the day are still PRE-tax -- after tax almost no
+plain bet clears, which is the finding, and the About page says so.
+
 ## Same-game parlays
 
 One final score, asked several questions. `joint-score.ts` prices them; `sgp.ts` turns

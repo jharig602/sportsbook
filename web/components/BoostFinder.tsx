@@ -33,11 +33,11 @@ export function BoostFinder({
   gamesAtBook: number;
 }) {
   const field = "mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100";
-  const top = checked.filter((p) => p.boosted > 0).slice(0, 10);
+  const top = checked.filter((p) => p.afterTax > 0).slice(0, 10);
   // Totals rarely make the top: a boost multiplies profit, and a long shot has more of
   // it. But a total wins about half the time and suits a boost limited to totals, so
   // the best few are always shown apart.
-  const totals = checked.filter((p) => p.market === "total" && p.boosted > 0).slice(0, 3);
+  const totals = checked.filter((p) => p.market === "total" && p.afterTax > 0).slice(0, 3);
   const row = (p: BoostPick) => (
             <li key={`${p.eventId}${p.label}`} className="rounded-lg border border-edge/70 px-2.5 py-2">
               <div className="flex items-baseline justify-between gap-2">
@@ -46,7 +46,12 @@ export function BoostFinder({
                   <span className="tabular text-slate-400">{formatPrice(p.price)}</span>
                   <span className="tabular text-slate-500"> → {formatPrice(p.logPrice)}</span>
                 </p>
-                <p className="tabular shrink-0 text-[13px] font-semibold text-emerald-300">{money(p.boosted)}</p>
+                <p className="tabular shrink-0 text-right text-[13px] font-semibold text-emerald-300">
+                  {money(p.afterTax)}
+                  {p.afterTax !== p.boosted ? (
+                    <span className="block text-[10px] font-normal text-slate-500">after tax · {money(p.boosted)} before</span>
+                  ) : null}
+                </p>
               </div>
               <p className="truncate text-[11px] text-slate-500">
                 {p.game} · {p.league.toUpperCase()} · {formatKickoff(p.commenceTime)}
