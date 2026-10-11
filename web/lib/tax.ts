@@ -104,3 +104,24 @@ export function yearTax(rows: GradedRow[], tax: TaxSetting, year: number): YearT
   const owed = Math.max(0, tax.rate * (winnings - deducted));
   return { year, winnings, losses, deducted, tax: owed, net, afterTax: net - owed };
 }
+
+/**
+ * The smallest profit boost (0.5 = 50%) that makes a bet worth placing after tax, at a
+ * fair chance `p`; 0 when it is already worth it unboosted. The answer to "is this bet
+ * worth it, or only with a boost?" -- compare it with the boosts you hold.
+ */
+export function boostNeeded(p: number, price: number, tax: TaxSetting): number | null {
+  const d = decimalOdds(price);
+  if (d === null || !(p > 0 && p < 1)) return null;
+  const keep = (d - 1) * (1 - tax.rate);
+  if (keep <= 0) return null;
+  const factor = ((1 - p) * lossCost(tax)) / (p * keep);
+  return Math.max(0, factor - 1);
+}
+
+/** What a bonus bet on this line is worth per $1 after tax: only the winnings, taxed. */
+export function bonusValue(p: number, price: number, tax: TaxSetting): number | null {
+  const d = decimalOdds(price);
+  if (d === null || !(p > 0 && p < 1)) return null;
+  return p * (d - 1) * (1 - tax.rate);
+}

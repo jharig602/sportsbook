@@ -12,6 +12,8 @@ import { bookLinesFor, quotesForGame } from "@/lib/book-lines";
 import { collapseAlerts, getData } from "@/lib/data";
 import { deVig, lineProbability, type MarginModel } from "@/lib/probability";
 import { shopAll } from "@/lib/shop";
+import { getTax } from "@/lib/settings-db";
+import { boostNeeded, bonusValue, DEFAULT_TAX, type TaxSetting } from "@/lib/tax";
 import {
   formatKickoff,
   formatKind,
@@ -86,6 +88,30 @@ function Sparkline({ points }: { points: HistoryPoint[] }) {
   );
 }
 
+/**
+ * Is this line worth betting once tax takes its share of every win? The smallest profit
+ * boost that makes it +EV after tax (0 = worth it as it stands), and what a bonus bet on
+ * it is worth. Read off the MORE CAUTIOUS of market and model, as the boost finder does.
+ */
+function AfterTax({ market, model, price, tax }: { market: number | null; model: number | null; price: number | null; tax: TaxSetting }) {
+  const estimates = [market, model].filter((v): v is number => v !== null);
+  if (price === null || estimates.length === 0 || tax.rate <= 0) return null;
+  const p = Math.min(...estimates);
+  const need = boostNeeded(p, price, tax);
+  const bonus = bonusValue(p, price, tax);
+  if (need === null || bonus === null) return null;
+  const pct = Math.ceil(need * 100);
+  const verdict =
+    need === 0 ? "worth it as is" : pct > 200 ? "not worth it, even boosted" : `worth it with a ${pct}%+ boost`;
+  return (
+    <p className="mt-0.5 text-[11px] text-slate-500">
+      After {Math.round(tax.rate * 1000) / 10}% tax:{" "}
+      <span className={need === 0 ? "text-emerald-400" : pct <= 50 ? "text-amber-300" : "text-slate-400"}>{verdict}</span>
+      {" · "}$10 bonus bet ≈ ${(10 * bonus).toFixed(2)}
+    </p>
+  );
+}
+
 function MarketPanel({
   market,
   points,
@@ -94,6 +120,7 @@ function MarketPanel({
   homeSpread,
   homeCoverProbability,
   model,
+  tax,
 }: {
   market: Market;
   points: HistoryPoint[];
@@ -102,6 +129,7 @@ function MarketPanel({
   homeSpread: number | null;
   homeCoverProbability: number | null;
   model: MarginModel | null;
+  tax: TaxSetting;
 }) {
   const sides = [...new Set(points.map((p) => p.side))];
   if (sides.length === 0) return null;
@@ -158,6 +186,7 @@ function MarketPanel({
               </div>
 
               <Probability value={probability} />
+              <AfterTax market={probability.market} model={probability.model} price={latest?.price ?? null} tax={tax} />
 
               <div className={moved ? tone.text : "text-slate-700"}>
                 <Sparkline points={series} />
@@ -188,7 +217,7 @@ export default async function GamePage({
 }) {
   const { eventId } = await params;
   const data = getData();
-  const [games, allAlerts, results, history, models, scores, stored] = await Promise.all([
+  const [games, allAlerts, results, history, models, scores, stored, tax] = await Promise.all([
     data.games(),
     data.alerts(),
     data.results(),
@@ -198,6 +227,7 @@ export default async function GamePage({
     // Second opinions, if any have been recorded. The fixture backend has no
     // database behind it, so it simply has none rather than failing.
     data.backend === "postgres" ? bookLinesFor(eventId) : Promise.resolve([]),
+    data.backend === "postgres" ? getTax().catch(() => DEFAULT_TAX) : Promise.resolve(DEFAULT_TAX),
   ]);
 
   const game = games.find((g) => g.eventId === eventId);
@@ -304,6 +334,7 @@ export default async function GamePage({
               homeSpread={homeSpread}
               homeCoverProbability={homeCoverProbability}
               model={model}
+              tax={tax}
             />
           ))}
         </div>

@@ -46,3 +46,12 @@ test("settings are clamped and default sensibly", () => {
   assert.deepEqual(parseTax({ rate: 9 }), { rate: 0.24, losses: "none" });
   assert.deepEqual(parseTax(null), { rate: 0.24, losses: "none" });
 });
+
+test("the boost a bet needs: Chargers +310 at 23.4% needs ~43% at 26.25%, at 26.1% ~24%", async () => {
+  const { boostNeeded, bonusValue } = await import("./tax.ts");
+  const t = { rate: 0.2625, losses: "none" as const };
+  assert.ok(Math.abs(boostNeeded(0.234, 310, t)! - 0.432) < 0.01);
+  assert.ok(Math.abs(boostNeeded(0.261, 310, t)! - 0.239) < 0.01);
+  assert.equal(boostNeeded(0.7, 110, t), 0, "already worth it: no boost needed");
+  assert.ok(Math.abs(bonusValue(0.234, 310, t)! - 0.234 * 3.1 * 0.7375) < 1e-9);
+});
