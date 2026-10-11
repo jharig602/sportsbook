@@ -41,10 +41,11 @@ export default async function ConfidencePage() {
   }
 
   const { picks, expected, possible, sd } = rankConfidence(week);
-  // Weekly winner, eleven players (the owner's pool, from its week-5 sheet). See
+  // Weekly winner: the owner joining a pool that is eleven players today (its week-5
+  // sheet), so eleven rivals. See
   // `weeklyWin` for what is assumed about rivals -- that sheet matched it: 70% took the
   // favourite in 55-63% games (model 68%), points followed the odds at r ~ 0.75 (0.77).
-  const weekly = weeklyWin(picks, { rivals: 10, now: now.getTime() });
+  const weekly = weeklyWin(picks, { rivals: 11, now: now.getTime() });
   const bestFlip = weekly.flips[0] && weekly.flips[0].win > weekly.plain + 0.015 ? weekly.flips[0] : null;
   const started = picks.filter((p) => Date.parse(p.game.commenceTime) <= now.getTime()).length;
 
