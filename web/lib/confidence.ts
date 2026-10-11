@@ -179,3 +179,30 @@ export function weeklyWin(
     .sort((a, b) => b.win - a.win);
   return { plain, flips, players: rivals + 1 };
 }
+
+/**
+ * The Monday-night tiebreaker: a guess at the game's total points.
+ *
+ * Each book's total, nudged toward the side its juice favours (an over at -120 says a bit
+ * more than the number) -- the same fair-total reading as the boost finder -- then the
+ * median across books, plus the measured lean (NFL finals land ~0.6 over the closing
+ * total), rounded to a whole score.
+ */
+export function tiebreakerTotal(
+  quotes: BookQuote[],
+  model: { totalMean: number; totalSd: number } | null,
+): { guess: number; line: number; fair: number; books: number } | null {
+  const sd = model && model.totalSd > 0 ? model.totalSd : 13;
+  const density = 1 / (sd * Math.sqrt(2 * Math.PI));
+  const overs = quotes.filter((q) => q.market === "total" && q.side === "over" && !q.stale && q.line !== null && q.price != null);
+  const fairs = overs
+    .map((q) => {
+      const pOver = q.oppositePrice != null ? deVig(q.price ?? null, q.oppositePrice ?? null)?.a : 0.5;
+      return typeof pOver === "number" ? (q.line as number) + (pOver - 0.5) / density : null;
+    })
+    .filter((v): v is number => v !== null);
+  const fair = median(fairs);
+  const line = median(overs.map((q) => q.line as number));
+  if (fair === null || line === null) return null;
+  return { guess: Math.round(fair + (model?.totalMean ?? 0)), line, fair, books: fairs.length };
+}

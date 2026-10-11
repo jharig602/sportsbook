@@ -57,3 +57,14 @@ test("weekly win: one underdog beats copying a chalky field, but not on the lock
   assert.ok(lock.win < res.flips[0].win, "but not the 91% lock at 16 points");
   assert.equal(res.players, 10);
 });
+
+test("tiebreaker: the line, nudged toward the juice, plus the lean, rounded", async () => {
+  const { tiebreakerTotal } = await import("./confidence.ts");
+  const q = (price: number, opp: number, line = 46.5) =>
+    ({ book: "X", market: "total", side: "over", line, price, oppositePrice: opp, stale: false }) as never;
+  const flat = tiebreakerTotal([q(-110, -110)], { totalMean: 0, totalSd: 13 })!;
+  assert.equal(flat.fair, 46.5);
+  const juiced = tiebreakerTotal([q(-125, 105)], { totalMean: 0.6, totalSd: 13 })!;
+  assert.ok(juiced.fair > 46.5, "over juiced: fair total above the number");
+  assert.equal(juiced.guess, Math.round(juiced.fair + 0.6));
+});

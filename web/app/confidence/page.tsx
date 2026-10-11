@@ -1,6 +1,6 @@
 import { Card, Empty, NotAdvice, PageHeader } from "@/components/ui";
 import { allBookLines, quotesForGame } from "@/lib/book-lines";
-import { gameChance, rankConfidence, TOP_POINTS, weeklyWin, weekWindow, type ConfidenceGame } from "@/lib/confidence";
+import { gameChance, rankConfidence, tiebreakerTotal, TOP_POINTS, weeklyWin, weekWindow, type ConfidenceGame } from "@/lib/confidence";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 
@@ -12,11 +12,12 @@ const percent = (v: number) => `${Math.round(v * 100)}%`;
 export default async function ConfidencePage() {
   const data = getData();
   const postgres = data.backend === "postgres";
-  const [games, models, stored, results] = await Promise.all([
+  const [games, models, stored, results, scoreModels] = await Promise.all([
     data.games(),
     data.marginModels(),
     postgres ? allBookLines() : Promise.resolve(new Map()),
     data.results().catch(() => []),
+    data.scoreModels().catch(() => ({}) as Awaited<ReturnType<typeof data.scoreModels>>),
   ]);
   const now = new Date();
   const { start, end } = weekWindow(now);
@@ -41,6 +42,12 @@ export default async function ConfidencePage() {
   }
 
   const { picks, expected, possible, sd } = rankConfidence(week);
+  // Tiebreaker: the week's last game, Monday night.
+  const monday = [...week].sort((a, b) => b.commenceTime.localeCompare(a.commenceTime))[0];
+  const mondayGame = games.find((g) => g.eventId === monday?.eventId);
+  const tiebreak = mondayGame
+    ? tiebreakerTotal(quotesForGame(mondayGame, stored.get(mondayGame.eventId) ?? [], "DraftKings", now), scoreModels.nfl ?? null)
+    : null;
   // Weekly winner: the owner joining a pool that is eleven players today (its week-5
   // sheet), so eleven rivals. See
   // `weeklyWin` for what is assumed about rivals -- that sheet matched it: 70% took the
@@ -73,30 +80,42 @@ export default async function ConfidencePage() {
         </p>
       </Card>
 
+      {monday && tiebreak ? (
+        <Card className="mb-3 px-3.5 py-3">
+          <p className="text-[13px] text-slate-300">
+            Tiebreaker, {monday.away} @ {monday.home}:{" "}
+            <span className="tabular text-[15px] font-semibold text-slate-50">{tiebreak.guess}</span> total points
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+            Line {tiebreak.line}, fair {tiebreak.fair.toFixed(1)} once the juice is read ({tiebreak.books}{" "}
+            {tiebreak.books === 1 ? "book" : "books"}), plus the ~0.6 NFL finals land above the closing total.
+          </p>
+        </Card>
+      ) : null}
+
       <Card className="mb-3 border-amber-700/40 px-3.5 py-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
           Weekly winner · {weekly.players} players
         </h2>
         <p className="mt-1 text-[13px] text-slate-300">
           As ranked: wins the week{" "}
-          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time
-          {bestFlip ? (
-            <>
-              . Take <span className="font-medium text-amber-300">{bestFlip.pick.opponent}</span> instead of{" "}
-              {bestFlip.pick.team} for {bestFlip.pick.points}: wins{" "}
-              <span className="tabular font-medium text-amber-300">{percent(bestFlip.win)}</span>
-            </>
-          ) : (
-            " -- no single underdog does better this week"
-          )}
-          .
+          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time.{" "}
+          <span className="font-medium text-emerald-300">Play it as ranked</span> &mdash; the season prize
+          is the bigger one.
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-          When the favourites all win, everyone who picked them ties, so copying the field rarely
-          wins a week outright. One underdog in a middle slot is big enough to jump the pack when
-          it hits; a low slot barely moves you, the top slots cost too much. Fair share is{" "}
-          {percent(1 / weekly.players)}. It costs {bestFlip ? bestFlip.pick.flipCost.toFixed(1) : "0"} expected
-          points. Rivals are modelled on this pool&rsquo;s week-5 sheet: big favourites near-unanimous, 70% on the favourite in closer games, points loosely in order.
+          {bestFlip ? (
+            <>
+              The best underdog for this week alone is {bestFlip.pick.opponent} over {bestFlip.pick.team} at{" "}
+              {bestFlip.pick.points} (wins the week {percent(bestFlip.win)}), but it costs{" "}
+              {bestFlip.pick.flipCost.toFixed(1)} expected points.{" "}
+            </>
+          ) : null}
+          Simulated over 18 weeks against this pool ($25 a week to the weekly winner, $100 to the
+          season&rsquo;s most points): playing as ranked won the season about half the time; one
+          underdog a week raised weekly wins from 4% to 6-10% but cut the season chance to 14-40%,
+          and was worth $75-150 less a season. Copying the field rarely wins a week outright; it
+          wins the season.
         </p>
         {weekly.flips.length > 1 ? (
           <p className="mt-1 text-[11px] text-slate-500">
