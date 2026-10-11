@@ -1,6 +1,6 @@
 import { Card, Empty, NotAdvice, PageHeader } from "@/components/ui";
 import { allBookLines, quotesForGame } from "@/lib/book-lines";
-import { gameChance, rankConfidence, TOP_POINTS, weekWindow, type ConfidenceGame } from "@/lib/confidence";
+import { gameChance, rankConfidence, TOP_POINTS, weeklyWin, weekWindow, type ConfidenceGame } from "@/lib/confidence";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 
@@ -41,6 +41,9 @@ export default async function ConfidencePage() {
   }
 
   const { picks, expected, possible, sd } = rankConfidence(week);
+  // Weekly winner, ten players (the owner's pool). See `weeklyWin` for what is assumed.
+  const weekly = weeklyWin(picks, { rivals: 9, now: now.getTime() });
+  const bestFlip = weekly.flips[0] && weekly.flips[0].win > weekly.plain + 0.015 ? weekly.flips[0] : null;
   const started = picks.filter((p) => Date.parse(p.game.commenceTime) <= now.getTime()).length;
 
   return (
@@ -65,6 +68,44 @@ export default async function ConfidencePage() {
           {started > 0 ? ` ${started} game${started === 1 ? " has" : "s have"} already kicked off; if your picks are in, those points are set.` : ""}
           {week.length < 16 ? ` ${week.length} games priced this week.` : ""}
         </p>
+      </Card>
+
+      <Card className="mb-3 border-amber-700/40 px-3.5 py-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Weekly winner · {weekly.players} players
+        </h2>
+        <p className="mt-1 text-[13px] text-slate-300">
+          As ranked: wins the week{" "}
+          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time
+          {bestFlip ? (
+            <>
+              . Take <span className="font-medium text-amber-300">{bestFlip.pick.opponent}</span> instead of{" "}
+              {bestFlip.pick.team} for {bestFlip.pick.points}: wins{" "}
+              <span className="tabular font-medium text-amber-300">{percent(bestFlip.win)}</span>
+            </>
+          ) : (
+            " -- no single underdog does better this week"
+          )}
+          .
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          When the favourites all win, everyone who picked them ties, so copying the field rarely
+          wins a week outright. One underdog in a middle slot is big enough to jump the pack when
+          it hits; a low slot barely moves you, the top slots cost too much. Fair share is{" "}
+          {percent(1 / weekly.players)}. It costs {bestFlip ? bestFlip.pick.flipCost.toFixed(1) : "0"} expected
+          points. Rivals are assumed to be ordinary players until we have this pool&rsquo;s sheets.
+        </p>
+        {weekly.flips.length > 1 ? (
+          <p className="mt-1 text-[11px] text-slate-500">
+            Next best:{" "}
+            {weekly.flips.slice(1, 4).map((f, i) => (
+              <span key={f.pick.game.eventId}>
+                {i > 0 ? " · " : ""}
+                {f.pick.opponent} ({f.pick.points}) {percent(f.win)}
+              </span>
+            ))}
+          </p>
+        ) : null}
       </Card>
 
       <div className="space-y-1.5">

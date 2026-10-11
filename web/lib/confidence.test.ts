@@ -45,3 +45,15 @@ test("taking the underdog costs points x (fav - dog)", () => {
   assert.ok(Math.abs(picks[1].flipCost - 15 * 0.1) < 1e-9, "55/45 at 15 points costs 1.5");
   assert.ok(Math.abs(picks[0].flipCost - 16 * 0.8) < 1e-9);
 });
+
+test("weekly win: one underdog beats copying a chalky field, but not on the lock", async () => {
+  const { weeklyWin } = await import("./confidence.ts");
+  const games = Array.from({ length: 14 }, (_, i) => g(String(i), 0.52 + i * 0.03, "2030-01-01T17:00:00Z"));
+  const { picks } = rankConfidence(games);
+  const res = weeklyWin(picks, { rivals: 9, sims: 6000, now: 0 });
+  assert.ok(res.plain > 0.01 && res.plain < 0.4, `plain ${res.plain}`);
+  const lock = res.flips.find((f) => f.pick.chance > 0.9)!;
+  assert.ok(res.flips[0].win > res.plain, "one underdog beats copying a chalky field");
+  assert.ok(lock.win < res.flips[0].win, "but not the 91% lock at 16 points");
+  assert.equal(res.players, 10);
+});
