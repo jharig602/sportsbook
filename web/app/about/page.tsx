@@ -194,6 +194,13 @@ export default async function AboutPage() {
         <p>Not in the tab bar, but still collected and graded.</p>
         <ul className="list-disc space-y-1 pl-4">
           <li>
+            <a href="/confidence" className="text-sky-400 underline underline-offset-2">
+              Confidence
+            </a>{" "}
+            &mdash; this week&rsquo;s NFL games picked straight up, surest pick worth 16 points
+            and down. Linked from Survivor.
+          </li>
+          <li>
             <a href="/movers" className="text-sky-400 underline underline-offset-2">
               Movers
             </a>{" "}

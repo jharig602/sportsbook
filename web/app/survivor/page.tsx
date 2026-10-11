@@ -454,7 +454,11 @@ export default async function SurvivorPage({
 
   return (
     <>
-      <PageHeader title="Survivor" subtitle="One team a week, each team only once" />
+      <PageHeader title="Survivor" subtitle="One team a week, each team only once">
+        <Link href="/confidence" className="text-[12px] text-sky-400">
+          Confidence picks &rarr;
+        </Link>
+      </PageHeader>
 
       {checked && checkedPlan ? (
         <Card className="mb-3 border-sky-700/40 px-3.5 py-3">
