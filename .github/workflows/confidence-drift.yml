@@ -1,0 +1,27 @@
+name: confidence-drift
+
+# How far confidence picks move between Tuesday and kickoff, from this season's stored
+# DraftKings moneylines. Read-only; prints counts and averages only.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci --prefix web
+      - name: Measure
+        run: |
+          cd web
+          npx tsx scripts/confidence-drift.ts
