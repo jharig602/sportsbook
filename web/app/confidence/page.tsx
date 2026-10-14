@@ -54,6 +54,12 @@ export default async function ConfidencePage() {
   // favourite in 55-63% games (model 68%), points followed the odds at r ~ 0.75 (0.77).
   const weekly = weeklyWin(picks, { rivals: 11, now: now.getTime() });
   const bestFlip = weekly.flips[0] && weekly.flips[0].win > weekly.plain + 0.015 ? weekly.flips[0] : null;
+  // Plan B, an experiment for the practice season: the underdog in the two lowest-point
+  // games, slots unchanged. Backtested on weeks 1, 2, 4 and 5 it scored within 3 points of
+  // playing as ranked (369 vs 367) -- tracked against the sheet each week to see whether
+  // it earns anything, not because it is known to.
+  const planB = picks.slice(-2);
+  const planBCost = planB.reduce((sum, p) => sum + p.flipCost, 0);
   const started = picks.filter((p) => Date.parse(p.game.commenceTime) <= now.getTime()).length;
 
   return (
@@ -128,6 +134,25 @@ export default async function ConfidencePage() {
             ))}
           </p>
         ) : null}
+      </Card>
+
+      <Card className="mb-3 border-violet-700/40 px-3.5 py-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Plan B · experiment</h2>
+        <p className="mt-1 text-[13px] text-slate-300">
+          Same ranking, but take{" "}
+          {planB.map((p, i) => (
+            <span key={p.game.eventId}>
+              {i > 0 ? " and " : ""}
+              <span className="font-medium text-violet-300">{p.opponent}</span> ({p.points})
+            </span>
+          ))}
+          .
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          Costs {planBCost.toFixed(1)} expected points. Over weeks 1, 2, 4 and 5 it scored 369 to
+          the plain ranking&rsquo;s 367 &mdash; a tie, in other words. Run alongside the plain
+          ranking this season to see whether it earns anything.
+        </p>
       </Card>
 
       <div className="space-y-1.5">
