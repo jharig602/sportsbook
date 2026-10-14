@@ -1,6 +1,8 @@
+import Link from "next/link";
+
 import { Card, Empty, NotAdvice, PageHeader } from "@/components/ui";
 import { allBookLines, quotesForGame } from "@/lib/book-lines";
-import { gameChance, rankConfidence, tiebreakerTotal, TOP_POINTS, weekWindow, weeklyPick, type ConfidenceGame } from "@/lib/confidence";
+import { gameChance, rankConfidence, tiebreakerTotal, TOP_POINTS, weekWindow, weeklyPick, type ConfidenceGame, type ConfidencePick } from "@/lib/confidence";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 
@@ -8,8 +10,28 @@ export const dynamic = "force-dynamic";
 
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
-/** This week's confidence picks, ranked for the most expected points (confidence.ts). */
-export default async function ConfidencePage() {
+type Plan = "weekly" | "season" | "b";
+const PLANS: Array<{ key: Plan; label: string }> = [
+  { key: "weekly", label: "Weekly pot" },
+  { key: "season", label: "Season" },
+  { key: "b", label: "Plan B" },
+];
+/** One line of the card you would submit: which team, for how many points. */
+type Row = { pick: ConfidencePick; team: string; opponent: string; points: number; chance: number; underdog: boolean };
+
+/**
+ * This week's confidence picks (confidence.ts), laid out as the card to submit under the
+ * chosen plan: the weekly-pot rule by default (the owner plays the weekly pot), the plain
+ * ranking for the season race, or the Plan B experiment.
+ */
+export default async function ConfidencePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = await searchParams;
+  const raw = Array.isArray(query.plan) ? query.plan[0] : query.plan;
+  const plan: Plan = raw === "season" || raw === "b" ? raw : "weekly";
   const data = getData();
   const postgres = data.backend === "postgres";
   const [games, models, stored, results, scoreModels] = await Promise.all([
@@ -41,7 +63,7 @@ export default async function ConfidencePage() {
     );
   }
 
-  const { picks, expected, possible, sd } = rankConfidence(week);
+  const { picks, expected, possible } = rankConfidence(week);
   // Tiebreaker: the week's last game, Monday night.
   const monday = [...week].sort((a, b) => b.commenceTime.localeCompare(a.commenceTime))[0];
   const mondayGame = games.find((g) => g.eventId === monday?.eventId);
@@ -58,25 +80,64 @@ export default async function ConfidencePage() {
   const planBCost = planB.reduce((sum, p) => sum + p.flipCost, 0);
   const started = picks.filter((p) => Date.parse(p.game.commenceTime) <= now.getTime()).length;
 
+  const asRanked = (p: ConfidencePick, underdog = false): Row => ({
+    pick: p,
+    team: underdog ? p.opponent : p.team,
+    opponent: underdog ? p.team : p.opponent,
+    points: p.points,
+    chance: underdog ? 1 - p.chance : p.chance,
+    underdog,
+  });
+  let rows: Row[];
+  if (plan === "weekly" && weekly) {
+    const placed = new Map(weekly.entry.map((e) => [e.pick.game.eventId, e]));
+    rows = picks.map((p) => {
+      const e = placed.get(p.game.eventId);
+      return e ? { ...asRanked(p, e.underdog), points: e.points } : asRanked(p);
+    });
+  } else if (plan === "b") {
+    const flipped = new Set(planB.map((p) => p.game.eventId));
+    rows = picks.map((p) => asRanked(p, flipped.has(p.game.eventId)));
+  } else {
+    rows = picks.map((p) => asRanked(p));
+  }
+  rows.sort((a, b) => b.points - a.points);
+  const planExpected = rows.reduce((sum, r) => sum + r.points * r.chance, 0);
+  const planSd = Math.sqrt(rows.reduce((sum, r) => sum + r.points ** 2 * r.chance * (1 - r.chance), 0));
+
   return (
     <>
       <PageHeader title="Confidence" subtitle="Every game straight up, surest pick worth the most" />
 
+      <nav className="mb-3 flex gap-1.5" aria-label="Plan">
+        {PLANS.map((p) => (
+          <Link
+            key={p.key}
+            href={p.key === "weekly" ? "/confidence" : `/confidence?plan=${p.key}`}
+            aria-current={plan === p.key ? "page" : undefined}
+            className={`flex-1 rounded-md border px-2 py-1.5 text-center text-[12px] ${
+              plan === p.key ? "border-sky-600/60 bg-sky-500/15 text-sky-100" : "border-edge text-slate-400"
+            }`}
+          >
+            {p.label}
+          </Link>
+        ))}
+      </nav>
+
       <Card className="mb-3 px-3.5 py-3">
         <p className="text-[13px] text-slate-300">
-          Expected <span className="tabular font-medium text-slate-100">{expected.toFixed(1)}</span> of{" "}
+          Expected <span className="tabular font-medium text-slate-100">{planExpected.toFixed(1)}</span> of{" "}
           <span className="tabular">{possible}</span> points
           <span className="text-slate-500">
             {" "}
-            · usually {Math.max(0, expected - sd).toFixed(0)}–{Math.min(possible, expected + sd).toFixed(0)}
+            · usually {Math.max(0, planExpected - planSd).toFixed(0)}–{Math.min(possible, planExpected + planSd).toFixed(0)}
+            {plan !== "season" ? ` · ${(expected - planExpected).toFixed(1)} under the plain ranking` : ""}
           </span>
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
           Each game&rsquo;s likelier winner, ranked by how likely: {TOP_POINTS} points on the surest
           pick, one fewer on each after. No other order scores more on average. Chances are the
           books&rsquo; moneylines with their cut taken out (the spread model where none is posted).
-          {" "}&ldquo;Dog &minus;X pts&rdquo; is what taking the underdog there costs on average; under
-          1 point (amber) is a cheap way to differ from a pool that all takes the favourite.
           {started > 0 ? ` ${started} game${started === 1 ? " has" : "s have"} already kicked off; if your picks are in, those points are set.` : ""}
           {week.length < 16 ? ` ${week.length} games priced this week.` : ""}
         </p>
@@ -144,33 +205,35 @@ export default async function ConfidencePage() {
       </Card>
 
       <div className="space-y-1.5">
-        {picks.map((p) => {
+        {rows.map((r) => {
+          const p = r.pick;
           const kicked = Date.parse(p.game.commenceTime) <= now.getTime();
           const final = finals.get(p.game.eventId);
           const winner = final
             ? final.home_score > final.away_score ? p.game.home : final.away_score > final.home_score ? p.game.away : null
             : null;
-          const verdict = final ? (winner === p.team ? "won" : "lost") : null;
+          const verdict = final ? (winner === r.team ? "won" : "lost") : null;
           return (
-            <Card key={p.game.eventId} className="flex items-center gap-3 px-3.5 py-2.5">
+            <Card key={p.game.eventId} className={`flex items-center gap-3 px-3.5 py-2.5 ${r.underdog ? "border-amber-600/50" : ""}`}>
               <span
                 className={`tabular w-9 shrink-0 rounded-md py-1 text-center text-[15px] font-semibold ${
-                  verdict === "won" ? "bg-emerald-500/15 text-emerald-300" : verdict === "lost" ? "bg-rose-500/15 text-rose-300" : "bg-sky-500/10 text-sky-200"
+                  verdict === "won" ? "bg-emerald-500/15 text-emerald-300" : verdict === "lost" ? "bg-rose-500/15 text-rose-300" : r.underdog ? "bg-amber-500/15 text-amber-200" : "bg-sky-500/10 text-sky-200"
                 }`}
               >
-                {p.points}
+                {r.points}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] text-slate-100">{p.team}</p>
+                <p className="truncate text-[14px] text-slate-100">
+                  {r.team}
+                  {r.underdog ? <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">underdog</span> : null}
+                </p>
                 <p className="truncate text-[11px] text-slate-500">
-                  {p.team === p.game.home ? "vs" : "@"} {p.opponent} · {kicked ? (verdict ?? "under way") : formatKickoff(p.game.commenceTime)}
+                  {r.team === p.game.home ? "vs" : "@"} {r.opponent} · {kicked ? (verdict ?? "under way") : formatKickoff(p.game.commenceTime)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="tabular text-[14px] text-slate-200">{percent(p.chance)}</p>
-                <p className={`text-[10px] ${p.flipCost < 1 ? "text-amber-300/80" : "text-slate-600"}`}>
-                  {kicked ? (p.game.source === "market" ? `${p.game.books} books` : "model") : `dog −${p.flipCost.toFixed(1)} pts`}
-                </p>
+                <p className={`tabular text-[14px] ${r.underdog ? "text-amber-200" : "text-slate-200"}`}>{percent(r.chance)}</p>
+                <p className="text-[10px] text-slate-600">{p.game.source === "market" ? `${p.game.books} books` : "model"}</p>
               </div>
             </Card>
           );
