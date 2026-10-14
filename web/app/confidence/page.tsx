@@ -1,6 +1,6 @@
 import { Card, Empty, NotAdvice, PageHeader } from "@/components/ui";
 import { allBookLines, quotesForGame } from "@/lib/book-lines";
-import { gameChance, bestWeeklyEntry, rankConfidence, tiebreakerTotal, TOP_POINTS, weekWindow, type ConfidenceGame } from "@/lib/confidence";
+import { gameChance, rankConfidence, tiebreakerTotal, TOP_POINTS, weekWindow, weeklyPick, type ConfidenceGame } from "@/lib/confidence";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 
@@ -48,12 +48,8 @@ export default async function ConfidencePage() {
   const tiebreak = mondayGame
     ? tiebreakerTotal(quotesForGame(mondayGame, stored.get(mondayGame.eventId) ?? [], "DraftKings", now), scoreModels.nfl ?? null)
     : null;
-  // Weekly winner: the owner plus the pool's eleven (its sheets). See `bestWeeklyEntry`
-  // and `POOL_HABITS` for how rivals are modelled.
-  const weekly = bestWeeklyEntry(picks, { rivals: 11, now: now.getTime() });
-  const leverage = weekly.win > weekly.plain + 0.015 ? weekly : null;
-  const dogs = weekly.picks.filter((p) => p.underdog);
-  const moved = weekly.picks.filter((p) => !p.underdog && p.entryPoints !== p.points);
+  // Weekly pot only: the backtested rule (`weeklyPick`).
+  const weekly = weeklyPick(picks, now.getTime());
   // Plan B, an experiment for the practice season: the underdog in the two lowest-point
   // games, slots unchanged. Backtested on weeks 1, 2, 4 and 5 it scored within 3 points of
   // playing as ranked (369 vs 367) -- tracked against the sheet each week to see whether
@@ -104,39 +100,27 @@ export default async function ConfidencePage() {
           Weekly winner &middot; 12 players
         </h2>
         <p className="mt-1 text-[13px] text-slate-300">
-          As ranked: wins the week{" "}
-          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time.{" "}
-          <span className="font-medium text-emerald-300">In the season race, play it as ranked.</span>
+          <span className="font-medium text-emerald-300">In the season race:</span> play it as ranked.
         </p>
-        <p className="mt-1.5 text-[13px] text-slate-300">
+        <p className="mt-0.5 text-[13px] text-slate-300">
           <span className="font-medium text-amber-300">Only this week&rsquo;s pot:</span>{" "}
-          {leverage ? (
+          {weekly ? (
             <>
-              {dogs.map((p, i) => (
-                <span key={p.game.eventId}>
-                  {i > 0 ? ", " : ""}take <span className="font-medium text-amber-300">{p.entryTeam}</span> over{" "}
-                  {p.team} at {p.entryPoints}
-                </span>
-              ))}
-              {moved.length > 0 ? `; ${moved.map((p) => `${p.team} to ${p.entryPoints}`).join(", ")}` : ""}
-              {" "}&mdash; wins{" "}
-              <span className="tabular font-medium text-amber-300">{percent(leverage.win)}</span>
+              take <span className="font-medium text-amber-300">{weekly.dog.team}</span> over {weekly.dog.pick.team} (
+              {percent(1 - weekly.dog.pick.chance)}) on <span className="tabular font-medium">{weekly.dog.points}</span>, and
+              move everything else down one.
             </>
           ) : (
-            "nothing beats the ranking this week; play it as ranked"
+            "every game has kicked off."
           )}
-          .
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-          {leverage
-            ? `A long shot on purpose: it costs ${leverage.cost.toFixed(1)} expected points and usually finishes near the bottom, but when it hits you are clear of a field that all scored the same favourites. `
-            : ""}
-          Searched over every underdog and slot swap against simulated weeks of this pool (its
-          sheets: favourites near-unanimous, 76% on the favourite in close games), then checked
-          on fresh simulated weeks. On weeks 1, 2, 4 and 5 the leverage entry lost all four &mdash;
-          a 1-in-4 shot misses four straight about a third of the time, so that neither proves
-          nor disproves it. For the season prize it is the wrong play: weekly wins up, season
-          chance down, worth less over a year.
+          Tested on 197 real NFL weeks (2015 to this season, closing odds and results) against
+          eleven simulated players picking the way this pool does: as ranked won 4.8% of weeks,
+          below a fair 8.3%; a ~35% underdog on the top slot won 12.7% &mdash; 13.6% in the
+          seasons it was chosen on and 11.8% in the six it was not. It loses most weeks on
+          purpose: when it hits, you are clear of a field that all scored the same favourites.
+          {weekly ? ` Costs ${weekly.cost.toFixed(1)} expected points, which is why the season race plays it straight.` : ""}
         </p>
       </Card>
 

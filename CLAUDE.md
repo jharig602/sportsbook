@@ -658,21 +658,21 @@ total as the tiebreaker.
   tested). This is the play for the **season prize**: an 18-week simulation had playing as
   ranked winning the season ~50% (overstated -- one rival is near-pure chalk too) and every
   underdog policy worth $75-150 less a season.
-- **Weekly pot only** -- `bestWeeklyEntry` hill-climbs from the ranking over underdog flips
-  and slot swaps to maximise P(win the week). Rival scores do not depend on your entry, so
-  each simulated week's best rival is drawn once; the result is re-measured on a fresh
-  seed. In a chalky field it usually lands on the **underdog in the top slot** (~12% vs ~4%
-  weekly win). Backtested on weeks 1, 2, 4, 5 it lost all four (~1/3 likely even if right).
-  It is a long shot on purpose and the page says so.
-- **Rivals** (`POOL_HABITS`) are fitted to the pool's sheets: 76% take the favourite in
-  55-65% games (k = 2.5), points track the odds at r ~0.75 (sd 0.12). Sheets stay outside
-  the repo; names never stored.
+- **Weekly pot only** -- `weeklyPick`: the ranking, but the underdog nearest **35%** takes
+  the top slot and the rest move down one. Backtested on **197 real weeks** (2015 to 2026
+  wk5, nflverse closing moneylines + results) against 11 simulated rivals with the pool's
+  measured habits (76% favourite in close games, k = 2.5; ranking noise sd 0.12, r ~0.75):
+  as ranked 4.8% weekly (fair 8.3%); this rule 12.7% -- 13.6% on 2015-20 where it was
+  chosen, 11.8% on 2021-26 held out. Every one-underdog rule in the top three slots landed
+  12-14%; a hill-climbing optimizer that preceded it (top-slot leverage) did 11.0% and was
+  removed; underdogs in the lowest slots did nothing (4.7%). It costs ~5-6 expected points
+  a week, so the season race still plays as ranked. Rivals are simulated, results are real.
 - **Plan B** (underdogs in the two lowest slots) is a practice-season experiment only:
   backtest 369 vs 367 for the ranking, a tie.
 - **Tiebreaker** -- `tiebreakerTotal`: each book's total nudged by its juice, median, plus
   the +0.6 NFL lean, rounded.
-- Simulation, not exact, by necessity (rivals are random); fixed seeds so the page does not
-  shuffle on refresh.
+- Nothing on the page simulates at request time; the weekly rule's numbers are from the
+  backtest above.
 
 ---
 

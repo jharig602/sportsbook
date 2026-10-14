@@ -46,24 +46,24 @@ test("taking the underdog costs points x (fav - dog)", () => {
   assert.ok(Math.abs(picks[0].flipCost - 16 * 0.8) < 1e-9);
 });
 
-test("weekly entry: the search beats the plain ranking on fresh simulated weeks, deterministically", async () => {
-  const { bestWeeklyEntry } = await import("./confidence.ts");
-  const games = Array.from({ length: 15 }, (_, i) => g(String(i), 0.53 + i * 0.016, "2030-01-01T17:00:00Z"));
+test("weekly pick: the ~35% underdog takes 16, everyone else moves down one", async () => {
+  const { weeklyPick } = await import("./confidence.ts");
+  const games = [g("a", 0.9), g("b", 0.66), g("c", 0.55), g("d", 0.8)];
   const { picks } = rankConfidence(games);
-  const a = bestWeeklyEntry(picks, { rivals: 11, sims: 3000, now: 0 });
-  const b = bestWeeklyEntry(picks, { rivals: 11, sims: 3000, now: 0 });
-  assert.equal(a.win, b.win, "same seed, same answer");
-  assert.ok(a.win >= a.plain, `checked on fresh weeks: ${a.win} vs ${a.plain}`);
-  assert.ok(a.cost >= 0, "never more expected points than the ranking");
-  assert.deepEqual([...a.picks.map((p) => p.entryPoints)].sort((x, y) => x - y), picks.map((p) => p.points).sort((x, y) => x - y), "every slot used once");
+  const w = weeklyPick(picks, 0)!;
+  assert.equal(w.dog.team, "Ab", "the 34% underdog");
+  assert.equal(w.dog.points, 16);
+  assert.deepEqual(w.entry.map((e) => [e.team, e.points]), [["Ab", 16], ["Ha", 15], ["Hd", 14], ["Hc", 13]]);
+  assert.ok(w.cost > 0);
 });
 
-test("weekly entry: games already kicked off are left as ranked", async () => {
-  const { bestWeeklyEntry } = await import("./confidence.ts");
-  const games = Array.from({ length: 15 }, (_, i) => g(String(i), 0.53 + i * 0.016, "2030-01-01T17:00:00Z"));
+test("weekly pick: kicked-off games keep their slot and are never the underdog", async () => {
+  const { weeklyPick } = await import("./confidence.ts");
+  const games = [g("a", 0.9, "2020-01-01T17:00:00Z"), g("b", 0.66), g("c", 0.55)];
   const { picks } = rankConfidence(games);
-  const e = bestWeeklyEntry(picks, { rivals: 11, sims: 2000, now: Date.parse("2031-01-01") });
-  assert.ok(e.picks.every((p) => !p.underdog && p.entryPoints === p.points));
+  const w = weeklyPick(picks, Date.parse("2025-01-01"))!;
+  assert.ok(w.entry.every((e) => e.pick.game.eventId !== "a"), "the started 16-pointer is left alone");
+  assert.equal(w.dog.points, 15, "the dog takes the best OPEN slot");
 });
 
 test("tiebreaker: the line, nudged toward the juice, plus the lean, rounded", async () => {
