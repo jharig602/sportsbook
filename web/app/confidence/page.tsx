@@ -105,18 +105,25 @@ export default async function ConfidencePage() {
         </h2>
         <p className="mt-1 text-[13px] text-slate-300">
           As ranked: wins the week{" "}
-          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time.{" "}
-          <span className="font-medium text-emerald-300">Play it as ranked</span> &mdash; the season prize
-          is the bigger one.
+          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time.
         </p>
-        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+        <p className="mt-1 text-[13px] text-slate-300">
+          <span className="font-medium text-emerald-300">In the season race:</span> play it as ranked.
+        </p>
+        <p className="mt-0.5 text-[13px] text-slate-300">
+          <span className="font-medium text-amber-300">Only this week&rsquo;s pot:</span>{" "}
           {bestFlip ? (
             <>
-              The best underdog for this week alone is {bestFlip.pick.opponent} over {bestFlip.pick.team} at{" "}
-              {bestFlip.pick.points} (wins the week {percent(bestFlip.win)}), but it costs{" "}
-              {bestFlip.pick.flipCost.toFixed(1)} expected points.{" "}
+              take <span className="font-medium text-amber-300">{bestFlip.pick.opponent}</span> over {bestFlip.pick.team} at{" "}
+              {bestFlip.pick.points} &mdash; wins {percent(bestFlip.win)}
             </>
-          ) : null}
+          ) : (
+            "no underdog beats the ranking this week; play it as ranked"
+          )}
+          .
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          {bestFlip ? `That underdog costs ${bestFlip.pick.flipCost.toFixed(1)} expected points. ` : ""}
           Simulated over 18 weeks against this pool ($25 a week to the weekly winner, $100 to the
           season&rsquo;s most points): playing as ranked won the season about half the time; one
           underdog a week raised weekly wins from 4% to 6-10% but cut the season chance to 14-40%,
