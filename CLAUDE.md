@@ -667,6 +667,12 @@ total as the tiebreaker.
   12-14%; a hill-climbing optimizer that preceded it (top-slot leverage) did 11.0% and was
   removed; underdogs in the lowest slots did nothing (4.7%). It costs ~5-6 expected points
   a week, so the season race still plays as ranked. Rivals are simulated, results are real.
+- **Line drift** (`scripts/confidence-drift.ts`, workflow `confidence-drift`, 2026 wk 1-5):
+  locking an hour before the first kickoff instead of each game's close cost **0.11
+  expected points/week** ranked and **0.43** on the weekly plan. The 16-point underdog
+  changed after the deadline in 4 of 5 weeks, but the deadline's choice closed 31-38%
+  (2.3 points from 35% on average), inside the band the backtest found equally good.
+  Top three unchanged 4/5 weeks; one favourite flip in 79 games. Submit once; don't chase.
 - **Plan B** (underdogs in the two lowest slots) is a practice-season experiment only:
   backtest 369 vs 367 for the ranking, a tie.
 - **Tiebreaker** -- `tiebreakerTotal`: each book's total nudged by its juice, median, plus
