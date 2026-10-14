@@ -646,6 +646,36 @@ Tuesday. Stored weeks 1-4 are mislabelled; habits no longer read them. Rows are 
 
 ---
 
+## Confidence picks
+
+`/confidence` (`confidence.ts`, owner's ask 2026-10-11), linked from Survivor. NFL, straight up, every game,
+16 points on the surest pick and down. A private 11-player pool the owner is joining:
+$25 a week to the weekly winner, $100 a year to the season's most points, Monday-night
+total as the tiebreaker.
+
+- **Ranking** -- each game's likelier winner, ordered by chance (all books' de-vigged
+  moneylines, spread model as fallback). Maximises expected points exactly (rearrangement;
+  tested). This is the play for the **season prize**: an 18-week simulation had playing as
+  ranked winning the season ~50% (overstated -- one rival is near-pure chalk too) and every
+  underdog policy worth $75-150 less a season.
+- **Weekly pot only** -- `bestWeeklyEntry` hill-climbs from the ranking over underdog flips
+  and slot swaps to maximise P(win the week). Rival scores do not depend on your entry, so
+  each simulated week's best rival is drawn once; the result is re-measured on a fresh
+  seed. In a chalky field it usually lands on the **underdog in the top slot** (~12% vs ~4%
+  weekly win). Backtested on weeks 1, 2, 4, 5 it lost all four (~1/3 likely even if right).
+  It is a long shot on purpose and the page says so.
+- **Rivals** (`POOL_HABITS`) are fitted to the pool's sheets: 76% take the favourite in
+  55-65% games (k = 2.5), points track the odds at r ~0.75 (sd 0.12). Sheets stay outside
+  the repo; names never stored.
+- **Plan B** (underdogs in the two lowest slots) is a practice-season experiment only:
+  backtest 369 vs 367 for the ranking, a tie.
+- **Tiebreaker** -- `tiebreakerTotal`: each book's total nudged by its juice, median, plus
+  the +0.6 NFL lean, rounded.
+- Simulation, not exact, by necessity (rivals are random); fixed seeds so the page does not
+  shuffle on refresh.
+
+---
+
 ## Access
 
 Two passcodes, both checked in `middleware.ts` before any route.

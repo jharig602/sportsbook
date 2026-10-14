@@ -46,16 +46,24 @@ test("taking the underdog costs points x (fav - dog)", () => {
   assert.ok(Math.abs(picks[0].flipCost - 16 * 0.8) < 1e-9);
 });
 
-test("weekly win: one underdog beats copying a chalky field, but not on the lock", async () => {
-  const { weeklyWin } = await import("./confidence.ts");
-  const games = Array.from({ length: 14 }, (_, i) => g(String(i), 0.52 + i * 0.03, "2030-01-01T17:00:00Z"));
+test("weekly entry: the search beats the plain ranking on fresh simulated weeks, deterministically", async () => {
+  const { bestWeeklyEntry } = await import("./confidence.ts");
+  const games = Array.from({ length: 15 }, (_, i) => g(String(i), 0.53 + i * 0.016, "2030-01-01T17:00:00Z"));
   const { picks } = rankConfidence(games);
-  const res = weeklyWin(picks, { rivals: 9, sims: 6000, now: 0 });
-  assert.ok(res.plain > 0.01 && res.plain < 0.4, `plain ${res.plain}`);
-  const lock = res.flips.find((f) => f.pick.chance > 0.9)!;
-  assert.ok(res.flips[0].win > res.plain, "one underdog beats copying a chalky field");
-  assert.ok(lock.win < res.flips[0].win, "but not the 91% lock at 16 points");
-  assert.equal(res.players, 10);
+  const a = bestWeeklyEntry(picks, { rivals: 11, sims: 3000, now: 0 });
+  const b = bestWeeklyEntry(picks, { rivals: 11, sims: 3000, now: 0 });
+  assert.equal(a.win, b.win, "same seed, same answer");
+  assert.ok(a.win >= a.plain, `checked on fresh weeks: ${a.win} vs ${a.plain}`);
+  assert.ok(a.cost >= 0, "never more expected points than the ranking");
+  assert.deepEqual([...a.picks.map((p) => p.entryPoints)].sort((x, y) => x - y), picks.map((p) => p.points).sort((x, y) => x - y), "every slot used once");
+});
+
+test("weekly entry: games already kicked off are left as ranked", async () => {
+  const { bestWeeklyEntry } = await import("./confidence.ts");
+  const games = Array.from({ length: 15 }, (_, i) => g(String(i), 0.53 + i * 0.016, "2030-01-01T17:00:00Z"));
+  const { picks } = rankConfidence(games);
+  const e = bestWeeklyEntry(picks, { rivals: 11, sims: 2000, now: Date.parse("2031-01-01") });
+  assert.ok(e.picks.every((p) => !p.underdog && p.entryPoints === p.points));
 });
 
 test("tiebreaker: the line, nudged toward the juice, plus the lean, rounded", async () => {

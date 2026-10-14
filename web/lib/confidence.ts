@@ -106,81 +106,6 @@ export function rankConfidence(games: ConfidenceGame[], top = TOP_POINTS) {
 }
 
 /**
- * Chance of winning a WEEKLY prize against `rivals` other players, for the plain
- * ranking and for each single underdog flip (same points slot, other team).
- *
- * Outcomes are drawn from each game's chance. Rivals are drawn fresh each season-week:
- * how this pool picks is not known yet, so they are assumed to be ordinary players --
- * they take the favourite more often than its chance alone would say (a 55% favourite
- * gets ~60% of picks, a 65% one ~78%, a 75% one 90%), and rank their picks by chance
- * with a fair amount of noise. The owner's pool matched this on its week-5 sheet: 70% took
- * the favourite in 55-63% games (this gives 68%), points tracked the odds at a median
- * correlation of ~0.75 (this gives 0.77), and 69%+ favourites were near-unanimous. Tried tighter and looser fields too: the plain ranking
- * wins 4-11% against nine of them, and one underdog at mid-range points beat it every
- * time -- a 3-point flip barely moves you, a 14-point one costs too often; the slot
- * that pays is big enough to leapfrog a field that all scored the same chalk. Ties for first split the prize. Only games not yet
- * kicked off can be flipped. Seeded, so the page does not shuffle on every refresh.
- */
-export function weeklyWin(
-  picks: ConfidencePick[],
-  options: { rivals?: number; sims?: number; seed?: number; now?: number } = {},
-) {
-  const rivals = options.rivals ?? 9;
-  const sims = options.sims ?? 20_000;
-  const now = options.now ?? Date.now();
-  let state = options.seed ?? 20261011;
-  const rand = () => {
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const normal = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
-  const n = picks.length;
-  const sharpen = (p: number) => p ** 2 / (p ** 2 + (1 - p) ** 2);
-  const slots = picks.map((p) => p.points).sort((a, b) => b - a);
-  const flippable = picks.map((p) => Date.parse(p.game.commenceTime) > now);
-  const wins = new Array(n + 1).fill(0); // [0] the plain ranking, [i + 1] game i flipped
-
-  const favWon = new Array<boolean>(n);
-  const perceived = new Array<{ i: number; v: number; fav: boolean }>(n);
-  for (let s = 0; s < sims; s++) {
-    let base = 0;
-    for (let i = 0; i < n; i++) {
-      favWon[i] = rand() < picks[i].chance;
-      if (favWon[i]) base += picks[i].points;
-    }
-    let best = -1;
-    let atBest = 0;
-    for (let r = 0; r < rivals; r++) {
-      for (let i = 0; i < n; i++) {
-        const fav = rand() < sharpen(picks[i].chance);
-        perceived[i] = { i, v: (fav ? picks[i].chance : 1 - picks[i].chance) + 0.12 * normal(), fav };
-      }
-      const order = [...perceived].sort((a, b) => b.v - a.v);
-      let score = 0;
-      order.forEach((o, k) => {
-        if (o.fav === favWon[o.i]) score += slots[k];
-      });
-      if (score > best) { best = score; atBest = 1; } else if (score === best) atBest += 1;
-    }
-    for (let e = 0; e <= n; e++) {
-      if (e > 0 && !flippable[e - 1]) continue;
-      const i = e - 1;
-      const mine = e === 0 ? base : base + (favWon[i] ? -picks[i].points : picks[i].points);
-      if (mine > best) wins[e] += 1;
-      else if (mine === best) wins[e] += 1 / (atBest + 1);
-    }
-  }
-  const plain = wins[0] / sims;
-  const flips = picks
-    .map((p, i) => ({ pick: p, win: flippable[i] ? wins[i + 1] / sims : null }))
-    .filter((f): f is { pick: ConfidencePick; win: number } => f.win !== null)
-    .sort((a, b) => b.win - a.win);
-  return { plain, flips, players: rivals + 1 };
-}
-
-/**
  * The Monday-night tiebreaker: a guess at the game's total points.
  *
  * Each book's total, nudged toward the side its juice favours (an over at -120 says a bit
@@ -205,4 +130,142 @@ export function tiebreakerTotal(
   const line = median(overs.map((q) => q.line as number));
   if (fair === null || line === null) return null;
   return { guess: Math.round(fair + (model?.totalMean ?? 0)), line, fair, books: fairs.length };
+}
+
+/** How the pool's players pick, measured from its sheets (weeks 1, 2, 4, 5). */
+export const POOL_HABITS = {
+  /** Favourite sharpening: P(pick fav) = p^k / (p^k + (1-p)^k). 76% took the favourite in 55-65% games. */
+  k: 2.5,
+  /** Noise on their ranking; gives points-vs-odds correlation ~0.75, as measured. */
+  sd: 0.12,
+};
+
+function rng(seed: number) {
+  let state = seed;
+  const rand = () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const normal = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
+  return { rand, normal };
+}
+
+/** Simulated weeks: who won each game, and the best rival score (and how many share it). */
+function simulateField(picks: ConfidencePick[], rivals: number, sims: number, seed: number) {
+  const { rand, normal } = rng(seed);
+  const n = picks.length;
+  const slots = picks.map((p) => p.points).sort((a, b) => b - a);
+  const favWon = new Uint8Array(sims * n);
+  const best = new Float64Array(sims);
+  const atBest = new Uint16Array(sims);
+  const sharpen = (p: number) => p ** POOL_HABITS.k / (p ** POOL_HABITS.k + (1 - p) ** POOL_HABITS.k);
+  const perceived = new Array<{ i: number; v: number; fav: boolean }>(n);
+  for (let s = 0; s < sims; s++) {
+    for (let i = 0; i < n; i++) favWon[s * n + i] = rand() < picks[i].chance ? 1 : 0;
+    let top = -1;
+    let count = 0;
+    for (let r = 0; r < rivals; r++) {
+      for (let i = 0; i < n; i++) {
+        const fav = rand() < sharpen(picks[i].chance);
+        perceived[i] = { i, v: (fav ? picks[i].chance : 1 - picks[i].chance) + POOL_HABITS.sd * normal(), fav };
+      }
+      const order = [...perceived].sort((a, b) => b.v - a.v);
+      let score = 0;
+      for (let k = 0; k < n; k++) if ((order[k].fav ? 1 : 0) === favWon[s * n + order[k].i]) score += slots[k];
+      if (score > top) { top = score; count = 1; } else if (score === top) count += 1;
+    }
+    best[s] = top;
+    atBest[s] = count;
+  }
+  return { n, sims, favWon, best, atBest };
+}
+
+type Field = ReturnType<typeof simulateField>;
+
+/** Share of simulated weeks won (ties for first split) by an entry: side and points per game. */
+function winShare(field: Field, fav: boolean[], points: number[]): { win: number; scores: Float64Array } {
+  const { n, sims, favWon, best, atBest } = field;
+  const scores = new Float64Array(sims);
+  let win = 0;
+  for (let s = 0; s < sims; s++) {
+    let score = 0;
+    for (let i = 0; i < n; i++) if ((fav[i] ? 1 : 0) === favWon[s * n + i]) score += points[i];
+    scores[s] = score;
+    win += score > best[s] ? 1 : score === best[s] ? 1 / (atBest[s] + 1) : 0;
+  }
+  return { win: win / sims, scores };
+}
+
+export interface WeeklyEntry {
+  picks: Array<ConfidencePick & { underdog: boolean; entryPoints: number; entryTeam: string }>;
+  /** Chance of winning the week, measured on fresh simulated weeks (not the ones searched). */
+  win: number;
+  /** The plain ranking on those same fresh weeks. */
+  plain: number;
+  /** Expected points given up against the plain ranking. */
+  cost: number;
+}
+
+/**
+ * The entry most likely to WIN THE WEEK against this pool -- not the most points.
+ *
+ * Starts from the plain ranking and climbs: any game may be switched to its underdog and
+ * any two games may trade point slots; each step keeps the change that wins the most
+ * simulated weeks. Rivals' picks do not depend on yours, so each simulated week's best
+ * rival score is drawn once and every candidate is scored against the same weeks. The
+ * answer is then re-measured on a fresh set of weeks, so a change that only fit the
+ * noise of the search set shows up as no gain. Games already kicked off are left alone.
+ */
+export function bestWeeklyEntry(
+  picks: ConfidencePick[],
+  options: { rivals?: number; sims?: number; now?: number; seed?: number } = {},
+): WeeklyEntry {
+  const rivals = options.rivals ?? 11;
+  const sims = options.sims ?? 8000;
+  const now = options.now ?? Date.now();
+  const n = picks.length;
+  const open = picks.map((p) => Date.parse(p.game.commenceTime) > now);
+  const search = simulateField(picks, rivals, sims, options.seed ?? 6);
+  const fav = picks.map(() => true);
+  const points = picks.map((p) => p.points);
+  let current = winShare(search, fav, points);
+
+  for (let step = 0; step < 40; step++) {
+    let bestMove: (() => void) | null = null;
+    let bestWin = current.win + 0.5 / sims;
+    const tryMove = (apply: () => void, undo: () => void) => {
+      apply();
+      const w = winShare(search, fav, points).win;
+      if (w > bestWin) { bestWin = w; bestMove = apply; }
+      undo();
+    };
+    for (let i = 0; i < n; i++) {
+      if (!open[i]) continue;
+      tryMove(() => { fav[i] = !fav[i]; }, () => { fav[i] = !fav[i]; });
+      for (let j = i + 1; j < n; j++) {
+        if (!open[j]) continue;
+        const swap = () => { [points[i], points[j]] = [points[j], points[i]]; };
+        tryMove(swap, swap);
+      }
+    }
+    if (!bestMove) break;
+    (bestMove as () => void)();
+    current = winShare(search, fav, points);
+  }
+
+  const check = simulateField(picks, rivals, Math.max(sims, 12000), (options.seed ?? 6) + 1000);
+  const win = winShare(check, fav, points).win;
+  const plain = winShare(check, picks.map(() => true), picks.map((p) => p.points)).win;
+  const expected = picks.reduce((sum, p, i) => sum + points[i] * (fav[i] ? p.chance : 1 - p.chance), 0);
+  const plainExpected = picks.reduce((sum, p) => sum + p.points * p.chance, 0);
+  return {
+    picks: picks
+      .map((p, i) => ({ ...p, underdog: !fav[i], entryPoints: points[i], entryTeam: fav[i] ? p.team : p.opponent }))
+      .sort((a, b) => b.entryPoints - a.entryPoints),
+    win,
+    plain,
+    cost: plainExpected - expected,
+  };
 }

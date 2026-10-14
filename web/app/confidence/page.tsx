@@ -1,6 +1,6 @@
 import { Card, Empty, NotAdvice, PageHeader } from "@/components/ui";
 import { allBookLines, quotesForGame } from "@/lib/book-lines";
-import { gameChance, rankConfidence, tiebreakerTotal, TOP_POINTS, weeklyWin, weekWindow, type ConfidenceGame } from "@/lib/confidence";
+import { gameChance, bestWeeklyEntry, rankConfidence, tiebreakerTotal, TOP_POINTS, weekWindow, type ConfidenceGame } from "@/lib/confidence";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 
@@ -48,12 +48,12 @@ export default async function ConfidencePage() {
   const tiebreak = mondayGame
     ? tiebreakerTotal(quotesForGame(mondayGame, stored.get(mondayGame.eventId) ?? [], "DraftKings", now), scoreModels.nfl ?? null)
     : null;
-  // Weekly winner: the owner joining a pool that is eleven players today (its week-5
-  // sheet), so eleven rivals. See
-  // `weeklyWin` for what is assumed about rivals -- that sheet matched it: 70% took the
-  // favourite in 55-63% games (model 68%), points followed the odds at r ~ 0.75 (0.77).
-  const weekly = weeklyWin(picks, { rivals: 11, now: now.getTime() });
-  const bestFlip = weekly.flips[0] && weekly.flips[0].win > weekly.plain + 0.015 ? weekly.flips[0] : null;
+  // Weekly winner: the owner plus the pool's eleven (its sheets). See `bestWeeklyEntry`
+  // and `POOL_HABITS` for how rivals are modelled.
+  const weekly = bestWeeklyEntry(picks, { rivals: 11, now: now.getTime() });
+  const leverage = weekly.win > weekly.plain + 0.015 ? weekly : null;
+  const dogs = weekly.picks.filter((p) => p.underdog);
+  const moved = weekly.picks.filter((p) => !p.underdog && p.entryPoints !== p.points);
   // Plan B, an experiment for the practice season: the underdog in the two lowest-point
   // games, slots unchanged. Backtested on weeks 1, 2, 4 and 5 it scored within 3 points of
   // playing as ranked (369 vs 367) -- tracked against the sheet each week to see whether
@@ -101,46 +101,43 @@ export default async function ConfidencePage() {
 
       <Card className="mb-3 border-amber-700/40 px-3.5 py-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Weekly winner · {weekly.players} players
+          Weekly winner &middot; 12 players
         </h2>
         <p className="mt-1 text-[13px] text-slate-300">
           As ranked: wins the week{" "}
-          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time.
+          <span className="tabular font-medium text-slate-100">{percent(weekly.plain)}</span> of the time.{" "}
+          <span className="font-medium text-emerald-300">In the season race, play it as ranked.</span>
         </p>
-        <p className="mt-1 text-[13px] text-slate-300">
-          <span className="font-medium text-emerald-300">In the season race:</span> play it as ranked.
-        </p>
-        <p className="mt-0.5 text-[13px] text-slate-300">
+        <p className="mt-1.5 text-[13px] text-slate-300">
           <span className="font-medium text-amber-300">Only this week&rsquo;s pot:</span>{" "}
-          {bestFlip ? (
+          {leverage ? (
             <>
-              take <span className="font-medium text-amber-300">{bestFlip.pick.opponent}</span> over {bestFlip.pick.team} at{" "}
-              {bestFlip.pick.points} &mdash; wins {percent(bestFlip.win)}
+              {dogs.map((p, i) => (
+                <span key={p.game.eventId}>
+                  {i > 0 ? ", " : ""}take <span className="font-medium text-amber-300">{p.entryTeam}</span> over{" "}
+                  {p.team} at {p.entryPoints}
+                </span>
+              ))}
+              {moved.length > 0 ? `; ${moved.map((p) => `${p.team} to ${p.entryPoints}`).join(", ")}` : ""}
+              {" "}&mdash; wins{" "}
+              <span className="tabular font-medium text-amber-300">{percent(leverage.win)}</span>
             </>
           ) : (
-            "no underdog beats the ranking this week; play it as ranked"
+            "nothing beats the ranking this week; play it as ranked"
           )}
           .
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-          {bestFlip ? `That underdog costs ${bestFlip.pick.flipCost.toFixed(1)} expected points. ` : ""}
-          Simulated over 18 weeks against this pool ($25 a week to the weekly winner, $100 to the
-          season&rsquo;s most points): playing as ranked won the season about half the time; one
-          underdog a week raised weekly wins from 4% to 6-10% but cut the season chance to 14-40%,
-          and was worth $75-150 less a season. Copying the field rarely wins a week outright; it
-          wins the season.
+          {leverage
+            ? `A long shot on purpose: it costs ${leverage.cost.toFixed(1)} expected points and usually finishes near the bottom, but when it hits you are clear of a field that all scored the same favourites. `
+            : ""}
+          Searched over every underdog and slot swap against simulated weeks of this pool (its
+          sheets: favourites near-unanimous, 76% on the favourite in close games), then checked
+          on fresh simulated weeks. On weeks 1, 2, 4 and 5 the leverage entry lost all four &mdash;
+          a 1-in-4 shot misses four straight about a third of the time, so that neither proves
+          nor disproves it. For the season prize it is the wrong play: weekly wins up, season
+          chance down, worth less over a year.
         </p>
-        {weekly.flips.length > 1 ? (
-          <p className="mt-1 text-[11px] text-slate-500">
-            Next best:{" "}
-            {weekly.flips.slice(1, 4).map((f, i) => (
-              <span key={f.pick.game.eventId}>
-                {i > 0 ? " · " : ""}
-                {f.pick.opponent} ({f.pick.points}) {percent(f.win)}
-              </span>
-            ))}
-          </p>
-        ) : null}
       </Card>
 
       <Card className="mb-3 border-violet-700/40 px-3.5 py-3">
