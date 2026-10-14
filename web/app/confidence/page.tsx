@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CopyPicks } from "@/components/CopyPicks";
 import { Card, Empty, NotAdvice, PageHeader } from "@/components/ui";
 import { allBookLines, quotesForGame } from "@/lib/book-lines";
 import { gameChance, rankConfidence, tiebreakerTotal, TOP_POINTS, weekWindow, weeklyPick, type ConfidenceGame, type ConfidencePick } from "@/lib/confidence";
@@ -102,6 +103,11 @@ export default async function ConfidencePage({
     rows = picks.map((p) => asRanked(p));
   }
   rows.sort((a, b) => b.points - a.points);
+  // What gets pasted into the pool's text or email: points and team, best first.
+  const copyText = [
+    ...rows.map((r) => `${r.points} - ${r.team}`),
+    ...(monday && tiebreak ? [`Tiebreaker (${monday.away} @ ${monday.home}): ${tiebreak.guess}`] : []),
+  ].join("\n");
   const planExpected = rows.reduce((sum, r) => sum + r.points * r.chance, 0);
   const planSd = Math.sqrt(rows.reduce((sum, r) => sum + r.points ** 2 * r.chance * (1 - r.chance), 0));
 
@@ -203,6 +209,8 @@ export default async function ConfidencePage({
           ranking this season to see whether it earns anything.
         </p>
       </Card>
+
+      <CopyPicks text={copyText} />
 
       <div className="space-y-1.5">
         {rows.map((r) => {
