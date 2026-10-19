@@ -45,7 +45,7 @@
  */
 import type { BoardEdge } from "./board-shop";
 import { betsAgainst } from "./favourites";
-import { type GameLines, type ScoreLeg, type ScoreModel, jointProbability, independentProduct } from "./joint-score";
+import { type GameLines, type PropLeg, type ScoreLeg, type ScoreModel, jointProbability, independentProduct } from "./joint-score";
 import { toAmerican } from "./parlay";
 import type { MarginModel } from "./probability";
 import { decimalFrom } from "./promo-ev";
@@ -84,10 +84,12 @@ export function priceSameGame(
   score: ScoreModel,
   lines: GameLines,
   legs: ScoreLeg[],
+  prop: PropLeg | null = null,
 ): SgpQuote | null {
-  const joint = jointProbability(margin, score, lines, legs);
+  const joint = jointProbability(margin, score, lines, legs, prop);
   if (joint === null) return null;
-  const independent = independentProduct(margin, score, lines, legs) ?? 0;
+  const independent =
+    (legs.length > 0 ? independentProduct(margin, score, lines, legs) ?? 0 : 1) * (prop ? prop.fair : 1);
 
   const fairDecimal = joint.win > 0 ? (1 - joint.push) / joint.win : null;
   return {

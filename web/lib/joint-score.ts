@@ -191,6 +191,55 @@ export function marginGrid(model: MarginModel): GridPoint[] {
   });
 }
 
+/**
+ * One player prop on the same game: its own fair chance, and how it moves with the score.
+ *
+ * The chance comes from outside the score model (Kalshi's midpoint, or an app's price
+ * with its cut taken out). The two correlations are MEASURED (`collector/prop_correlation
+ * .py`, `config/prop-correlation.json`): the latent correlation of the prop with the
+ * player's TEAM margin miss and with the total miss. The prop then joins the copula as a
+ * third normal, X = a*zTeam + b*w + c*e, with a and b solved so X has exactly those two
+ * correlations given how the margin and total relate to each other.
+ *
+ * One prop per ticket: how two players' stats move together is not measured, and a
+ * second prop leg would need exactly that.
+ */
+export interface PropLeg {
+  fair: number;
+  team: "home" | "away";
+  rhoMargin: number;
+  rhoTotal: number;
+}
+
+/** The prop's loadings on the team-margin latent and the total latent, and its own noise. */
+function propLoadings(prop: PropLeg, rhoDS: number) {
+  // The team's margin is the home margin, negated for the away team; so is its
+  // correlation with the total.
+  const r = prop.team === "home" ? rhoDS : -rhoDS;
+  const det = 1 - r * r;
+  const a = (prop.rhoMargin - r * prop.rhoTotal) / det;
+  const b = (prop.rhoTotal - r * prop.rhoMargin) / det;
+  const explained = a * prop.rhoMargin + b * prop.rhoTotal;
+  if (!(explained < 1)) return null;
+  return { a, b, c: Math.sqrt(1 - explained), cut: probit(1 - prop.fair) };
+}
+
+/** Simpson's rule over u in [lo, hi] of phi(u) * g(u). */
+function integrateNormal(lo: number, hi: number, g: (u: number) => number): number {
+  const from = Math.max(lo, -8);
+  const to = Math.min(hi, 8);
+  if (!(to > from)) return 0;
+  const steps = 48;
+  const h = (to - from) / steps;
+  let acc = 0;
+  for (let i = 0; i <= steps; i++) {
+    const u = from + i * h;
+    const weight = i === 0 || i === steps ? 1 : i % 2 === 1 ? 4 : 2;
+    acc += weight * Math.exp(-0.5 * u * u) * g(u);
+  }
+  return (acc * h) / 3 / Math.sqrt(2 * Math.PI);
+}
+
 export interface JointResult {
   /** Every leg wins outright. */
   win: number;
@@ -224,9 +273,11 @@ export function jointProbability(
   score: ScoreModel,
   lines: GameLines,
   legs: ScoreLeg[],
+  prop: PropLeg | null = null,
 ): JointResult | null {
-  if (legs.length === 0) return null;
+  if (legs.length === 0 && prop === null) return null;
   if (!(score.totalSd > 0) || !(margin.sd > 0)) return null;
+  if (prop !== null && !(prop.fair > 0 && prop.fair < 1)) return null;
   if (!Number.isFinite(lines.homeSpread) || !Number.isFinite(lines.total)) return null;
 
   const grid = marginGrid(margin);
@@ -234,6 +285,8 @@ export function jointProbability(
 
   const rho = Math.max(-0.999999, Math.min(0.999999, score.correlation));
   const conditionalSd = Math.sqrt(1 - rho * rho);
+  const load = prop === null ? null : propLoadings(prop, rho);
+  if (prop !== null && load === null) return null;
 
   // D = M − homeSpread and S = total + T, so aD·D + aS·S > c becomes a condition on the
   // two residuals alone.
@@ -271,6 +324,19 @@ export function jointProbability(
       // The total is continuous, so its own boundary carries no mass and strict and
       // weak agree there.
       const mean = rho * point.z;
+      if (load !== null && prop !== null) {
+        // With a prop: integrate over the total, weighting each value by the prop's
+        // chance there. w = mean + conditionalSd * u is the total's latent; the prop's
+        // latent given both is a*zTeam + b*w plus noise c.
+        const zTeam = prop.team === "home" ? point.z : -point.z;
+        const uLo = lower === -Infinity ? -Infinity : (zOf(lower) - mean) / conditionalSd;
+        const uHi = upper === Infinity ? Infinity : (zOf(upper) - mean) / conditionalSd;
+        const inside = integrateNormal(uLo, uHi, (u) =>
+          normalCdf((load.a * zTeam + load.b * (mean + conditionalSd * u) - load.cut) / load.c),
+        );
+        if (inside > 0) acc += point.mass * inside;
+        continue;
+      }
       const hi = upper === Infinity ? 1 : normalCdf((zOf(upper) - mean) / conditionalSd);
       const lo = lower === -Infinity ? 0 : normalCdf((zOf(lower) - mean) / conditionalSd);
       if (hi > lo) acc += point.mass * (hi - lo);

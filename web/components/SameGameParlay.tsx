@@ -4,9 +4,18 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { formatPrice } from "@/lib/format";
-import type { GameLines, ScoreLeg, ScoreModel } from "@/lib/joint-score";
+import type { GameLines, PropLeg, ScoreLeg, ScoreModel } from "@/lib/joint-score";
 import type { MarginModel } from "@/lib/probability";
+import { correlationsFor, measuredKey, positionOf } from "@/lib/prop-correlation";
+import { propFair, rungLabel, STAT_LABEL, type PropRow } from "@/lib/props";
 import { priceSameGame, sgpEv } from "@/lib/sgp";
+
+/**
+ * A touchdown-scorer price typed off an app, turned into a fair chance by taking out an
+ * ASSUMED cut: Kalshi is not listing anytime TD, and a one-sided price cannot be de-vigged.
+ * Labelled as an estimate wherever it shows.
+ */
+const ATD_ASSUMED_CUT = 0.08;
 
 /**
  * Build a same-game parlay and see the price the book has to beat.
@@ -51,6 +60,7 @@ export function SameGameParlay({
   margin,
   score,
   book,
+  props = [],
 }: {
   eventId: string;
   league: string;
@@ -62,6 +72,8 @@ export function SameGameParlay({
   margin: MarginModel | null;
   score: ScoreModel | null;
   book: string;
+  /** This game's Kalshi player props, for one player leg (prop-correlation.ts). */
+  props?: PropRow[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -74,6 +86,53 @@ export function SameGameParlay({
   const [bonus, setBonus] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // One player leg: a Kalshi rung (by market ticker), or an anytime TD typed off an app.
+  const [propPlayer, setPropPlayer] = useState("");
+  const [propPick, setPropPick] = useState("");
+  const [propPrice, setPropPrice] = useState("");
+
+  const propPlayers = useMemo(() => {
+    const seen = new Map<string, "home" | "away" | null>();
+    for (const row of props) if (!seen.has(row.player)) seen.set(row.player, row.teamSide);
+    return [...seen.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [props]);
+  const playerRungs = props.filter((r) => r.player === propPlayer && propFair(r) !== null);
+  const playerTeam = propPlayers.find(([name]) => name === propPlayer)?.[1] ?? null;
+
+  // The prop leg, priced -- or the reason it cannot be.
+  const propLeg = ((): { leg: PropLeg; label: string; estimated: boolean } | { refused: string } | null => {
+    if (!propPlayer || !propPick) return null;
+    if (!playerTeam) return { refused: "Kalshi does not say which team this player is on" };
+    const position = positionOf(propPlayer);
+    let fair: number | null;
+    let stat: PropRow["stat"];
+    let line: number | null;
+    let label: string;
+    let estimated = false;
+    if (propPick === "atd") {
+      const price = Number(propPrice);
+      if (!(Math.abs(price) >= 100)) return { refused: "type the app's anytime TD price" };
+      const implied = price > 0 ? 100 / (price + 100) : -price / (-price + 100);
+      fair = implied / (1 + ATD_ASSUMED_CUT);
+      stat = "anytime_td";
+      line = null;
+      label = `${propPlayer} anytime TD`;
+      estimated = true;
+    } else {
+      const rung = playerRungs.find((r) => r.marketTicker === propPick);
+      if (!rung) return null;
+      fair = propFair(rung);
+      stat = rung.stat;
+      line = rung.line;
+      label = `${propPlayer} ${rungLabel(rung)} ${STAT_LABEL[rung.stat].toLowerCase()}`;
+    }
+    const measured = measuredKey(stat, position, line);
+    if ("refused" in measured) return { refused: measured.refused };
+    const rho = correlationsFor(measured.key);
+    if (!rho || fair === null) return { refused: "no measured correlation for this prop" };
+    return { leg: { fair, team: playerTeam, rhoMargin: rho.rhoMargin, rhoTotal: rho.rhoTotal }, label, estimated };
+  })();
+  const priced = propLeg && "leg" in propLeg ? propLeg : null;
 
   const choices = useMemo<Choice[]>(() => {
     const out: Choice[] = [];
@@ -124,15 +183,21 @@ export function SameGameParlay({
   const legs: ScoreLeg[] = [...chosen.map((c) => c.leg), ...typedLegs.map((t) => t.leg)];
   const allLabels = [...chosen.map((c) => c.label), ...typedLegs.map((t) => t.label)];
 
+  const legCount = legs.length + (priced ? 1 : 0);
   const quote =
-    margin && score && lines && legs.length >= 2
-      ? priceSameGame(margin, score, lines, legs)
+    margin && score && lines && legCount >= 2
+      ? priceSameGame(margin, score, lines, legs, priced?.leg ?? null)
       : null;
+  if (priced) allLabels.push(`${priced.label}${priced.estimated ? " (estimated)" : ""}`);
 
   // The product of the legs' own prices: what these would pay from different games. The
   // book will offer less than this on one game, and the gap is what it charges for the
   // correlation. Only available when every leg has a price.
-  const allPrices = [...chosen.map((c) => c.price), ...typedLegs.map((t) => t.price)];
+  const allPrices = [
+    ...chosen.map((c) => c.price),
+    ...typedLegs.map((t) => t.price),
+    ...(priced ? [propPrice.trim() === "" ? null : Number(propPrice)] : []),
+  ];
   const independent = allPrices.every((p) => p !== null && Number.isFinite(p) && Math.abs(p) >= 100)
     ? allPrices.reduce<number>((acc, p) => acc * (p! > 0 ? 1 + p! / 100 : 1 + 100 / -p!), 1)
     : null;
@@ -328,7 +393,55 @@ export function SameGameParlay({
             </button>
           </div>
 
-          {legs.length < 2 ? (
+          {propPlayers.length > 0 ? (
+            <div className="mt-2.5 rounded-lg border border-violet-700/30 px-2 py-1.5">
+              <p className="text-[10px] uppercase tracking-wide text-slate-500">Player leg (one per ticket)</p>
+              <div className="mt-1 grid grid-cols-3 gap-1">
+                <select
+                  value={propPlayer}
+                  onChange={(e) => {
+                    setPropPlayer(e.target.value);
+                    setPropPick("");
+                  }}
+                  className={FIELD}
+                >
+                  <option value="">None</option>
+                  {propPlayers.map(([name]) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <select value={propPick} onChange={(e) => setPropPick(e.target.value)} className={FIELD} disabled={!propPlayer}>
+                  <option value="">Prop…</option>
+                  <option value="atd">Anytime TD (type price)</option>
+                  {playerRungs.map((r) => (
+                    <option key={r.marketTicker} value={r.marketTicker}>
+                      {STAT_LABEL[r.stat]} {rungLabel(r)} · {Math.round((propFair(r) ?? 0) * 100)}%
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={propPrice}
+                  onChange={(e) => setPropPrice(e.target.value)}
+                  placeholder={propPick === "atd" ? "app price" : "price (opt.)"}
+                  inputMode="numeric"
+                  className={FIELD}
+                />
+              </div>
+              {propLeg && "refused" in propLeg ? (
+                <p className="mt-1 text-[11px] text-amber-300/90">Can&rsquo;t price this leg: {propLeg.refused}.</p>
+              ) : priced ? (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {(priced.leg.fair * 100).toFixed(1)}% on its own
+                  {priced.estimated ? ` (estimated: the app's price less an assumed ${Math.round(ATD_ASSUMED_CUT * 100)}% cut)` : " (Kalshi)"}; moves with
+                  his team&rsquo;s margin {priced.leg.rhoMargin.toFixed(2)} and the total {priced.leg.rhoTotal.toFixed(2)} (measured).
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {legCount < 2 ? (
             <p className="mt-2 text-[12px] text-slate-500">Pick at least two legs.</p>
           ) : quote === null || quote.fairDecimal === null ? (
             <p className="mt-2 text-[12px] text-rose-300">
@@ -417,10 +530,15 @@ export function SameGameParlay({
                 </p>
               ) : null}
 
+              {priced ? (
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Tickets with a player leg can&rsquo;t be logged yet: the app can&rsquo;t grade player stats.
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={log}
-                disabled={busy || !validOffer || !(Number(stake) > 0)}
+                disabled={busy || !validOffer || !(Number(stake) > 0) || priced !== null}
                 className="mt-2 w-full rounded-lg bg-sky-500/15 py-2 text-[13px] font-medium text-sky-300 ring-1 ring-inset ring-sky-500/30 disabled:opacity-40"
               >
                 {busy ? "Saving…" : "Log this ticket"}

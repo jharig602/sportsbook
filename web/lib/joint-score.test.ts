@@ -261,3 +261,33 @@ test("each market becomes the half-plane it should", () => {
     { aD: -1, aS: 1, c: 49 },
   );
 });
+
+// --- a player prop leg -----------------------------------------------------------------
+
+test("a prop alone keeps its own chance, whatever its correlations", () => {
+  for (const [rm, rt] of [[0, 0], [0.32, 0.27], [-0.2, 0.4]]) {
+    const r = jointProbability(margin(), score(), LINES, [], { fair: 0.68, team: "home", rhoMargin: rm, rhoTotal: rt })!;
+    assert.ok(Math.abs(r.win - 0.68) < 0.003, `${rm}/${rt}: ${r.win}`);
+  }
+});
+
+test("with no correlation, a prop multiplies in", () => {
+  const legs: ScoreLeg[] = [{ market: "spread", side: "home", line: -3.5 }, { market: "total", side: "over", line: 45.5 }];
+  const game = jointProbability(margin(), score(), LINES, legs)!.win;
+  const withProp = jointProbability(margin(), score(), LINES, legs, { fair: 0.4, team: "home", rhoMargin: 0, rhoTotal: 0 })!.win;
+  assert.ok(Math.abs(withProp - game * 0.4) < 0.002);
+});
+
+test("a back's touchdown helps his team's cover and the over; it hurts the other side's", () => {
+  const cover: ScoreLeg[] = [{ market: "spread", side: "home", line: -3.5 }, { market: "total", side: "over", line: 45.5 }];
+  const td = { fair: 0.68, rhoMargin: 0.32, rhoTotal: 0.27 };
+  const game = jointProbability(margin(), score(), LINES, cover)!.win;
+  const sameTeam = jointProbability(margin(), score(), LINES, cover, { ...td, team: "home" })!.win;
+  const otherTeam = jointProbability(margin(), score(), LINES, cover, { ...td, team: "away" })!.win;
+  assert.ok(sameTeam > game * 0.68 * 1.15, "his team covering and the over make his TD likelier");
+  assert.ok(otherTeam < sameTeam, "the opponent's back, against his team's margin");
+  // Given the cover and the over, the TD comes in around 80-86% (base 68%) -- the
+  // measured 1.3x lift with the ceiling a 68% base allows.
+  const given = sameTeam / game;
+  assert.ok(given > 0.79 && given < 0.87, `P(TD | cover, over) = ${given}`);
+});

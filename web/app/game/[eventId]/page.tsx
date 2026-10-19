@@ -479,6 +479,7 @@ export default async function GamePage({
             margin={model}
             score={scores[league] ?? null}
             book={shopRows[0]?.book ?? "FanDuel"}
+            props={props}
           />
           <Card className="px-3.5 py-3">
             <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">

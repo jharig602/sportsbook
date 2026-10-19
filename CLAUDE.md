@@ -463,8 +463,18 @@ actually land on its number: the pmf pools whole-number and half-point lines ont
 half-point grid, so a game priced at −3 shows mass on residuals its margin cannot
 produce. Counting that as a push would invent a refund.
 
-**Player props are refused, not estimated.** Nothing here holds a player line and a
-receiving total is not a function of `D` and `S`.
+**One player prop per ticket, priced from measurement** (2026-10-19). A prop is a third
+latent in the same copula (`PropLeg` in joint-score.ts): its own fair chance (Kalshi's
+midpoint, or an app's anytime-TD price less an ASSUMED 8% cut, labelled an estimate) and
+its MEASURED correlations with the player's team-margin miss and the total miss
+(`prop-correlation.ts` -> `config/prop-correlation.json`; positions from
+`config/player-positions.json`, regenerate with `collector/player_positions.py` as the
+season goes). At each margin the total range the game legs allow is integrated against the
+prop's conditional chance (Simpson, 48 steps) -- still exact for the model. Only measured
+(stat, position) pairs are priced; first TD, 2+ pass TDs, TE receptions, RB receiving, QB
+rushing are refused with the reason. Two props on one ticket are refused: player-player
+correlation is unmeasured. Tickets with a player leg cannot be logged -- the ledger cannot
+grade player stats.
 
 Team totals are stored as `market='total'` with a `team` (v20), because that is what they
 are. No feed prices them, so the automatic pick cannot find one — the builder prices them
