@@ -210,7 +210,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **23** (v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **24** (v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -679,6 +679,41 @@ total as the tiebreaker.
   the +0.6 NFL lean, rounded.
 - Nothing on the page simulates at request time; the weekly rule's numbers are from the
   backtest above.
+
+---
+
+## Kalshi (read-only)
+
+Owner's plan, 2026-10-18 (`Desktop/dissent-kalshi-and-selling-plan.md`): Kalshi first, then
+maybe selling Dissent. Phase 1 is read-only -- **no order-placement code, ever, without a
+new decision**. `collector/kalshi.py` (step "Kalshi prices" in collect.yml, never fails
+the run) and `web/lib/kalshi.ts` / `kalshi-db.ts`. Settings, thresholds, fee and team codes
+are DATA in `web/config/kalshi.json` and `kalshi-aliases.json`, read by both sides.
+
+- **Michigan is blocked** (preliminary injunction, Ingham County, 2026-09-01). Flag 1
+  (stale book: a sportsbook's no-vig chance 2+ points under Kalshi's midpoint) bets at a
+  sportsbook and shows everywhere. Flags 2 (Kalshi value) and 3 (book + Kalshi arb) buy on
+  Kalshi: always computed and stored in `exchange_flags`, shown only when the viewer's state
+  is known and not in `blockedStates` (`kalshiFlagsVisible`; a guest's unknown state counts
+  as blocked). While blocked they are the **shadow log** (Settings), scored per $1 contract.
+  Removing MI from the config turns them on; a test pins it.
+- **Kalshi trades through the game.** Only snapshots before Dissent's kickoff are written
+  (Cardinals-Rams sat at 50/50 mid-game against an 86% pregame line).
+- **Matching never guesses.** Tickers are `SERIES-YYMONDD{AWAY}{HOME}` and the date is the
+  US EASTERN date (Monday night is filed under Monday). NFL: exact team codes via the alias
+  table (Kalshi uses WAS and JAC where ESPN uses WSH and JAX). College: both names through
+  `team_match` rules, an aliased code standing in for Kalshi's short name. Everything else
+  waits in `exchange_unmatched` for a manual link (Settings, `/api/kalshi-link`). Big college
+  games appear on Kalshi late in the week; FCS games share the dates, hence the noise.
+- **As a reference, not a book.** A deep, tight market (spread <= 3 cents, 100+ contracts at
+  the best price) joins `bookLinesFor` / `allBookLines` as a no-vig "Kalshi" row marked
+  `reference`; every consensus counts it, `shopSide` never makes a row for it, and the board's
+  second-book count and the boost finder's book list skip it.
+- **Fees**: taker `0.07 x p x (1 - p)` per contract (unconfirmed: the fee PDF rate-limited);
+  the football series are `quadratic_with_maker_fees`, so resting orders pay too.
+- **Polling** rides the collect runs (3-5 a day), not every 60 s as the plan hoped.
+- Kalshi at bet time and at kickoff on ledger moneylines is DERIVED from snapshot history
+  (`fairAt`), so `bets` stays append-only and unchanged.
 
 ---
 

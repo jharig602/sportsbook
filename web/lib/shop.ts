@@ -40,6 +40,12 @@ export interface BookQuote {
    * showing a thinner board than was actually observed.
    */
   stale?: boolean;
+  /**
+   * A reference price (Kalshi's midpoint): counted among the OTHER books for everyone
+   * else's consensus, but never shopped itself -- there is no row for it, because it is
+   * not a place to bet (and in Michigan, not a legal one).
+   */
+  reference?: boolean;
 }
 
 export interface ShopResult {
@@ -201,7 +207,7 @@ export function shopSide(
   model: MarginModel | null,
   minBooks = 1,
 ): ShopResult[] {
-  return quotes.map((quote) => {
+  return quotes.filter((quote) => !quote.reference).map((quote) => {
     // A stale quote never becomes anyone's reference.
     const others = quotes.filter((q) => q.book !== quote.book && !q.stale);
     const base: ShopResult = {

@@ -5,6 +5,10 @@ import { notFound } from "next/navigation";
 import { BookLineForm } from "@/components/BookLineForm";
 import { SameGameParlay } from "@/components/SameGameParlay";
 import { LineShop } from "@/components/LineShop";
+import { KalshiCard } from "@/components/KalshiCard";
+import { visibleFlags, type KalshiFlag, type KalshiGame } from "@/lib/kalshi";
+import { kalshiGames, openFlags } from "@/lib/kalshi-db";
+import { currentSession } from "@/lib/session";
 import { Probability } from "@/components/Probability";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Card, Empty, NotAdvice, Pill } from "@/components/ui";
@@ -12,7 +16,7 @@ import { bookLinesFor, quotesForGame } from "@/lib/book-lines";
 import { collapseAlerts, getData } from "@/lib/data";
 import { deVig, lineProbability, type MarginModel } from "@/lib/probability";
 import { shopAll } from "@/lib/shop";
-import { getTax } from "@/lib/settings-db";
+import { getLocation, getTax } from "@/lib/settings-db";
 import { boostNeeded, bonusValue, DEFAULT_TAX, type TaxSetting } from "@/lib/tax";
 import {
   formatKickoff,
@@ -229,6 +233,16 @@ export default async function GamePage({
     data.backend === "postgres" ? bookLinesFor(eventId) : Promise.resolve([]),
     data.backend === "postgres" ? getTax().catch(() => DEFAULT_TAX) : Promise.resolve(DEFAULT_TAX),
   ]);
+  // Kalshi for this game, and which of its flags this viewer may see: the owner by their
+  // state setting, a guest never (an unknown state counts as blocked).
+  const postgres = data.backend === "postgres";
+  const [kalshiMap, kalshiFlagsAll, session] = await Promise.all([
+    postgres ? kalshiGames(eventId).catch(() => new Map<string, KalshiGame>()) : Promise.resolve(new Map<string, KalshiGame>()),
+    postgres ? openFlags(eventId).catch(() => [] as KalshiFlag[]) : Promise.resolve([] as KalshiFlag[]),
+    currentSession(),
+  ]);
+  const viewerState = session.role === "owner" && postgres ? await getLocation().catch(() => "MI") : null;
+  const kalshiShown = visibleFlags(kalshiFlagsAll, viewerState);
 
   const game = games.find((g) => g.eventId === eventId);
   const result = results.find((r) => r.event_id === eventId);
@@ -443,6 +457,13 @@ export default async function GamePage({
       {game ? (
         <section className="mt-2 space-y-2">
           <LineShop rows={shopRows} homeTeam={homeTeam} awayTeam={awayTeam} eventId={game.eventId} />
+          <KalshiCard
+            kalshi={kalshiMap.get(eventId) ?? null}
+            flags={kalshiShown}
+            hidden={kalshiFlagsAll.length - kalshiShown.length}
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+          />
           <SameGameParlay
             eventId={game.eventId}
             league={league}

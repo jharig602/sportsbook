@@ -5,6 +5,8 @@ import { databaseUrl, databaseUrlSource, isPooled } from "@/lib/env";
 import { formatDay, formatKickoff, formatLeague, formatLine, formatPrice, formatRelative } from "@/lib/format";
 import type { Game, Side } from "@/lib/types";
 import { boardGames } from "@/lib/ordering";
+import { costToAmerican, effectiveAsk, isThin, type KalshiGame } from "@/lib/kalshi";
+import { kalshiGames } from "@/lib/kalshi-db";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,27 @@ const LEAGUES = [
   { key: "nfl", label: "NFL" },
 ];
 
-function SideRow({ game, side }: { game: Game; side: "home" | "away" }) {
+/**
+ * Kalshi's price to BUY this side, fee included, as an American price -- what the
+ * contract really costs, not its midpoint. "thin" when the market is too wide or shallow
+ * to stand as a reference. A dash when Kalshi does not list the game (yet).
+ */
+function KalshiCell({ kalshi, side }: { kalshi: KalshiGame | undefined; side: "home" | "away" }) {
+  const snap = kalshi?.[side];
+  if (!snap) return <span className="tabular w-12 text-right text-[11px] text-slate-700">—</span>;
+  const thin = isThin(snap);
+  const price = costToAmerican(effectiveAsk(snap.yesAsk));
+  return (
+    <span
+      className={`tabular w-12 text-right text-[11px] ${thin ? "text-slate-600" : "text-violet-300"}`}
+      title={thin ? "Kalshi market too thin to trust" : "Kalshi, to buy, after its fee"}
+    >
+      {thin ? "thin" : formatPrice(price)}
+    </span>
+  );
+}
+
+function SideRow({ game, side, kalshi }: { game: Game; side: "home" | "away"; kalshi?: KalshiGame }) {
   const team = side === "home" ? game.homeTeam : game.awayTeam;
   const spread = game.spread[side];
   const moneyline = game.moneyline[side];
@@ -44,11 +66,12 @@ function SideRow({ game, side }: { game: Game; side: "home" | "away" }) {
       <span className="tabular w-14 text-right text-[13px] text-slate-400">
         {formatPrice(moneyline?.price)}
       </span>
+      <KalshiCell kalshi={kalshi} side={side} />
     </div>
   );
 }
 
-function GameCard({ game }: { game: Game }) {
+function GameCard({ game, kalshi }: { game: Game; kalshi?: KalshiGame }) {
   const over = game.total.over;
   const under = game.total.under;
 
@@ -66,8 +89,8 @@ function GameCard({ game }: { game: Game }) {
         </span>
       </div>
 
-      <SideRow game={game} side="away" />
-      <SideRow game={game} side="home" />
+      <SideRow game={game} side="away" kalshi={kalshi} />
+      <SideRow game={game} side="home" kalshi={kalshi} />
 
       {over || under ? (
         <div className="mt-2 flex items-center gap-2.5 border-t border-edge/70 pt-2 text-[11px]">
@@ -93,7 +116,11 @@ export default async function BoardPage({
 }) {
   const { league = "all" } = await searchParams;
   const data = getData();
-  const [every, results] = await Promise.all([data.games(), data.results()]);
+  const [every, results, kalshi] = await Promise.all([
+    data.games(),
+    data.results(),
+    data.backend === "postgres" ? kalshiGames().catch(() => new Map<string, KalshiGame>()) : Promise.resolve(new Map<string, KalshiGame>()),
+  ]);
   // Only games still to play or under way; finished ones belong to the Record, not here.
   const all = boardGames(every, new Set(results.map((r) => r.event_id)));
   const issue = databaseStatus();
@@ -147,6 +174,14 @@ export default async function BoardPage({
         hrefFor={(key) => (key === "all" ? "/" : `/?league=${key}`)}
       />
 
+      {kalshi.size > 0 ? (
+        <p className="-mt-1 mb-3 text-[11px] leading-relaxed text-slate-500">
+          <span className="text-violet-300">Purple</span>, far right: Kalshi&rsquo;s price to buy that
+          side after its fee. Reference only &mdash; Kalshi sports can&rsquo;t be traded from
+          Michigan &mdash; but it joins every comparison as one more book.
+        </p>
+      ) : null}
+
       {games.length === 0 ? (
         <Empty
           title="No priced games"
@@ -170,7 +205,7 @@ export default async function BoardPage({
               </h2>
               <div className="space-y-1.5">
                 {dayGames.map((game) => (
-                  <GameCard key={game.eventId} game={game} />
+                  <GameCard key={game.eventId} game={game} kalshi={kalshi.get(game.eventId)} />
                 ))}
               </div>
             </section>

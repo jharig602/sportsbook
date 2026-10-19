@@ -444,3 +444,46 @@ export async function setTax(value: unknown): Promise<TaxSetting> {
   );
   return tax;
 }
+
+export const LOCATION_KEY = "location";
+
+/** Two-letter US state codes (plus DC): the only values a location may take. */
+export const US_STATES = [
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
+  "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM",
+  "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA",
+  "WV", "WI", "WY",
+];
+
+/**
+ * The owner's state, which decides what may be shown -- Kalshi flags that buy on Kalshi
+ * are hidden where `web/config/kalshi.json` blocks them. Absent means Michigan, where the
+ * owner is: defaulting to a state where Kalshi sports is legal would show bets that are
+ * not, the one direction this must never err in.
+ */
+export async function getLocation(): Promise<string> {
+  if (!databaseUrl()) return "MI";
+  try {
+    const db = await getPool();
+    const result = await db.query("SELECT value FROM app_settings WHERE key = $1", [LOCATION_KEY]);
+    const raw = result.rows[0]?.value;
+    const state = raw ? String(JSON.parse(raw)?.state ?? "") : "";
+    return US_STATES.includes(state) ? state : "MI";
+  } catch (error) {
+    if ((error as { code?: string })?.code === "42P01") return "MI";
+    if (error instanceof SyntaxError) return "MI";
+    throw error;
+  }
+}
+
+export async function setLocation(state: unknown): Promise<string> {
+  const code = String(state ?? "").toUpperCase();
+  if (!US_STATES.includes(code)) throw new Error("Not a US state code.");
+  const db = await getPool();
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [LOCATION_KEY, JSON.stringify({ state: code })],
+  );
+  return code;
+}

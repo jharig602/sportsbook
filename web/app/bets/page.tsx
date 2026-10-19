@@ -15,6 +15,8 @@ import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
 import { DEFAULT_TAX, yearTax } from "@/lib/tax";
 import { getTax } from "@/lib/settings-db";
+import { fairAt } from "@/lib/kalshi";
+import { kalshiHistory } from "@/lib/kalshi-db";
 import { ledgerSections } from "@/lib/ordering";
 import { hedgeBestCase, type Hedge } from "@/lib/hedge";
 import { liveGamesFor } from "@/lib/live-scores";
@@ -267,7 +269,28 @@ function HedgeRow({
   );
 }
 
-function BetRow({ bet, hold, live, why }: { bet: GradedRow; hold?: Hold; live?: string | null; why?: string | null }) {
+/**
+ * Kalshi's fair chance for this side when the bet was logged and at kickoff: a second
+ * closing-line check from a market with no vig. Rising means the bet beat the close.
+ */
+type KalshiClv = { atBet: number | null; atStart: number | null };
+function KalshiLine({ clv }: { clv?: KalshiClv }) {
+  if (!clv || (clv.atBet === null && clv.atStart === null)) return null;
+  const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
+  const moved = clv.atBet !== null && clv.atStart !== null ? (clv.atStart - clv.atBet) * 100 : null;
+  return (
+    <p className="mt-0.5 text-[11px] text-slate-500">
+      Kalshi: {pct(clv.atBet)} when logged → {pct(clv.atStart)} at kickoff
+      {moved !== null ? (
+        <span className={moved >= 0 ? "text-emerald-300/90" : "text-rose-300/90"}>
+          {" "}({moved >= 0 ? "+" : "−"}{Math.abs(moved).toFixed(1)} pts)
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
+function BetRow({ bet, hold, live, why, kalshi }: { bet: GradedRow; hold?: Hold; live?: string | null; why?: string | null; kalshi?: KalshiClv }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
   const label =
     bet.market === "total"
@@ -312,6 +335,7 @@ function BetRow({ bet, hold, live, why }: { bet: GradedRow; hold?: Hold; live?: 
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
           ) : null}
           <HoldValue hold={hold} live={live} why={why} total={bet.market === "total" && !bet.team} />
+          <KalshiLine clv={kalshi} />
         </div>
       </div>
     </Card>
@@ -371,6 +395,19 @@ export default async function BetsPage({
   }
   const corrections = bets.length - standing.length;
   const { rows, totals, hedges } = tally(standing, scores);
+  // Kalshi when each single moneyline bet was logged and at its kickoff (kalshi.ts).
+  const mlSingles = rows.filter((r) => r.market === "moneyline" && !r.parlay_id && (r.side === "home" || r.side === "away"));
+  const kalshiSnaps = await kalshiHistory([...new Set(mlSingles.map((r) => r.event_id))]).catch(() => new Map());
+  const kalshiClv = new Map<string, KalshiClv>();
+  for (const r of mlSingles) {
+    const snaps = kalshiSnaps.get(r.event_id);
+    if (!snaps) continue;
+    const side = r.side as "home" | "away";
+    kalshiClv.set(r.bet_id, {
+      atBet: fairAt(snaps, side, r.placed_at),
+      atStart: r.commence_time ? fairAt(snaps, side, r.commence_time) : null,
+    });
+  }
 
   // Live, then soonest kickoff, then won, lost and the rest. See ordering.ts.
   // A hedge is shown as ONE card, as it is counted: its first bet stands in for the
@@ -692,7 +729,7 @@ export default async function BetsPage({
                         ) : legs ? (
                           <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} />
                         ) : (
-                          <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} />
+                          <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} kalshi={kalshiClv.get(bet.bet_id)} />
                         )}
                         {hedgeById.has(bet.bet_id)
                           ? (

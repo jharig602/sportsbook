@@ -45,7 +45,8 @@ export default async function PromosPage({
     data.backend === "postgres" ? getFavourites().catch(() => [] as string[]) : Promise.resolve([] as string[]),
     data.backend === "postgres" ? getTax().catch(() => DEFAULT_TAX) : Promise.resolve(DEFAULT_TAX),
   ]);
-  const books = [...new Set([...lines.values()].flat().map((r) => r.book as string))].sort();
+  // Places a boost could be used: bookmakers, never Kalshi's reference price.
+  const books = [...new Set([...lines.values()].flat().filter((r) => !r.reference).map((r) => r.book as string))].sort();
   if (!books.includes("FanDuel")) books.unshift("FanDuel");
   const book = params.book && books.includes(params.book) ? params.book : "FanDuel";
   const found = findBoosts(games, lines, models, scoreModels, {

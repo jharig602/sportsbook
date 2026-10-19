@@ -3,9 +3,58 @@ import { FavouriteTeams } from "@/components/FavouriteTeams";
 import { PushSettings } from "@/components/PushSettings";
 import { StakeSettings } from "@/components/StakeSettings";
 import { currentSession } from "@/lib/session";
-import { getFavourites, getTax } from "@/lib/settings-db";
+import { getFavourites, getLocation, getTax, US_STATES } from "@/lib/settings-db";
 import { TaxSettings } from "@/components/TaxSettings";
 import { DEFAULT_TAX } from "@/lib/tax";
+import { KalshiLinks, type UnlinkedGame } from "@/components/KalshiLinks";
+import { LocationSetting } from "@/components/LocationSetting";
+import { getData } from "@/lib/data";
+import { KALSHI_CONFIG, kalshiFlagsVisible, shadowProfit } from "@/lib/kalshi";
+import { eventsWithKalshi, shadowLog, unmatchedEvents, type ShadowRow } from "@/lib/kalshi-db";
+
+/** A kickoff's date in New York, which is the date Kalshi files a game under. */
+const easternDate = (iso: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(iso));
+
+/** The shadow log in one line per flag kind: how many, how many settled, what they made. */
+function ShadowSummary({ rows, open }: { rows: ShadowRow[]; open: boolean }) {
+  const kinds = [
+    { kind: "kalshi_value" as const, label: "Kalshi value (flag 2)" },
+    { kind: "arb" as const, label: "Cross-venue arb (flag 3)" },
+  ];
+  return (
+    <div className="mt-3 border-t border-edge/70 pt-2.5">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        {open ? "Flags 2 and 3" : "Shadow log"}
+      </h3>
+      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+        {open
+          ? "Shown in your state. The record below is every one that has fired."
+          : "Hidden in your state, but every one that would have fired is recorded with the result, per $1 contract, so you will know whether they pay before risking money if the ban lifts."}
+      </p>
+      <ul className="mt-1.5 space-y-1 text-[12px] text-slate-300">
+        {kinds.map(({ kind, label }) => {
+          const all = rows.filter((r) => r.kind === kind);
+          // An arb's result is locked in when it fires; a value bet's waits for the score.
+          const settled = all.map((r) => shadowProfit(r, r.sideWon)).filter((p): p is number => p !== null);
+          const counted = settled.length;
+          const total = settled.reduce((a, b) => a + b, 0);
+          return (
+            <li key={kind} className="flex justify-between gap-2">
+              <span>{label}</span>
+              <span className="tabular text-slate-400">
+                {all.length} fired · {counted} settled ·{" "}
+                <span className={total >= 0 ? "text-emerald-300" : "text-rose-300"}>
+                  {total >= 0 ? "+" : "−"}${Math.abs(total).toFixed(2)}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 export const metadata = { title: "Settings · Dissent" };
 
@@ -39,6 +88,30 @@ export default async function AboutPage() {
     getFavourites().catch(() => [] as string[]),
     getTax().catch(() => DEFAULT_TAX),
   ]);
+  // Kalshi (owner only): state, unmatched games to link by hand, and the shadow log.
+  const kalshi =
+    session.role === "owner"
+      ? await Promise.all([
+          getLocation().catch(() => "MI"),
+          getData().games().catch(() => []),
+          eventsWithKalshi().catch(() => new Set<string>()),
+          unmatchedEvents().catch(() => []),
+          shadowLog().catch(() => [] as ShadowRow[]),
+        ])
+      : null;
+  const now = Date.now();
+  const unlinked: UnlinkedGame[] = kalshi
+    ? kalshi[1]
+        .filter((g) => Date.parse(g.commenceTime) > now && !kalshi[2].has(g.eventId))
+        .filter((g) => g.league === "nfl" || g.league === "ncaaf")
+        .sort((a, b) => a.commenceTime.localeCompare(b.commenceTime))
+        .map((g) => ({
+          eventId: g.eventId,
+          league: g.league as "nfl" | "ncaaf",
+          label: `${g.awayTeam ?? "?"} @ ${g.homeTeam ?? "?"} · ${easternDate(g.commenceTime)}`,
+          date: easternDate(g.commenceTime),
+        }))
+    : [];
   // Teams are a shared setting, written by the owner. A guest would see the picker and
   // then have every save refused, so a guest simply does not get one.
   const owner = session.role === "owner";
@@ -58,8 +131,28 @@ export default async function AboutPage() {
       </Card>
 
       {owner ? (
-        <Card className="mb-8 px-3 py-3">
+        <Card className="mb-4 px-3 py-3">
           <TaxSettings initial={tax} />
+        </Card>
+      ) : null}
+
+      {kalshi ? (
+        <Card className="mb-8 px-3 py-3">
+          <LocationSetting initial={kalshi[0]} states={US_STATES} blocked={KALSHI_CONFIG.blockedStates} />
+          <div className="mt-3 border-t border-edge/70 pt-2.5">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Kalshi matches · {unlinked.length} board game{unlinked.length === 1 ? "" : "s"} without one
+            </h3>
+            <p className="mb-2 mt-1 text-[11px] leading-relaxed text-slate-500">
+              Games are matched by team codes or both team names and never guessed. Big
+              college games often appear on Kalshi only late in the week.
+            </p>
+            <KalshiLinks
+              games={unlinked}
+              candidates={kalshi[3].map((u) => ({ eventTicker: u.eventTicker, title: u.title, reason: u.reason, date: u.gameDate, league: u.league as "nfl" | "ncaaf" }))}
+            />
+          </div>
+          <ShadowSummary rows={kalshi[4]} open={kalshiFlagsVisible(kalshi[0])} />
         </Card>
       ) : null}
 

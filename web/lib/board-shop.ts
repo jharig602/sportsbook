@@ -65,7 +65,8 @@ export function buildBoardShop(
     if (stored.length === 0) continue;
 
     const quotes = quotesForGame(game, stored, "DraftKings", now);
-    const distinct = new Set(quotes.filter((q) => !q.stale).map((q) => q.book));
+    // Bookmakers only: Kalshi's reference price is not a second book to bet at.
+    const distinct = new Set(quotes.filter((q) => !q.stale && !q.reference).map((q) => q.book));
     if (distinct.size < 2) continue;
     gamesWithSecondBook += 1;
     for (const book of distinct) books.add(book);

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { databaseUrl } from "./env";
+import { referenceRows } from "./kalshi";
+import { kalshiGames } from "./kalshi-db";
 import type { BookQuote } from "./shop";
 import type { Game, Market, Side } from "./types";
 
@@ -52,6 +54,11 @@ export interface BookLineRow {
   price: number | null;
   source: string;
   note: string | null;
+  /**
+   * A price to compare against, never one to bet: Kalshi's midpoint (`kalshi.ts`). It
+   * joins every consensus and is never offered as a book to take.
+   */
+  reference?: boolean;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -122,6 +129,12 @@ const LATEST_PER_BOOK = `
 `;
 
 export async function bookLinesFor(eventId: string): Promise<BookLineRow[]> {
+  const [books, kalshi] = await Promise.all([bookRowsFor(eventId), kalshiGames(eventId)]);
+  const game = kalshi.get(eventId);
+  return game ? [...books, ...referenceRows(game)] : books;
+}
+
+async function bookRowsFor(eventId: string): Promise<BookLineRow[]> {
   const db = await getPool();
   try {
     const result = await db.query(LATEST_PER_BOOK, [eventId]);
@@ -220,6 +233,7 @@ export function quotesForGame(
       oppositePrice: opposite?.price ?? null,
       observedAt: row.observed_at,
       stale: isStale(row.observed_at),
+      ...(row.reference ? { reference: true } : {}),
     });
   }
 
@@ -274,6 +288,12 @@ export async function allBookLines(): Promise<Map<string, BookLineRow[]>> {
   } catch (error) {
     if ((error as { code?: string })?.code === "42P01") return byEvent;
     throw error;
+  }
+  // Kalshi's midpoint as a reference row on every game it prices (kalshi.ts).
+  for (const [eventId, game] of await kalshiGames()) {
+    const refs = referenceRows(game);
+    if (refs.length === 0) continue;
+    byEvent.set(eventId, [...(byEvent.get(eventId) ?? []), ...refs]);
   }
   return byEvent;
 }
