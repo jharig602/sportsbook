@@ -573,6 +573,11 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
     summary["unmatched"] = len(unmatched_rows)
     summary["quotes"] = len(quote_rows)
     summary["flags"] = len(flag_rows)
+    # By kind, so a flood of one kind (a bad threshold, a stale feed) is visible in the log.
+    by_kind: dict[str, int] = {}
+    for row in flag_rows:
+        by_kind[row[6]] = by_kind.get(row[6], 0) + 1
+    summary["flags_by_kind"] = by_kind
     summary["board_games_without_kalshi"] = sum(
         1 for g in games if g.league in leagues and g.event_id not in matched_ids)
 
