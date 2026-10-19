@@ -288,3 +288,15 @@ def test_one_college_alias_fixes_a_name_kalshi_spells_differently():
                   datetime(2026, 10, 23, 23, 0, tzinfo=UTC))
     result = k.match_event(k.parse_event(umass, "ncaaf"), [game], ALIASES, {})
     assert isinstance(result, k.Matched) and result.sides == {"CONN": "home", "MASS": "away"}
+
+
+def test_an_old_book_price_never_makes_a_flag(tmp_path, capsys):
+    # The same game and prices, but DraftKings last seen 10 hours ago: too old to compare
+    # with this minute's Kalshi price, so no stale book and no arb -- and it says so.
+    path = _warehouse(tmp_path, NOW + timedelta(hours=5))
+    con = duckdb.connect(str(path))
+    con.execute("UPDATE odds_snapshots SET observed_at = ?", [NOW - timedelta(hours=10)])
+    con.close()
+    summary = _run(path, {"KXNFLGAME": [ARI_LAR]}, capsys)
+    assert summary["quotes"] == 2 and summary["flags"] == 0
+    assert summary["books_too_old"] == 1

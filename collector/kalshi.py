@@ -444,34 +444,55 @@ def manual_links(database: Database) -> dict[str, str]:
         "SELECT event_ticker, event_id FROM exchange_links WHERE venue = ?", [VENUE])}
 
 
-def book_quotes(database: Database, event_id: str, now: datetime) -> list[BookQuote]:
-    """Every sportsbook's latest moneyline on one game: the board's DraftKings and book_lines."""
+def book_quotes(database: Database, event_id: str, now: datetime,
+                max_age_hours: float) -> tuple[list[BookQuote], int]:
+    """Every sportsbook's latest moneyline on one game -- the board's DraftKings and
+    book_lines -- that is recent enough to compare against a live Kalshi price.
+
+    Returns the usable quotes and how many books were dropped as too old. The age bar is
+    the whole point: the other books arrive from a feed polled sparingly to save credits,
+    so on a Monday a "latest" FanDuel line can be a day old, and a day-old line against
+    this minute's Kalshi price is exactly what a stale book or an arb looks like. The
+    first live run flagged 20 stale books and 4 arbs on 42 games before this existed.
+    """
     cutoff = now - timedelta(hours=BOOK_FRESH_HOURS)
-    latest: dict[tuple[str, str], int] = {}
-    for side, price in database.fetchall(
+    latest: dict[tuple[str, str], tuple[int, datetime]] = {}
+
+    def seen(value: Any) -> datetime:
+        if isinstance(value, str):
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+    for side, price, observed in database.fetchall(
         """
-        SELECT side, price FROM odds_snapshots
+        SELECT side, price, observed_at FROM odds_snapshots
          WHERE event_id = ? AND market = 'moneyline' AND price IS NOT NULL
            AND observation_kind = 'pregame_observation' AND observed_at >= ?
          ORDER BY observed_at
         """, [event_id, cutoff]):
-        latest[("DraftKings", str(side))] = int(price)
-    for book, side, price in database.fetchall(
+        latest[("DraftKings", str(side))] = (int(price), seen(observed))
+    for book, side, price, observed in database.fetchall(
         """
-        SELECT book, side, price FROM book_lines
+        SELECT book, side, price, observed_at FROM book_lines
          WHERE event_id = ? AND market = 'moneyline' AND price IS NOT NULL AND observed_at >= ?
          ORDER BY observed_at
         """, [event_id, cutoff]):
         if str(book) == "DraftKings":
             continue  # the board's own DraftKings is the authority on DraftKings
-        latest[(str(book), str(side))] = int(price)
+        latest[(str(book), str(side))] = (int(price), seen(observed))
+    fresh_after = now - timedelta(hours=max_age_hours)
     quotes = []
-    for (book, side), price in latest.items():
+    dropped: set[str] = set()
+    for (book, side), (price, observed) in latest.items():
         if side not in ("home", "away"):
             continue
+        if observed < fresh_after:
+            dropped.add(book)
+            continue
         other = latest.get((book, "away" if side == "home" else "home"))
-        quotes.append(BookQuote(book, side, price, other))
-    return quotes
+        opposite = other[0] if other and other[1] >= fresh_after else None
+        quotes.append(BookQuote(book, side, price, opposite))
+    return quotes, len(dropped)
 
 
 QUOTE_COLUMNS = ["quote_id", "observed_at", "venue", "league", "event_id", "event_ticker",
@@ -515,7 +536,7 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
     coefficient = float(config["fee"]["takerCoefficient"])
     summary: dict[str, Any] = {"type": "kalshi_summary", "events": 0, "matched": 0,
                                "unmatched": 0, "quotes": 0, "thin": 0, "after_kickoff": 0,
-                               "flags": 0, "board_games_without_kalshi": 0}
+                               "flags": 0, "board_games_without_kalshi": 0, "books_too_old": 0}
     quote_rows: list[list] = []
     flag_rows: list[list] = []
     unmatched_rows: list[Unmatched] = []
@@ -561,8 +582,10 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
             if fair is None:
                 continue
             cost = {s: effective_ask(m.yes_ask, coefficient) for s, m in by_side.items()}
-            for flag in compute_flags(fair, cost, book_quotes(database, result.game.event_id, now),
-                                      config["flags"]):
+            quotes, too_old = book_quotes(database, result.game.event_id, now,
+                                          float(config["flags"]["maxBookAgeHours"]))
+            summary["books_too_old"] += too_old
+            for flag in compute_flags(fair, cost, quotes, config["flags"]):
                 flag_rows.append([
                     flag_id(result.game.event_id, flag), now, VENUE, league, result.game.event_id,
                     result.game.commence_time, flag.kind, flag.side, flag.book, flag.book_price,

@@ -6,7 +6,7 @@
  * lands before the collector's v24 migration shows "no Kalshi data", not an error page.
  */
 import { databaseUrl } from "./env";
-import { pairSnapshots, type KalshiFlag, type KalshiGame, type KalshiSnapshot } from "./kalshi";
+import { KALSHI_CONFIG, pairSnapshots, type KalshiFlag, type KalshiGame, type KalshiSnapshot } from "./kalshi";
 import type { League } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -107,15 +107,20 @@ function flag(r: Record<string, any>): KalshiFlag {
 const FLAG_COLUMNS = `flag_id, observed_at, league, event_id, commence_time, kind, side, book,
   book_price, book_fair, kalshi_fair, kalshi_cost, consensus, edge_points, books`;
 
-/** Flags on games still to start -- every kind; gate with `visibleFlags` before showing. */
+/**
+ * Recent flags on games still to start -- every kind; gate with `visibleFlags` before
+ * showing. Only flags seen in the last `openFlagHours`: prices move, and a flag from
+ * yesterday's prices is history, not something to act on.
+ */
 export async function openFlags(eventId: string | null = null): Promise<KalshiFlag[]> {
   return (
     await rows(
       `SELECT ${FLAG_COLUMNS} FROM exchange_flags
         WHERE venue = 'kalshi' AND commence_time > NOW()
+          AND observed_at > NOW() - make_interval(hours => $2::int)
           AND ($1::text IS NULL OR event_id = $1)
         ORDER BY edge_points DESC`,
-      [eventId],
+      [eventId, KALSHI_CONFIG.flags.openFlagHours],
     )
   ).map(flag);
 }
@@ -134,7 +139,9 @@ export async function shadowLog(): Promise<ShadowRow[]> {
          FROM exchange_flags f
          LEFT JOIN game_results r ON r.event_id = f.event_id
         WHERE f.venue = 'kalshi' AND f.kind IN ('kalshi_value', 'arb')
+          AND f.observed_at >= $1
         ORDER BY f.observed_at DESC`,
+      [KALSHI_CONFIG.shadowLogSince],
     )
   ).map((r) => {
     const base = flag(r);

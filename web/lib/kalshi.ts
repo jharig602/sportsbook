@@ -31,7 +31,15 @@ export interface KalshiConfig {
   blockedStates: string[];
   thin: { maxSpreadDollars: number; minDepthContracts: number };
   fee: { takerCoefficient: number };
-  flags: { staleBookPoints: number; kalshiValuePoints: number; arbMarginPoints: number };
+  flags: {
+    staleBookPoints: number;
+    kalshiValuePoints: number;
+    arbMarginPoints: number;
+    maxBookAgeHours: number;
+    openFlagHours: number;
+  };
+  /** Flags before this were computed without the book-age bar; the shadow log skips them. */
+  shadowLogSince: string;
 }
 
 export const KALSHI_CONFIG: KalshiConfig = config as KalshiConfig;
