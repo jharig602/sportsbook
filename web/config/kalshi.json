@@ -26,5 +26,18 @@
     "openFlagHours": 6
   },
   "_flags": "staleBook: a sportsbook's no-vig chance sits this many points below Kalshi's fair midpoint. kalshiValue: Kalshi's fee-adjusted ask is this many points below the sportsbook consensus fair chance. arb: a sportsbook price on one side plus Kalshi's fee-adjusted price on the other cost at least this many points under 100%. maxBookAgeHours: a sportsbook price older than this is never compared with a live Kalshi price (the other books are polled sparingly, and an old line reads as a stale book or an arb). openFlagHours: how long a flag stays on a game page; prices move. shadowLogSince: flags recorded before this were computed without the book-age bar and are left out of the shadow log (kept in the table, not deleted).",
-  "shadowLogSince": "2026-10-19T21:39:00Z"
+  "shadowLogSince": "2026-10-19T21:39:00Z",
+  "props": {
+    "nfl": {
+      "rec_yds": "KXNFLRECYDS",
+      "rush_yds": "KXNFLRSHYDS",
+      "pass_yds": "KXNFLPASSYDS",
+      "rush_rec_yds": "KXNFLRRYDS",
+      "receptions": "KXNFLREC",
+      "pass_tds": "KXNFLPASSTDS",
+      "first_td": "KXNFLFIRSTTD",
+      "anytime_td": "KXNFLANYTD"
+    }
+  },
+  "_props": "Player-prop series to collect, by league and stat. Props link to the board only through their game's ticker suffix (an already-matched game), never by names."
 }

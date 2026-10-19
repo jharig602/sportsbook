@@ -300,3 +300,68 @@ def test_an_old_book_price_never_makes_a_flag(tmp_path, capsys):
     summary = _run(path, {"KXNFLGAME": [ARI_LAR]}, capsys)
     assert summary["quotes"] == 2 and summary["flags"] == 0
     assert summary["books_too_old"] == 1
+
+
+# --- player props ------------------------------------------------------------------------
+
+def prop_market(ticker, title, strike, bid, ask):
+    return {"ticker": ticker, "title": title, "yes_sub_title": title.split(" receiving")[0],
+            "floor_strike": strike, "yes_bid_dollars": f"{bid:.4f}", "yes_ask_dollars": f"{ask:.4f}",
+            "yes_bid_size_fp": "3000.00", "yes_ask_size_fp": "3000.00", "volume_fp": "5000.00"}
+
+
+REC_YDS = {"event_ticker": "KXNFLRECYDS-26OCT18ARILAR", "markets": [
+    prop_market("KXNFLRECYDS-26OCT18ARILAR-LARPNACUA17-60", "Puka Nacua: 60+ receiving yards", 59.5, 0.62, 0.63),
+    prop_market("KXNFLRECYDS-26OCT18ARILAR-ARIMHARRISON18-50", "Marvin Harrison: 50+ receiving yards", 49.5, 0.48, 0.49),
+]}
+FIRST_TD = {"event_ticker": "KXNFLFIRSTTD-26OCT18ARILAR", "markets": [
+    {"ticker": "KXNFLFIRSTTD-26OCT18ARILAR-LARKWILLIAMS23", "title": "Kyren Williams: 1st Touchdown",
+     "floor_strike": None, "yes_bid_dollars": "0.1400", "yes_ask_dollars": "0.1500",
+     "yes_bid_size_fp": "5000.00", "yes_ask_size_fp": "5000.00", "volume_fp": "100.00"},
+]}
+
+
+def test_props_parse_player_team_and_line():
+    props = k.parse_props(REC_YDS, "rec_yds", ["LAR", "ARI"])
+    nacua = next(p for p in props if p.player == "Puka Nacua")
+    assert (nacua.team_code, nacua.line, nacua.yes_bid) == ("LAR", 59.5, 0.62)
+    first = k.parse_props(FIRST_TD, "first_td", ["LAR", "ARI"])[0]
+    assert (first.player, first.team_code, first.line) == ("Kyren Williams", "LAR", None)
+
+
+def _prop_feed(payloads):
+    def request(url, headers, timeout):
+        series = url.split("series_ticker=")[1].split("&")[0]
+        return 200, {}, json.dumps({"events": payloads.get(series, []), "cursor": ""}).encode()
+    return request
+
+
+def _prop_run(path, payloads, capsys, at=NOW):
+    k.main(["--db", str(path), "--league", "nfl"], request_fn=_prop_feed(payloads),
+           sleep_fn=lambda s: None, clock=lambda: at)
+    return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_props_link_through_the_matched_game_and_store_price_changes_only(tmp_path, capsys):
+    path = _warehouse(tmp_path, NOW + timedelta(hours=5))
+    stray = dict(REC_YDS, event_ticker="KXNFLRECYDS-26OCT18DALGB")  # no matched game
+    feed = {"KXNFLGAME": [ARI_LAR], "KXNFLRECYDS": [REC_YDS, stray], "KXNFLFIRSTTD": [FIRST_TD]}
+    summary = _prop_run(path, feed, capsys)
+    assert summary["props"] == 3 and summary["props_unlinked"] == 1
+    _prop_run(path, feed, capsys, at=NOW + timedelta(minutes=10))  # nothing moved
+    moved = json.loads(json.dumps(feed))
+    moved["KXNFLRECYDS"][0]["markets"][0]["yes_ask_dollars"] = "0.6500"
+    _prop_run(path, moved, capsys, at=NOW + timedelta(minutes=20))  # Nacua's ask moved
+    con = duckdb.connect(str(path))
+    rows = con.execute("SELECT player, team_side, line, last_seen FROM exchange_props ORDER BY player, last_seen").fetchall()
+    assert len(rows) == 4, "three contracts plus one price change"
+    sides = {player: side for player, side, _, _ in rows}
+    assert sides == {"Puka Nacua": "home", "Marvin Harrison": "away", "Kyren Williams": "home"}
+    harrison = [r for r in rows if r[0] == "Marvin Harrison"]
+    assert len(harrison) == 1 and harrison[0][3] == NOW + timedelta(minutes=20), "re-seen, not re-written"
+
+
+def test_no_props_after_kickoff(tmp_path, capsys):
+    path = _warehouse(tmp_path, NOW - timedelta(minutes=5))
+    summary = _prop_run(path, {"KXNFLGAME": [ARI_LAR], "KXNFLRECYDS": [REC_YDS]}, capsys)
+    assert summary["props"] == 0

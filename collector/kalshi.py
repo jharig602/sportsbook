@@ -391,6 +391,68 @@ def flag_id(event_id: str, flag: Flag) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:32]
 
 
+# --- player props ----------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PropMarket:
+    market_ticker: str
+    stat: str
+    player: str
+    #: Kalshi's floor_strike: 39.5 means "40+". None for first/anytime touchdown.
+    line: float | None
+    #: The player's team code, read off the market code ("SF" in "SFMEVANS5-40").
+    team_code: str | None
+    yes_bid: float | None
+    yes_ask: float | None
+    bid_size: float | None
+    ask_size: float | None
+    volume: float | None
+
+
+def game_suffix(event_ticker: str) -> str:
+    """The date-and-teams part every market on one game shares: "26OCT19WASSF"."""
+    return event_ticker.split("-", 1)[1] if "-" in event_ticker else ""
+
+
+def parse_props(raw: dict, stat: str, team_codes: list[str]) -> list[PropMarket]:
+    """One Kalshi prop event's markets. `team_codes` are the game's two Kalshi codes; the
+    player's team is whichever one opens his market code -- longest first, so a code
+    that is another's prefix cannot claim the wrong player."""
+    ticker = str(raw.get("event_ticker") or "")
+    codes = sorted(team_codes, key=len, reverse=True)
+    out = []
+    for m in raw.get("markets") or []:
+        market_ticker = str(m.get("ticker") or "")
+        if not market_ticker.startswith(ticker + "-"):
+            continue
+        code = market_ticker[len(ticker) + 1:].split("-")[0]
+        team = next((c for c in codes if code.startswith(c) and len(code) > len(c)), None)
+        title = str(m.get("title") or m.get("yes_sub_title") or "")
+        player = title.split(":")[0].strip()
+        strike = m.get("floor_strike")
+        line = float(strike) if isinstance(strike, (int, float)) else None
+        if not player:
+            continue
+        out.append(PropMarket(
+            market_ticker, stat, player, line, team,
+            _dollars(m.get("yes_bid_dollars")), _dollars(m.get("yes_ask_dollars")),
+            _dollars(m.get("yes_bid_size_fp")), _dollars(m.get("yes_ask_size_fp")),
+            _dollars(m.get("volume_fp")),
+        ))
+    return out
+
+
+def prop_id(market: PropMarket) -> str:
+    """Keyed by contract AND price, so a price that has not moved is one row, re-seen."""
+    key = f"{market.market_ticker}|{market.yes_bid}|{market.yes_ask}"
+    return hashlib.sha256(key.encode()).hexdigest()[:32]
+
+
+PROP_COLUMNS = ["prop_id", "first_seen", "last_seen", "venue", "league", "event_id",
+                "event_ticker", "market_ticker", "stat", "player", "team_side", "line",
+                "yes_bid", "yes_ask", "bid_size", "ask_size", "volume", "commence_time"]
+
+
 # --- I/O -------------------------------------------------------------------------------
 
 def fetch_events(base_url: str, series: str, request_fn: Callable = http_request,
@@ -536,8 +598,12 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
     coefficient = float(config["fee"]["takerCoefficient"])
     summary: dict[str, Any] = {"type": "kalshi_summary", "events": 0, "matched": 0,
                                "unmatched": 0, "quotes": 0, "thin": 0, "after_kickoff": 0,
-                               "flags": 0, "board_games_without_kalshi": 0, "books_too_old": 0}
+                               "flags": 0, "board_games_without_kalshi": 0, "books_too_old": 0,
+                               "props": 0, "props_unlinked": 0}
     quote_rows: list[list] = []
+    prop_rows: list[list] = []
+    #: Game ticker suffix -> the match, so prop events (which share it) link without guessing.
+    matched_by_suffix: dict[tuple[str, str], Matched] = {}
     flag_rows: list[list] = []
     unmatched_rows: list[Unmatched] = []
     matched_ids: set[str] = set()
@@ -560,6 +626,7 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
             summary["matched"] += 1
             matched_ids.add(result.game.event_id)
             matched_tickers.append(event.event_ticker)
+            matched_by_suffix[(league, game_suffix(event.event_ticker))] = result
             if now >= result.game.commence_time:
                 summary["after_kickoff"] += 1
                 continue  # live prices are not references
@@ -593,6 +660,30 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
                     flag.edge_points, flag.books,
                 ])
 
+    # Player props, for leagues the config lists them for. They share their game's ticker
+    # suffix, so a prop links to a board game only through a game match already made --
+    # never by matching player or team names. Pregame only, like the game prices.
+    for league, series_by_stat in (config.get("props") or {}).items():
+        if league not in leagues:
+            continue
+        for stat, series in series_by_stat.items():
+            for raw in fetch_events(config["baseUrl"], series, request_fn, sleep_fn):
+                match = matched_by_suffix.get((league, game_suffix(str(raw.get("event_ticker") or ""))))
+                if match is None:
+                    summary["props_unlinked"] += 1
+                    continue
+                if now >= match.game.commence_time:
+                    continue
+                for prop in parse_props(raw, stat, list(match.sides)):
+                    prop_rows.append([
+                        prop_id(prop), now, now, VENUE, league, match.game.event_id,
+                        str(raw.get("event_ticker")), prop.market_ticker, prop.stat, prop.player,
+                        match.sides.get(prop.team_code) if prop.team_code else None, prop.line,
+                        prop.yes_bid, prop.yes_ask, prop.bid_size, prop.ask_size, prop.volume,
+                        match.game.commence_time,
+                    ])
+    summary["props"] = len(prop_rows)
+
     summary["unmatched"] = len(unmatched_rows)
     summary["quotes"] = len(quote_rows)
     summary["flags"] = len(flag_rows)
@@ -605,6 +696,15 @@ def main(argv: list[str] | None = None, *, request_fn: Callable = http_request,
         1 for g in games if g.league in leagues and g.event_id not in matched_ids)
 
     if not args.dry_run:
+        if prop_rows:
+            # A price seen before only moves its last_seen (and the depth, which changes
+            # without the price): storage grows with price changes, not with polls.
+            database.executemany(
+                insert_sql("exchange_props", PROP_COLUMNS)
+                + " ON CONFLICT (prop_id) DO UPDATE SET last_seen = excluded.last_seen,"
+                  " bid_size = excluded.bid_size, ask_size = excluded.ask_size,"
+                  " volume = excluded.volume",
+                prop_rows)
         if quote_rows:
             # Keyed by contract and poll time, so re-running the same poll adds nothing.
             database.executemany(

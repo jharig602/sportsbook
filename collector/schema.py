@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 24
+ANALYTICS_SCHEMA_VERSION = 25
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -690,6 +690,34 @@ CREATE TABLE IF NOT EXISTS exchange_flags (
 );
 
 CREATE INDEX IF NOT EXISTS exchange_flags_event ON exchange_flags (event_id, kind);
+
+CREATE TABLE IF NOT EXISTS exchange_props (
+    -- v25: Kalshi player props, pregame only, one row per contract PER PRICE: a price
+    -- that has not moved is the same row with a later last_seen. Kalshi lists ~300 prop
+    -- contracts a game, so a row per poll would fill the free database in weeks.
+    prop_id VARCHAR PRIMARY KEY,
+    first_seen TIMESTAMPTZ NOT NULL,
+    last_seen TIMESTAMPTZ NOT NULL,
+    venue VARCHAR NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    event_ticker VARCHAR NOT NULL,
+    market_ticker VARCHAR NOT NULL,
+    -- rec_yds, rush_yds, pass_yds, rush_rec_yds, receptions, pass_tds, first_td, anytime_td
+    stat VARCHAR NOT NULL,
+    player VARCHAR NOT NULL,
+    team_side VARCHAR,
+    -- Kalshi's floor_strike: 39.5 is "40+". NULL for first/anytime touchdown.
+    line DOUBLE PRECISION,
+    yes_bid DOUBLE PRECISION,
+    yes_ask DOUBLE PRECISION,
+    bid_size DOUBLE PRECISION,
+    ask_size DOUBLE PRECISION,
+    volume DOUBLE PRECISION,
+    commence_time TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS exchange_props_event ON exchange_props (event_id, last_seen);
 
 """
 
