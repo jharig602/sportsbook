@@ -6,8 +6,10 @@ import { BookLineForm } from "@/components/BookLineForm";
 import { SameGameParlay } from "@/components/SameGameParlay";
 import { LineShop } from "@/components/LineShop";
 import { KalshiCard } from "@/components/KalshiCard";
+import { PlayerProps } from "@/components/PlayerProps";
 import { visibleFlags, type KalshiFlag, type KalshiGame } from "@/lib/kalshi";
-import { kalshiGames, openFlags } from "@/lib/kalshi-db";
+import { kalshiGames, kalshiProps, openFlags } from "@/lib/kalshi-db";
+import type { PropRow } from "@/lib/props";
 import { currentSession } from "@/lib/session";
 import { Probability } from "@/components/Probability";
 import { TeamLogo } from "@/components/TeamLogo";
@@ -236,10 +238,11 @@ export default async function GamePage({
   // Kalshi for this game, and which of its flags this viewer may see: the owner by their
   // state setting, a guest never (an unknown state counts as blocked).
   const postgres = data.backend === "postgres";
-  const [kalshiMap, kalshiFlagsAll, session] = await Promise.all([
+  const [kalshiMap, kalshiFlagsAll, session, props] = await Promise.all([
     postgres ? kalshiGames(eventId).catch(() => new Map<string, KalshiGame>()) : Promise.resolve(new Map<string, KalshiGame>()),
     postgres ? openFlags(eventId).catch(() => [] as KalshiFlag[]) : Promise.resolve([] as KalshiFlag[]),
     currentSession(),
+    postgres ? kalshiProps(eventId).catch(() => [] as PropRow[]) : Promise.resolve([] as PropRow[]),
   ]);
   const viewerState = session.role === "owner" && postgres ? await getLocation().catch(() => "MI") : null;
   const kalshiShown = visibleFlags(kalshiFlagsAll, viewerState);
@@ -464,6 +467,7 @@ export default async function GamePage({
             homeTeam={homeTeam}
             awayTeam={awayTeam}
           />
+          <PlayerProps rows={props} tax={tax} homeTeam={homeTeam} awayTeam={awayTeam} />
           <SameGameParlay
             eventId={game.eventId}
             league={league}

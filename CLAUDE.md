@@ -210,7 +210,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **24** (v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **25** (v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -720,6 +720,14 @@ are DATA in `web/config/kalshi.json` and `kalshi-aliases.json`, read by both sid
 - **Fees**: taker `0.07 x p x (1 - p)` per contract (unconfirmed: the fee PDF rate-limited);
   the football series are `quadratic_with_maker_fees`, so resting orders pay too.
 - **Polling** rides the collect runs (3-5 a day), not every 60 s as the plan hoped.
+- **Player props** (v25 `exchange_props`, owner's ask 2026-10-19): rec/rush/pass/rush+rec
+  yards, receptions, pass TDs, first and anytime TD, NFL only (`props` in the config). Linked
+  ONLY through an already-matched game's ticker suffix, never by names; pregame only; one
+  row per contract per PRICE (`last_seen` moves when re-seen) -- ~300 contracts a game would
+  otherwise fill Neon in weeks. Game page card (`PlayerProps`): fair chance per rung, and a
+  checker giving the worst price worth taking after tax and boost (`worthAt`) and the value
+  of a typed-in app price. Props in same-game parlays stay refused until the stat/score
+  correlation is measured.
 - Kalshi at bet time and at kickoff on ledger moneylines is DERIVED from snapshot history
   (`fairAt`), so `bets` stays append-only and unchanged.
 

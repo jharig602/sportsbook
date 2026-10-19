@@ -214,3 +214,33 @@ export async function kalshiHistory(eventIds: string[]): Promise<Map<string, Kal
   }
   return out;
 }
+
+/**
+ * A game's player props: each contract's latest price, seen in the last 30 hours (props
+ * are stored once per price, so `last_seen` is when it was last confirmed).
+ */
+export async function kalshiProps(eventId: string): Promise<import("./props").PropRow[]> {
+  return (
+    await rows(
+      `SELECT DISTINCT ON (market_ticker)
+              market_ticker, stat, player, team_side, line, yes_bid, yes_ask,
+              bid_size, ask_size, volume, last_seen
+         FROM exchange_props
+        WHERE venue = 'kalshi' AND event_id = $1 AND last_seen > NOW() - INTERVAL '30 hours'
+        ORDER BY market_ticker, last_seen DESC`,
+      [eventId],
+    )
+  ).map((r) => ({
+    marketTicker: String(r.market_ticker),
+    stat: r.stat,
+    player: String(r.player),
+    teamSide: r.team_side === "home" || r.team_side === "away" ? r.team_side : null,
+    line: num(r.line),
+    yesBid: num(r.yes_bid),
+    yesAsk: num(r.yes_ask),
+    bidSize: num(r.bid_size),
+    askSize: num(r.ask_size),
+    volume: num(r.volume),
+    lastSeen: iso(r.last_seen) as string,
+  }));
+}
