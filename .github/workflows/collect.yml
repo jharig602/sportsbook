@@ -127,6 +127,14 @@ jobs:
             python collector/shop_lines.py --league $league --postgres ||               { code=$?; [ $code -eq 3 ] && echo "no shop data for $league" || exit $code; }
           done
 
+      # Kalshi game prices, read-only and keyless (collector/kalshi.py): pregame snapshots,
+      # the stale-book flag, and flags 2-3 shadow-logged for blocked states. After the
+      # board and the other books, so its flags compare against this run's prices. Never
+      # fails the run: a missing exchange price is a thinner check, not a broken board.
+      - name: Kalshi prices
+        continue-on-error: true
+        run: python collector/kalshi.py --postgres
+
       - name: Capture final scores
         run: |
           for league in ncaaf nfl; do

@@ -1,0 +1,25 @@
+{
+  "_comment": "Kalshi integration settings. Data, not code: change a number here, not a constant in collector/kalshi.py or web/lib/kalshi.ts. Both read this file.",
+  "baseUrl": "https://api.elections.kalshi.com/trade-api/v2",
+  "series": {
+    "nfl": "KXNFLGAME",
+    "ncaaf": "KXNCAAFGAME"
+  },
+  "blockedStates": ["MI"],
+  "_blockedStates": "Kalshi sports contracts are under a preliminary injunction in Michigan (Ingham County, 2026-09-01). Flags 2 and 3 are computed and shadow-logged for blocked states but never shown. Remove a state here to turn them on.",
+  "thin": {
+    "maxSpreadDollars": 0.03,
+    "minDepthContracts": 100
+  },
+  "_thin": "A market is a fair-price reference only when yes bid/ask are at most 3 cents apart and both best levels hold at least 100 contracts. Otherwise it is marked thin and no flag uses it.",
+  "fee": {
+    "takerCoefficient": 0.07
+  },
+  "_fee": "Taker fee per contract = coefficient x price x (1 - price), rounded up to the next cent per order. The football game series are fee_type quadratic_with_maker_fees, so resting orders pay a fee too; only the taker side is used here (buying at the ask). Confirm against Kalshi's fee schedule before relying on a flag.",
+  "flags": {
+    "staleBookPoints": 2,
+    "kalshiValuePoints": 1,
+    "arbMarginPoints": 0
+  },
+  "_flags": "staleBook: a sportsbook's no-vig chance sits this many points below Kalshi's fair midpoint. kalshiValue: Kalshi's fee-adjusted ask is this many points below the sportsbook consensus fair chance. arb: a sportsbook price on one side plus Kalshi's fee-adjusted price on the other cost at least this many points under 100%."
+}

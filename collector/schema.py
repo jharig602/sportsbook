@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 23
+ANALYTICS_SCHEMA_VERSION = 24
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -605,6 +605,92 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     last_success_at TIMESTAMPTZ,
     failure_count INTEGER NOT NULL
 );
+-- v24: Kalshi, read-only. An exchange is not a sportsbook: two yes/no contracts per game,
+-- each with a bid and an ask, so it gets its own tables rather than squeezing into
+-- book_lines (whose CHECKs and readers all assume one American price per side).
+
+CREATE TABLE IF NOT EXISTS exchange_quotes (
+    -- Every PREGAME snapshot of one team's contract. Kalshi trades through the game, so
+    -- nothing observed at or after Dissent's kickoff is written: a live price stored as a
+    -- reference would read as the largest edge on the board.
+    quote_id VARCHAR PRIMARY KEY,
+    observed_at TIMESTAMPTZ NOT NULL,
+    venue VARCHAR NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    event_ticker VARCHAR NOT NULL,
+    market_ticker VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    -- Dollars, $0.01 to $0.99.
+    yes_bid DOUBLE PRECISION,
+    yes_ask DOUBLE PRECISION,
+    no_bid DOUBLE PRECISION,
+    no_ask DOUBLE PRECISION,
+    -- Contracts resting at the best yes bid / ask.
+    bid_size DOUBLE PRECISION,
+    ask_size DOUBLE PRECISION,
+    last_price DOUBLE PRECISION,
+    volume DOUBLE PRECISION,
+    -- Too wide or too shallow to stand as a fair price (web/config/kalshi.json).
+    thin BOOLEAN NOT NULL,
+    commence_time TIMESTAMPTZ,
+    CHECK (side IN ('home', 'away'))
+);
+
+CREATE INDEX IF NOT EXISTS exchange_quotes_event ON exchange_quotes (event_id, observed_at);
+
+CREATE TABLE IF NOT EXISTS exchange_links (
+    -- A Kalshi event linked to a board game by hand, because neither the alias table nor
+    -- the name matcher would. Matching never guesses; this is where a person decides.
+    event_ticker VARCHAR PRIMARY KEY,
+    venue VARCHAR NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    linked_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS exchange_unmatched (
+    -- STATE, not history: the Kalshi events on board dates that could not be linked as
+    -- of the last poll, with why. Matched events are deleted; stale rows age out.
+    event_ticker VARCHAR PRIMARY KEY,
+    venue VARCHAR NOT NULL,
+    league VARCHAR NOT NULL,
+    title VARCHAR,
+    game_date DATE,
+    codes VARCHAR,
+    reason VARCHAR NOT NULL,
+    first_seen TIMESTAMPTZ NOT NULL,
+    last_seen TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS exchange_flags (
+    -- Every flag that fired, one row per OFFER (same prices seen twice are one row, as
+    -- with shop_picks). Stored for every state; whether a viewer may SEE kalshi_value and
+    -- arb is decided at read time from blockedStates. While a state is blocked these rows
+    -- are the shadow log, and closing prices and results are joined at read time.
+    flag_id VARCHAR PRIMARY KEY,
+    observed_at TIMESTAMPTZ NOT NULL,
+    venue VARCHAR NOT NULL,
+    league VARCHAR NOT NULL,
+    event_id VARCHAR NOT NULL,
+    commence_time TIMESTAMPTZ,
+    kind VARCHAR NOT NULL,
+    side VARCHAR NOT NULL,
+    book VARCHAR,
+    book_price BIGINT,
+    book_fair DOUBLE PRECISION,
+    kalshi_fair DOUBLE PRECISION NOT NULL,
+    -- Fee-adjusted cost of one contract at the ask, $ (flags 2 and 3 only).
+    kalshi_cost DOUBLE PRECISION,
+    consensus DOUBLE PRECISION,
+    edge_points DOUBLE PRECISION NOT NULL,
+    books INTEGER NOT NULL,
+    CHECK (kind IN ('stale_book', 'kalshi_value', 'arb')),
+    CHECK (side IN ('home', 'away'))
+);
+
+CREATE INDEX IF NOT EXISTS exchange_flags_event ON exchange_flags (event_id, kind);
+
 """
 
 
