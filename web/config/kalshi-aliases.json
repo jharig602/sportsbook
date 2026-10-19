@@ -34,5 +34,10 @@
     "TEN": "Tennessee Titans",
     "WAS": "Washington Commanders"
   },
-  "ncaaf": {}
+  "ncaaf": {
+    "APP": "App State Mountaineers",
+    "MASS": "Massachusetts Minutemen",
+    "ULM": "UL Monroe Warhawks"
+  },
+  "_ncaaf": "Added 2026-10-19, each confirmed by the same Eastern date and the same opponent on both feeds (JMU @ App State Oct 22, UMass @ UConn Oct 23, ULM @ Troy Oct 24). One aliased code is enough: the other team still matches by name."
 }

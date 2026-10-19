@@ -276,3 +276,15 @@ def test_run_lists_unmatched_events_on_board_dates_only(tmp_path, capsys):
     con = duckdb.connect(str(path))
     rows = con.execute("SELECT event_ticker FROM exchange_unmatched").fetchall()
     assert rows == [("KXNFLGAME-26OCT18ARIXYZ",)]
+
+
+def test_one_college_alias_fixes_a_name_kalshi_spells_differently():
+    # Kalshi says "UMass"; ESPN says "Massachusetts Minutemen". MASS is in the alias table,
+    # UConn still matches by name.
+    umass = event("KXNCAAFGAME-26OCT23MASSCONN", "UMass vs UConn",
+                  market("KXNCAAFGAME-26OCT23MASSCONN-CONN", "UConn", 0.8, 0.81),
+                  market("KXNCAAFGAME-26OCT23MASSCONN-MASS", "UMass", 0.19, 0.2))
+    game = k.Game("701", "ncaaf", "UConn Huskies", "Massachusetts Minutemen",
+                  datetime(2026, 10, 23, 23, 0, tzinfo=UTC))
+    result = k.match_event(k.parse_event(umass, "ncaaf"), [game], ALIASES, {})
+    assert isinstance(result, k.Matched) and result.sides == {"CONN": "home", "MASS": "away"}

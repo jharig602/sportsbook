@@ -216,7 +216,7 @@ def match_event(event: KalshiEvent, games: Iterable[Game], aliases: dict[str, di
         sides = by_alias(game)
         if sides is not None:
             return Matched(event, game, sides, "manual")
-        return _assign_by_name(event, game, "manual") or Unmatched(
+        return _assign_by_name(event, game, "manual", table) or Unmatched(
             event, "linked by hand, but the team names do not say which side is which")
 
     same_day = [g for g in league_games if g.eastern_date == event.game_date]
@@ -237,12 +237,14 @@ def match_event(event: KalshiEvent, games: Iterable[Game], aliases: dict[str, di
         missing = ", ".join(c for c in codes if c not in table)
         return Unmatched(event, f"team code not in the alias table: {missing}")
 
-    # 3. College: names, both teams, unambiguous -- the team_match rules.
+    # 3. College: names, both teams, unambiguous -- the team_match rules. A code that IS
+    # in the alias table stands in for Kalshi's own short name ("UMass", "Appalachian
+    # St."), so one confirmed alias fixes a game without needing its opponent's too.
     scored = []
     for game in same_day:
-        assigned = _assign_by_name(event, game, "name")
+        assigned = _assign_by_name(event, game, "name", table)
         if assigned is not None:
-            scored.append((_pair_score(event, game, assigned.sides), assigned))
+            scored.append((_pair_score(event, game, assigned.sides, table), assigned))
     scored.sort(key=lambda row: row[0], reverse=True)
     if not scored or scored[0][0] < NAME_THRESHOLD:
         return Unmatched(event, "no board game matches both team names")
@@ -251,19 +253,25 @@ def match_event(event: KalshiEvent, games: Iterable[Game], aliases: dict[str, di
     return scored[0][1]
 
 
-def _pair_score(event: KalshiEvent, game: Game, sides: dict[str, str]) -> float:
+def _name(market: KalshiMarket, table: dict[str, str]) -> str:
+    """The alias-table name for a code when there is one, else Kalshi's own."""
+    return table.get(market.code, market.name)
+
+
+def _pair_score(event: KalshiEvent, game: Game, sides: dict[str, str], table: dict[str, str]) -> float:
     by_code = {m.code: m for m in event.markets}
     scores = []
     for code, side in sides.items():
-        scores.append(similarity(by_code[code].name, game.home if side == "home" else game.away))
+        scores.append(similarity(_name(by_code[code], table), game.home if side == "home" else game.away))
     return min(scores)
 
 
-def _assign_by_name(event: KalshiEvent, game: Game, how: str) -> Matched | None:
+def _assign_by_name(event: KalshiEvent, game: Game, how: str, table: dict[str, str]) -> Matched | None:
     """Which market is the home team, by name, when one orientation clearly wins."""
     a, b = event.markets
-    straight = min(similarity(a.name, game.home), similarity(b.name, game.away))
-    swapped = min(similarity(a.name, game.away), similarity(b.name, game.home))
+    na, nb = _name(a, table), _name(b, table)
+    straight = min(similarity(na, game.home), similarity(nb, game.away))
+    swapped = min(similarity(na, game.away), similarity(nb, game.home))
     if max(straight, swapped) < NAME_THRESHOLD or abs(straight - swapped) < NAME_MARGIN:
         return None
     if straight > swapped:
