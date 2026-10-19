@@ -297,7 +297,7 @@ stays — it is the daily window the bet of the day uses.
 
 ## Pushes
 
-Seven dispatchers, all `/api/dispatch-*`, all but one called by `collect.yml` after the scores and
+Eight dispatchers, all `/api/dispatch-*`, all but one called by `collect.yml` after the scores and
 odds steps, all guarded by `refuseUnlessDispatcher`, all offering on every run and
 remembering what they sent (GitHub delivers runs at arbitrary minutes):
 
@@ -316,6 +316,10 @@ remembering what they sent (GitHub delivers runs at arbitrary minutes):
   compares **edge in points**; for a while the dispatcher stored the expected *return*
   (~0.04) in its place and every alert re-sent every run. `notificationRecord` is now the
   only writer, and a test feeds what it records straight back into the check.
+- **Expiring promo** (`dispatch-promo-expiry`, 2026-10-19) -- once per available token
+  in the 24 hours before it expires, daytime only, owner's promos only. For a profit boost
+  or bonus bet it names the best use on the board now (`findBoosts`, bonus mode for bonus
+  bets). The money a promo tracker can lose is a token lapsing unused.
 - **Survivor reminder**, and the dormant **movers** dispatcher.
 - **Kickoff** (`dispatch-kickoff`, 2026-09-26) — one push per GAME you hold a live bet or
   parlay leg on, as it starts. The exception to "called by collect": collect cannot keep
@@ -374,6 +378,10 @@ value, using the **lowest** of every independent estimate — de-vig flatters un
 a boost multiplies the flattery — and lists sides with fewer than two other books apart,
 unranked. **Log a boosted bet at the boosted price** (`boostedPrice`), or the ledger
 settles the win at half its real profit.
+
+**The bonus-bet finder** (Promos page, 2026-10-19) is `findBoosts` with `bonus: true`: the
+stake is the book's, so value = chance x winnings, taxed, with no loss term; same cautious
+chance (lowest estimate), same two-other-books check; "Log it" sets the bonus flag.
 
 **The boost finder** (Promos page, `boost-finder.ts`, 2026-09-26) is the same ranking in
 the app, and it adds **game totals**. A total's fair chance is the other books' fair total
