@@ -78,6 +78,11 @@ export interface BoostOptions {
   now?: Date;
   /** Tax on winnings: ranks by what a bet is worth AFTER it. */
   tax?: TaxSetting;
+  /**
+   * Score each line as a BONUS bet of `stake` instead: the stake is the book's, so a loss
+   * costs nothing and only the winnings count (taxed). `boost` is ignored.
+   */
+  bonus?: boolean;
   horizonDays?: number;
 }
 
@@ -111,7 +116,12 @@ export function findBoosts(
   scoreModels: Record<string, ScoreModel>,
   options: BoostOptions,
 ): { checked: BoostPick[]; unchecked: BoostPick[]; gamesAtBook: number } {
-  const { book, boost, stake, favourites = [], maxSpread } = options;
+  const { book, stake, favourites = [], maxSpread } = options;
+  const bonus = options.bonus === true;
+  const boost = bonus ? 0 : options.boost;
+  // Value per $1: a bonus bet risks nothing of yours, so only the winning side counts.
+  const pretax = (win: number, push: number, price: number) =>
+    bonus ? win * profitPerDollar(price) : evPerDollar(win, push, price, boost);
   const now = options.now ?? new Date();
   const until = now.getTime() + (options.horizonDays ?? 8) * 86_400_000;
   const picks: BoostPick[] = [];
@@ -163,9 +173,9 @@ export function findBoosts(
           estimates.length === 1
             ? model !== null ? "spread model only" : `${fairs.length} other books`
             : win === model ? `spread model (lower than ${fairs.length} other books)` : `${fairs.length} other books (lower than the model)`,
-        boosted: stake * evPerDollar(win, 0, price, boost),
-        plain: stake * evPerDollar(win, 0, price, 0),
-        afterTax: stake * afterTaxEv(win, price, options.tax ?? NO_TAX, { boost }),
+        boosted: stake * pretax(win, 0, price),
+        plain: stake * (bonus ? pretax(win, 0, price) : evPerDollar(win, 0, price, 0)),
+        afterTax: stake * afterTaxEv(win, price, options.tax ?? NO_TAX, { boost, bonus }),
         checked: fairs.length >= MIN_OTHER_BOOKS,
       });
     }
@@ -204,9 +214,9 @@ export function findBoosts(
         push,
         books: fairTotals.length,
         basis: `others' fair total ${consensus.toFixed(1)}, finals land ${score.totalMean >= 0 ? "+" : ""}${score.totalMean.toFixed(1)} over it`,
-        boosted: stake * evPerDollar(win, push, price, boost),
-        plain: stake * evPerDollar(win, push, price, 0),
-        afterTax: stake * afterTaxEv(win, price, options.tax ?? NO_TAX, { boost, push }),
+        boosted: stake * pretax(win, push, price),
+        plain: stake * (bonus ? pretax(win, push, price) : evPerDollar(win, push, price, 0)),
+        afterTax: stake * afterTaxEv(win, price, options.tax ?? NO_TAX, { boost, push, bonus }),
         checked: fairTotals.length >= MIN_OTHER_BOOKS && Math.abs(line - consensus) <= MAX_TOTAL_GAP,
       });
     }

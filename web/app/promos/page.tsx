@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 export default async function PromosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ book?: string; boost?: string; stake?: string }>;
+  searchParams: Promise<{ book?: string; boost?: string; stake?: string; bbook?: string; bstake?: string; mode?: string }>;
 }) {
   const params = await searchParams;
   const session = await currentSession();
@@ -56,6 +56,19 @@ export default async function PromosPage({
     favourites,
     maxSpread: DEFAULT_MAX_SPREAD,
     tax,
+  });
+  // The bonus-bet finder: the same ranking, scored as a bonus bet (a loss costs nothing).
+  const bonusBook = params.bbook && books.includes(params.bbook) ? params.bbook : book;
+  const bonusValue = Number(params.bstake);
+  const bonusStake = bonusValue > 0 && bonusValue <= 1000 ? bonusValue : 50;
+  const bonusFound = findBoosts(games, lines, models, scoreModels, {
+    book: bonusBook,
+    boost: 0,
+    stake: bonusStake,
+    favourites,
+    maxSpread: DEFAULT_MAX_SPREAD,
+    tax,
+    bonus: true,
   });
 
   let promos: Promo[] = [];
@@ -89,6 +102,17 @@ export default async function PromosPage({
         checked={found.checked}
         unchecked={found.unchecked.length}
         gamesAtBook={found.gamesAtBook}
+      />
+
+      <BoostFinder
+        mode="bonus"
+        books={books}
+        book={bonusBook}
+        boost={0}
+        stake={bonusStake}
+        checked={bonusFound.checked}
+        unchecked={bonusFound.unchecked.length}
+        gamesAtBook={bonusFound.gamesAtBook}
       />
 
       <AddPromo recent={promos} />

@@ -79,3 +79,19 @@ test("a moneyline against one of your teams is never suggested", () => {
   assert.ok(!fan.includes("South Alabama Jaguars ML"), "backing their opponent is against your team");
   assert.ok(fan.includes("Kentucky Wildcats ML"));
 });
+
+test("bonus mode: a loss costs nothing, only taxed winnings count, and the underdog outranks the favourite", () => {
+  const lines = new Map([["G", [
+    row("FanDuel", "moneyline", "home", null, -240), row("FanDuel", "moneyline", "away", null, 195),
+    row("BetMGM", "moneyline", "home", null, -250), row("BetMGM", "moneyline", "away", null, 200),
+    row("Caesars", "moneyline", "home", null, -245), row("Caesars", "moneyline", "away", null, 198),
+  ]]]);
+  const tax = { rate: 0.25, losses: "none" as const };
+  const picks = findBoosts([game()], lines, {}, {}, { ...OPTS, stake: 100, bonus: true, tax }).checked;
+  const dog = picks.find((p) => p.label === "South Alabama Jaguars ML")!;
+  const fav = picks.find((p) => p.label === "Kentucky Wildcats ML")!;
+  assert.ok(Math.abs(dog.boosted - 100 * dog.win * 1.95) < 1e-9, "pre-tax value is chance x winnings, no loss term");
+  assert.ok(Math.abs(dog.afterTax - dog.boosted * 0.75) < 1e-9, "only the winnings are taxed");
+  assert.equal(dog.logPrice, 195, "a bonus bet is logged at the plain price");
+  assert.ok(dog.afterTax > fav.afterTax && picks.indexOf(dog) < picks.indexOf(fav));
+});

@@ -23,6 +23,7 @@ export function BoostFinder({
   checked,
   unchecked,
   gamesAtBook,
+  mode = "boost",
 }: {
   books: string[];
   book: string;
@@ -31,7 +32,13 @@ export function BoostFinder({
   checked: BoostPick[];
   unchecked: number;
   gamesAtBook: number;
+  /** "bonus": rank lines for a bonus bet of `stake` (a loss costs nothing). */
+  mode?: "boost" | "bonus";
 }) {
+  const bonus = mode === "bonus";
+  // Separate URL fields per card, so choosing a bonus book does not move the boost card.
+  const names = bonus ? { book: "bbook", stake: "bstake" } : { book: "book", stake: "stake" };
+  const anchor = bonus ? "bonus" : "boost";
   const field = "mt-1 w-full rounded border border-edge bg-ink px-2 py-1 text-[12px] text-slate-100";
   const top = checked.filter((p) => p.afterTax > 0).slice(0, 10);
   // Totals rarely make the top: a boost multiplies profit, and a long shot has more of
@@ -44,7 +51,7 @@ export function BoostFinder({
                 <p className="truncate text-[13px] font-medium text-slate-100">
                   {p.label}{" "}
                   <span className="tabular text-slate-400">{formatPrice(p.price)}</span>
-                  <span className="tabular text-slate-500"> → {formatPrice(p.logPrice)}</span>
+                  {bonus ? null : <span className="tabular text-slate-500"> → {formatPrice(p.logPrice)}</span>}
                 </p>
                 <p className="tabular shrink-0 text-right text-[13px] font-semibold text-emerald-300">
                   {money(p.afterTax)}
@@ -58,7 +65,7 @@ export function BoostFinder({
               </p>
               <p className="mt-0.5 text-[11px] leading-snug text-slate-500">
                 Wins {(p.win * 100).toFixed(1)}%{p.push > 0.001 ? `, pushes ${(p.push * 100).toFixed(1)}%` : ""} ·
-                without the boost {money(p.plain)} · {p.basis}.{" "}
+                {bonus ? null : <>without the boost {money(p.plain)} · </>}{p.basis}.{" "}
                 <a
                   className="text-sky-400 underline underline-offset-2"
                   href={betHref({
@@ -69,6 +76,7 @@ export function BoostFinder({
                     price: p.logPrice,
                     book,
                     stake,
+                    ...(bonus ? { bonus: true } : {}),
                   })}
                 >
                   Log it
@@ -78,45 +86,49 @@ export function BoostFinder({
   );
   return (
     <Card className="mb-4 px-3.5 py-3">
-      <h2 id="boost" className="scroll-mt-16 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-        Boost finder
+      <h2 id={anchor} className="scroll-mt-16 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        {bonus ? "Bonus-bet finder" : "Boost finder"}
       </h2>
       <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-        Where a profit boost is worth the most right now: moneylines and game totals at one
-        book, scored as one maximum-size bet with the boost on.
+        {bonus
+          ? "Where a bonus bet is worth the most right now at one book: the fair chance of winning times the winnings, after tax. The stake is the book's, so losing costs nothing."
+          : "Where a profit boost is worth the most right now: moneylines and game totals at one book, scored as one maximum-size bet with the boost on."}
       </p>
-      <form action="/promos#boost" method="get" className="mt-2 grid grid-cols-3 gap-2">
+      <form action={`/promos#${anchor}`} method="get" className={`mt-2 grid ${bonus ? "grid-cols-2" : "grid-cols-3"} gap-2`}>
+        {bonus ? <input type="hidden" name="mode" value="bonus" /> : null}
         <label className="block text-[10px] uppercase tracking-wide text-slate-500">
           Book
-          <select name="book" defaultValue={book} className={field}>
+          <select name={names.book} defaultValue={book} className={field}>
             {books.map((b) => (
               <option key={b} value={b}>{b}</option>
             ))}
           </select>
         </label>
+        {bonus ? null : (
+          <label className="block text-[10px] uppercase tracking-wide text-slate-500">
+            Boost
+            <select name="boost" defaultValue={String(boost)} className={field}>
+              {BOOSTS.map((b) => (
+                <option key={b} value={String(b)}>{Math.round(b * 100)}%</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block text-[10px] uppercase tracking-wide text-slate-500">
-          Boost
-          <select name="boost" defaultValue={String(boost)} className={field}>
-            {BOOSTS.map((b) => (
-              <option key={b} value={String(b)}>{Math.round(b * 100)}%</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-[10px] uppercase tracking-wide text-slate-500">
-          Max stake
-          <input name="stake" defaultValue={String(stake)} inputMode="decimal" className={`tabular ${field}`} />
+          {bonus ? "Bonus amount" : "Max stake"}
+          <input name={names.stake} defaultValue={String(stake)} inputMode="decimal" className={`tabular ${field}`} />
         </label>
         <button
           type="submit"
-          className="col-span-3 rounded border border-sky-700/60 bg-sky-500/10 py-1.5 text-[12px] text-sky-200"
+          className={`${bonus ? "col-span-2" : "col-span-3"} rounded border border-sky-700/60 bg-sky-500/10 py-1.5 text-[12px] text-sky-200`}
         >
-          Find the best bets for this boost
+          {bonus ? "Find the best bets for this bonus bet" : "Find the best bets for this boost"}
         </button>
       </form>
 
       {top.length === 0 ? (
         <p className="mt-3 text-[12px] text-slate-400">
-          Nothing at {book} is worth a {Math.round(boost * 100)}% boost right now
+          {bonus ? `Nothing at ${book} to rank for a bonus bet right now` : `Nothing at ${book} is worth a ${Math.round(boost * 100)}% boost right now`}
           {gamesAtBook === 0 ? " — the app has no upcoming prices from this book" : ""}.
         </p>
       ) : (
@@ -124,7 +136,7 @@ export function BoostFinder({
           {top.map((p) => row(p))}
         </ol>
       )}
-      {totals.length > 0 ? (
+      {totals.length > 0 && !bonus ? (
         <>
           <h3 className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Best totals
@@ -135,7 +147,17 @@ export function BoostFinder({
           <ol className="mt-2 space-y-2">{totals.map((p) => row(p))}</ol>
         </>
       ) : null}
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+      {bonus ? (
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+          Worth = the fair chance of winning times what it pays, less tax on the winnings.
+          Longer prices are worth more, which is why the chance used is the LOWER of the
+          other books&rsquo; price and the spread model: that estimate flatters long shots
+          the least. Only sides checked against two or more other books are ranked
+          {unchecked > 0 ? `; ${unchecked} more could not be checked` : ""}. Never against a
+          team in My teams.
+        </p>
+      ) : null}
+      <p className={`mt-3 text-[11px] leading-relaxed text-slate-600 ${bonus ? "hidden" : ""}`}>
         Worth = the fair chance of winning times the boosted profit, less the stake times the
         chance of losing; a whole-number total that lands exactly returns the stake. Totals
         lean over because finals land a little above the closing total, so at the same number
