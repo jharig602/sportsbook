@@ -73,7 +73,9 @@ def test_a_loss_down_is_recorded():
     assert "140 rivals" in report[0]
 
 
-@pytest.mark.parametrize("bad", ["137:90,51", "x:90,51:0", "137::0", "137:90,-1:0", "0:5:0", "137:0,0:0"])
+# A word is a pool NAME now (two entries in one pool share a size), so "x" parses and is
+# refused later when no pool is named x; a MATCH with no letters or digits cannot name one.
+@pytest.mark.parametrize("bad", ["137:90,51", "?!:90,51:0", "137::0", "137:90,-1:0", "0:5:0", "137:0,0:0"])
 def test_malformed_updates_are_refused(bad):
     with pytest.raises(ValueError):
         parse_update(bad)
@@ -200,3 +202,67 @@ def test_a_group_may_carry_its_losses_and_bad_ones_are_refused():
     assert next(p for p in out if p["size"] == 137)["rivals"]["groups"][0]["losses"] == 1
     with pytest.raises(ValueError):
         apply_rivals(pools(), {"137": {"week": 5, "groups": [{"used": ["A"], "n": 2, "losses": 9}]}}, [13, 137])
+
+
+# --- two entries in one pool ------------------------------------------------------------
+
+def two_entries():
+    return [
+        {"used": [], "size": 76, "lossesAllowed": 1},
+        {"name": "New · Me", "used": [], "size": 22, "lossesAllowed": 1},
+        {"name": "New · Ma", "used": [], "size": 22, "lossesAllowed": 1},
+    ]
+
+
+def test_entries_sharing_a_size_are_told_apart_by_name():
+    with pytest.raises(ValueError, match="2 pools have size 22"):
+        apply_updates(two_entries(), [parse_update("22:20,2:0")])
+    updated, report = apply_updates(two_entries(), [parse_update("newme:20,2:0"), parse_update("newma:20,2:1")])
+    me = next(p for p in updated if p.get("name") == "New · Me")
+    ma = next(p for p in updated if p.get("name") == "New · Ma")
+    assert me["field"] == [20, 2] and "myLosses" not in me
+    assert ma["field"] == [20, 2] and ma["myLosses"] == 1
+    assert len(report) == 2 and not any("already" in line for line in report)
+
+
+def test_one_entry_holding_a_field_does_not_skip_the_other():
+    once, _ = apply_updates(two_entries(), [parse_update("newme:20,2:0")])
+    twice, report = apply_updates(once, [parse_update("newma:20,2:0")])
+    assert next(p for p in twice if p.get("name") == "New · Ma")["field"] == [20, 2]
+    assert "already" not in report[0]
+    again, report = apply_updates(twice, [parse_update("newma:20,2:0")])
+    assert again == twice and "already recorded" in report[0]
+
+
+def test_adding_entries():
+    from set_pool_field import add_pools
+    pools, report = add_pools([{"used": [], "size": 76, "lossesAllowed": 1}],
+                              [{"name": "New · Me", "size": 22, "lossesAllowed": 1},
+                               {"name": "New · Ma", "size": 22, "lossesAllowed": 1}])
+    assert [p.get("name") for p in pools] == [None, "New · Me", "New · Ma"]
+    assert pools[1] == {"name": "New · Me", "used": [], "size": 22, "lossesAllowed": 1}
+    with pytest.raises(ValueError, match="already exists"):
+        add_pools(pools, [{"name": "new me", "size": 22, "lossesAllowed": 1}])
+    with pytest.raises(ValueError, match="needs a name"):
+        add_pools(pools, [{"size": 22}])
+
+
+def test_rivals_keyed_by_name():
+    from set_pool_field import apply_rivals
+    pools = two_entries()
+    sizes = [p["size"] for p in pools]
+    out, report = apply_rivals(pools, {"newma": {"week": 7, "groups": [{"used": [], "n": 20}]}}, sizes)
+    assert out[2]["rivals"]["week"] == 7 and "rivals" not in out[1]
+    with pytest.raises(ValueError, match="2 pools have size 22"):
+        apply_rivals(pools, {"22": {"week": 7, "groups": [{"used": [], "n": 20}]}}, sizes)
+
+
+def test_removing_finished_pools_checks_every_token_first():
+    from set_pool_field import remove_pools
+    pools = two_entries()
+    kept, report = remove_pools(pools, ["76"])
+    assert [p.get("name") for p in kept] == ["New · Me", "New · Ma"] and report == ["removed pool of 76"]
+    with pytest.raises(ValueError):
+        remove_pools(pools, ["76", "999"])  # the typo refuses the whole removal
+    with pytest.raises(ValueError, match="2 pools have size 22"):
+        remove_pools(pools, ["22"])

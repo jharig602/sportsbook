@@ -21,6 +21,14 @@ on:
         description: 'Live rivals'' histories, JSON keyed by pool size: {"120": {"week": 3, "groups": [{"used": ["San Francisco 49ers"], "pick": "Kansas City Chiefs", "n": 4}]}}'
         required: false
         default: ""
+      remove:
+        description: "Pools that are over, by stored size or name, space-separated"
+        required: false
+        default: ""
+      add:
+        description: 'Entries to create: [{"name": "New · Me", "size": 22, "lossesAllowed": 1}]'
+        required: false
+        default: ""
       dry_run:
         description: "Report what would change without writing"
         type: boolean
@@ -40,6 +48,8 @@ jobs:
       # a dispatch input pasted into a shell command is a script injection.
       POOL_SETS: ${{ inputs.sets }}
       POOL_RIVALS: ${{ inputs.rivals }}
+      POOL_ADD: ${{ inputs.add }}
+      POOL_REMOVE: ${{ inputs.remove }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4

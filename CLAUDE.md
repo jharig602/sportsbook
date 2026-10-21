@@ -579,6 +579,16 @@ any number of times. `collector/set_pool_field.py` (workflow `set-pool-field`, d
 default) applies it without the passcode and prints sizes and counts only — never `used`,
 because Actions logs are public and picks are strategy.
 
+**Two entries in one pool** (2026-10-21: the owner and his Ma in one ~20-25 entry pool,
+two strikes, from week 7; the big and small pools are over and removed). Each entry is its
+own StoredPool with a NAME ("Me", "Ma") -- they share a size, so `set-pool-field` matches
+them by name slug (`newme`-style, spaces and punctuation dropped), and its "already
+recorded" check asks only the matched pool (asked of every pool, one entry's field made
+the other's update a no-op). Each entry's `rivals` is everyone but itself, so the other
+entry is a rival with a known history. The joint plan keeps them on different teams every
+week, as for any two pools. The script also takes `remove` (pools that are over) and
+`add` (new entries) as workflow inputs.
+
 `seasonGames` only returns `commence_time > NOW()`, so week numbers are counted from the
 season **opener** (`seasonOpener`), never from the first block returned — that bug showed
 "week 1" every week of the season and aimed pins at the wrong week.

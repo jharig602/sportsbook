@@ -1,0 +1,46 @@
+name: player-positions
+
+# Saturday morning: refresh player name -> position (web/config/player-positions.json),
+# which a same-game parlay's player leg needs to pick its measured correlation. Rookies and
+# players back from injury appear once they have played; a player who has not stays
+# absent and his prop is refused in a parlay rather than guessed. Commits only when the
+# table changed; the push redeploys the app. Owner's ask, 2026-10-21.
+
+on:
+  schedule:
+    - cron: "0 13 * * 6" # Saturdays, 13:00 UTC (8 or 9 AM Eastern)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download this season's weekly player stats (nflverse, public)
+        run: |
+          # The season is the year it started: January-February games belong to last year's.
+          year=$(date -u +%Y); month=$(date -u +%-m)
+          if [ "$month" -lt 3 ]; then year=$((year - 1)); fi
+          curl --fail --silent --show-error --location -o stats.csv \
+            "https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_${year}.csv"
+          echo "season $year: $(wc -l < stats.csv) rows"
+      - name: Rebuild the position table
+        run: python collector/player_positions.py --stats stats.csv
+      - name: Commit if it changed
+        run: |
+          if git diff --quiet -- web/config/player-positions.json; then
+            echo "positions unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/config/player-positions.json
+          git commit -m "Refresh player positions from this season's nflverse stats"
+          git push
