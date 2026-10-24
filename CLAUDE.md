@@ -259,7 +259,12 @@ a college Saturday's game or a bet logged late could simply be missing.
   parlay leg's own `price` may be NULL (same-game slips show only the combined price); an
   unpriced leg still wins or loses and the ticket pays off `parlay_price`. A voided prop
   leg sends the ticket to `needsCorrection`, like a pushed game leg. Logged from the Bets
-  page's parlay form (`ParlayForm`) or the same-game builder's player leg.
+  page's parlay form (`ParlayForm`) or the same-game builder's player leg. **Settled
+  automatically** from ESPN's box score once the game is final (`collector/prop_results.py`,
+  in collect and results-now): exact normalised names only (letters/digits, Jr/Sr/II
+  dropped; colliding names skipped), a leg with ANY recorded result is never overridden, a
+  player missing from the box stays pending (DNP and a misspelling look alike), first-TD
+  stays a tap. Anytime TD counts rushing, receiving and return TDs, not passing.
 - A **hedge** -- bets on opposite sides of one game (home vs away in spread or moneyline,
   in any mix, or over vs under on one total) -- is **one position** (`hedge.ts`, owner's
   ask 2026-10-04). Detected, never declared: the record counts it once, by net money; the

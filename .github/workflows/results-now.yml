@@ -39,6 +39,12 @@ jobs:
             python collector/results.py --league $league --start-date "$(date -u -d '1 day ago' +%F)" \
               --days 2 --postgres || { code=$?; [ $code -eq 3 ] || exit $code; }
           done
+      # Player-prop legs settled from the final box score (collector/prop_results.py).
+      # Never fails the run; a leg it cannot settle waits for a tap on the Bets page.
+      - name: Settle prop legs
+        continue-on-error: true
+        run: python collector/prop_results.py --postgres
+
       - name: Win and loss push
         continue-on-error: true
         env:

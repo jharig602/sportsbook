@@ -142,6 +142,12 @@ jobs:
               --days 4 --postgres || { code=$?; [ $code -eq 3 ] || exit $code; }
           done
 
+      # Player-prop legs settled from the final box score (collector/prop_results.py).
+      # Never fails the run; a leg it cannot settle waits for a tap on the Bets page.
+      - name: Settle prop legs
+        continue-on-error: true
+        run: python collector/prop_results.py --postgres
+
       - name: Detect alerts, grade settled games, refit calibration
         run: python collector/pipeline.py --postgres
 
