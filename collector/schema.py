@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 25
+ANALYTICS_SCHEMA_VERSION = 26
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -127,7 +127,9 @@ CREATE TABLE IF NOT EXISTS bets (
     market VARCHAR NOT NULL,
     side VARCHAR NOT NULL,
     line DOUBLE PRECISION,
-    price BIGINT NOT NULL,
+    -- NULL only on a parlay leg the slip did not price on its own (same-game parlays
+    -- usually show one combined price); the ticket settles off parlay_price. See v26.
+    price BIGINT,
     stake DOUBLE PRECISION NOT NULL,
     book VARCHAR NOT NULL,
     -- Snapshot of the reasoning at placement time.
@@ -146,9 +148,12 @@ CREATE TABLE IF NOT EXISTS bets (
     cashout DOUBLE PRECISION,
     -- Which team's points a 'total' row is about. See ANALYTICS_MIGRATIONS v20.
     team VARCHAR,
+    -- A player prop ('prop' market): who, and which stat. See v26.
+    prop_player VARCHAR,
+    prop_stat VARCHAR,
     CHECK (stake > 0),
-    CHECK (price <= -100 OR price >= 100),
-    CHECK (market IN ('spread', 'total', 'moneyline')),
+    CHECK (price IS NULL OR price <= -100 OR price >= 100),
+    CHECK (market IN ('spread', 'total', 'moneyline', 'prop')),
     -- odd/even: total points odd or even, a same-game parlay leg. See v23.
     CHECK (side IN ('home', 'away', 'over', 'under', 'odd', 'even')),
     CHECK (team IS NULL OR team IN ('home', 'away'))
@@ -719,6 +724,25 @@ CREATE TABLE IF NOT EXISTS exchange_props (
 
 CREATE INDEX IF NOT EXISTS exchange_props_event ON exchange_props (event_id, last_seen);
 
+CREATE TABLE IF NOT EXISTS leg_results (
+    -- v26: the result of a player-prop leg, which no final score can decide. Kept OUT of
+    -- the bets table, which is append-only and derives every other verdict from
+    -- game_results at read time: a result here is joined in when bets are read, so a
+    -- wrong tap is fixed by a newer row, not by editing the ledger. `source` is 'manual'
+    -- (tapped on the Bets page) or 'boxscore' (settled from the game's player stats);
+    -- the latest row per bet wins.
+    result_id VARCHAR PRIMARY KEY,
+    owner_id VARCHAR NOT NULL,
+    bet_id VARCHAR NOT NULL,
+    result VARCHAR NOT NULL,
+    source VARCHAR NOT NULL,
+    decided_at TIMESTAMPTZ NOT NULL,
+    CHECK (result IN ('won', 'lost', 'push', 'void')),
+    CHECK (source IN ('manual', 'boxscore'))
+);
+
+CREATE INDEX IF NOT EXISTS leg_results_bet ON leg_results (owner_id, bet_id, decided_at);
+
 """
 
 
@@ -817,6 +841,12 @@ ANALYTICS_MIGRATIONS = [
     # judgement, not a measurement, and a flag costs nothing. If replayed picks ever
     # read better than live ones, this column is the first thing to look at.
     "ALTER TABLE shop_picks ADD COLUMN IF NOT EXISTS replayed BOOLEAN NOT NULL DEFAULT FALSE",
+    # v26: player props in the ledger -- who and which stat. A prop leg is market 'prop',
+    # side over/under, line the stat's number (Goff 275+ passing yards is over 274.5; an
+    # anytime TD is over 0.5 touchdowns). NULL on every row written before props existed,
+    # which is right: none of them was a prop.
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS prop_player VARCHAR",
+    "ALTER TABLE bets ADD COLUMN IF NOT EXISTS prop_stat VARCHAR",
 ]
 
 
@@ -831,6 +861,16 @@ POSTGRES_MIGRATIONS = [
     "ALTER TABLE bets DROP CONSTRAINT IF EXISTS bets_side_check",
     "ALTER TABLE bets ADD CONSTRAINT bets_side_check "
     "CHECK (side IN ('home', 'away', 'over', 'under', 'odd', 'even'))",
+    # v26: the 'prop' market, and a parlay leg's own price may be absent -- a same-game
+    # slip usually shows only the combined price, and inventing a leg price to satisfy a
+    # constraint would put a number in the ledger nobody was offered.
+    "ALTER TABLE bets DROP CONSTRAINT IF EXISTS bets_market_check",
+    "ALTER TABLE bets ADD CONSTRAINT bets_market_check "
+    "CHECK (market IN ('spread', 'total', 'moneyline', 'prop'))",
+    "ALTER TABLE bets ALTER COLUMN price DROP NOT NULL",
+    "ALTER TABLE bets DROP CONSTRAINT IF EXISTS bets_price_check",
+    "ALTER TABLE bets ADD CONSTRAINT bets_price_check "
+    "CHECK (price IS NULL OR price <= -100 OR price >= 100)",
 ]
 
 
