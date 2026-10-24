@@ -100,7 +100,7 @@ export function SameGameParlay({
   const playerTeam = propPlayers.find(([name]) => name === propPlayer)?.[1] ?? null;
 
   // The prop leg, priced -- or the reason it cannot be.
-  const propLeg = ((): { leg: PropLeg; label: string; estimated: boolean } | { refused: string } | null => {
+  const propLeg = ((): { leg: PropLeg; label: string; estimated: boolean; stat: string; line: number | null } | { refused: string } | null => {
     if (!propPlayer || !propPick) return null;
     if (!playerTeam) return { refused: "Kalshi does not say which team this player is on" };
     const position = positionOf(propPlayer);
@@ -130,7 +130,7 @@ export function SameGameParlay({
     if ("refused" in measured) return { refused: measured.refused };
     const rho = correlationsFor(measured.key);
     if (!rho || fair === null) return { refused: "no measured correlation for this prop" };
-    return { leg: { fair, team: playerTeam, rhoMargin: rho.rhoMargin, rhoTotal: rho.rhoTotal }, label, estimated };
+    return { leg: { fair, team: playerTeam, rhoMargin: rho.rhoMargin, rhoTotal: rho.rhoTotal }, label, estimated, stat, line };
   })();
   const priced = propLeg && "leg" in propLeg ? propLeg : null;
 
@@ -247,6 +247,23 @@ export function SameGameParlay({
             line: t.leg.line,
             price: t.price,
           })),
+          // The player leg: over its number (Kalshi's floor strike, or 0.5 for a TD),
+          // marked won or lost on the Bets page once the game is over.
+          ...(priced
+            ? [{
+                event_id: eventId,
+                league,
+                home_team: homeTeam,
+                away_team: awayTeam,
+                commence_time: commenceTime,
+                market: "prop",
+                side: "over",
+                line: priced.line ?? 0.5,
+                prop_player: propPlayer,
+                prop_stat: priced.stat,
+                price: propPrice.trim() === "" ? null : Number(propPrice),
+              }]
+            : []),
         ],
       };
       const response = await fetch("/api/bets", {
@@ -260,6 +277,9 @@ export function SameGameParlay({
       } else {
         setMessage("Logged.");
         setPicked([]);
+        setPropPlayer("");
+        setPropPick("");
+        setPropPrice("");
         setTeamTotals([]);
         setOffered("");
         setStake("");
@@ -530,15 +550,10 @@ export function SameGameParlay({
                 </p>
               ) : null}
 
-              {priced ? (
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  Tickets with a player leg can&rsquo;t be logged yet: the app can&rsquo;t grade player stats.
-                </p>
-              ) : null}
               <button
                 type="button"
                 onClick={log}
-                disabled={busy || !validOffer || !(Number(stake) > 0) || priced !== null}
+                disabled={busy || !validOffer || !(Number(stake) > 0)}
                 className="mt-2 w-full rounded-lg bg-sky-500/15 py-2 text-[13px] font-medium text-sky-300 ring-1 ring-inset ring-sky-500/30 disabled:opacity-40"
               >
                 {busy ? "Saving…" : "Log this ticket"}

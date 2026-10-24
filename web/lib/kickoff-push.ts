@@ -62,7 +62,8 @@ export const SETTLE_AFTER_MINUTES = 165;
 /** Stop looking after this long; a score still missing then is not coming from polling. */
 export const SETTLE_GIVE_UP_HOURS = 8;
 
-function price(value: number): string {
+function price(value: number | null): string {
+  if (value === null) return "";
   return `${value > 0 ? "+" : ""}${value}`;
 }
 

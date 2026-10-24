@@ -211,7 +211,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **25** (v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **26** (v26 player-prop legs in `bets` + `leg_results`, unpriced parlay legs; v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -251,6 +251,15 @@ a college Saturday's game or a bet logged late could simply be missing.
   up is a win, down is a loss, even is a push (`recordResult`), and the Bets page files it
   under Won or Lost the same way. It is still counted apart in `cashed`, and the
   held-instead comparison still runs.
+- A **player prop** (v26, owner's spec 2026-10-24) is `market = 'prop'` with
+  `prop_player`, `prop_stat`, over/under `line` (Goff 275+ passing yards = over 274.5; an
+  anytime TD = over 0.5). No score decides it: its result lives in `leg_results` (a tap on
+  the Bets page, or the box score), joined in by `listBets` as `prop_result` -- latest row
+  per leg wins, so a wrong tap is fixed by tapping again and `bets` is never edited. A
+  parlay leg's own `price` may be NULL (same-game slips show only the combined price); an
+  unpriced leg still wins or loses and the ticket pays off `parlay_price`. A voided prop
+  leg sends the ticket to `needsCorrection`, like a pushed game leg. Logged from the Bets
+  page's parlay form (`ParlayForm`) or the same-game builder's player leg.
 - A **hedge** -- bets on opposite sides of one game (home vs away in spread or moneyline,
   in any mix, or over vs under on one total) -- is **one position** (`hedge.ts`, owner's
   ask 2026-10-04). Detected, never declared: the record counts it once, by net money; the
@@ -473,8 +482,7 @@ season goes). At each margin the total range the game legs allow is integrated a
 prop's conditional chance (Simpson, 48 steps) -- still exact for the model. Only measured
 (stat, position) pairs are priced; first TD, 2+ pass TDs, TE receptions, RB receiving, QB
 rushing are refused with the reason. Two props on one ticket are refused: player-player
-correlation is unmeasured. Tickets with a player leg cannot be logged -- the ledger cannot
-grade player stats.
+correlation is unmeasured. Tickets with a player leg log like any other (v26).
 
 Team totals are stored as `market='total'` with a `team` (v20), because that is what they
 are. No feed prices them, so the automatic pick cannot find one — the builder prices them

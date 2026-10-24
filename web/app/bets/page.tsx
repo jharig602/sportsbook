@@ -1,4 +1,7 @@
 import { BetForm } from "@/components/BetForm";
+import { ParlayForm } from "@/components/ParlayForm";
+import { LegResult } from "@/components/LegResult";
+import { propLegLabel } from "@/lib/props";
 import { parseBetPrefill } from "@/lib/bet-link";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Stats } from "@/components/ui";
@@ -10,7 +13,7 @@ import { LedgerTransfer } from "@/components/LedgerTransfer";
 import { currentSession } from "@/lib/session";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
-import { activeBets, decimalOdds, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
+import { activeBets, decimalOdds, settleOnScore, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
 import { allBookLines } from "@/lib/book-lines";
 import { fairChance, openSummary } from "@/lib/open-summary";
 import { DEFAULT_TAX, yearTax } from "@/lib/tax";
@@ -127,7 +130,42 @@ function money(value: number): string {
  * The tally already counts it once, so this only has to make it look like what it is:
  * a single stake on several results, any one of which can end it.
  */
-function ParlayRow({ bet, legs, hold, live, why }: { bet: GradedRow; legs: Bet[]; hold?: Hold; live?: string | null; why?: string | null }) {
+/** One leg as a slip prints it: a team's line, a total, or a player prop. */
+function legText(leg: Bet): string {
+  if (leg.market === "prop") return propLegLabel(leg.prop_player, leg.prop_stat, leg.side, leg.line);
+  const who =
+    leg.market === "total"
+      ? leg.team === "home"
+        ? `${leg.home_team} team total`
+        : leg.team === "away"
+          ? `${leg.away_team} team total`
+          : "Game total"
+      : leg.side === "home"
+        ? leg.home_team
+        : leg.away_team;
+  const number =
+    leg.market === "total"
+      ? formatLine("total", leg.side, leg.line)
+      : leg.market === "spread"
+        ? formatLine("spread", leg.side, leg.line)
+        : "ML";
+  return `${who ?? ""} ${number}`.trim();
+}
+
+const LEG_TONE: Record<string, string> = {
+  won: "text-emerald-300",
+  lost: "text-rose-300",
+  push: "text-slate-400",
+  open: "text-slate-600",
+};
+
+function ParlayRow({ bet, legs, hold, live, why, scores }: { bet: GradedRow; legs: Bet[]; hold?: Hold; live?: string | null; why?: string | null; scores: Map<string, Score> }) {
+  // Each leg graded on its own: a game leg off the final score, a prop off its recorded
+  // result. Shown per leg, so an open ticket reads "2 of 3 hit, Gibbs TD pending".
+  const graded = legs.map((leg) => ({ leg, outcome: settleOnScore(leg, scores.get(leg.event_id)).outcome }));
+  const hit = graded.filter((g) => g.outcome === "won").length;
+  const pending = graded.filter((g) => g.outcome === "open");
+  const sameGame = new Set(legs.map((l) => l.event_id)).size === 1;
   return (
     <Card className="px-3 py-2.5">
       <div className="flex items-start gap-2.5">
@@ -144,36 +182,31 @@ function ParlayRow({ bet, legs, hold, live, why }: { bet: GradedRow; legs: Bet[]
 
         <div className="min-w-0 flex-1">
           <p className="flex items-baseline gap-1.5 text-[14px] font-medium text-slate-100">
-            <span>{legs.length}-leg parlay</span>
+            <span>{legs.length}-leg {sameGame ? "same-game parlay" : "parlay"}</span>
             <span className="tabular text-slate-400">
               {formatPrice(bet.parlay_price ?? null)}
             </span>
           </p>
           <ul className="mt-1 space-y-0.5">
-            {legs.map((leg) => (
-              <li key={leg.bet_id} className="truncate text-[11px] text-slate-500">
-                {/* A team's name only on a team's leg: a total belongs to the game (or,
-                    with `team`, to that team's points), not to whichever side is away. */}
-                <span className="text-slate-400">
-                  {leg.market === "total"
-                    ? leg.team === "home"
-                      ? `${leg.home_team} team total`
-                      : leg.team === "away"
-                        ? `${leg.away_team} team total`
-                        : "Game total"
-                    : leg.side === "home"
-                      ? leg.home_team
-                      : leg.away_team}
-                </span>{" "}
-                {leg.market === "total"
-                  ? formatLine("total", leg.side, leg.line)
-                  : leg.market === "spread"
-                    ? formatLine("spread", leg.side, leg.line)
-                    : "ML"}{" "}
-                <span className="tabular text-slate-600">{formatPrice(leg.price)}</span>
+            {graded.map(({ leg, outcome }) => (
+              <li key={leg.bet_id} className="text-[11px] text-slate-500">
+                <span className={`mr-1 inline-block w-3 text-center ${LEG_TONE[outcome] ?? ""}`}>
+                  {outcome === "won" ? "✓" : outcome === "lost" ? "✗" : outcome === "push" ? "–" : "·"}
+                </span>
+                <span className="text-slate-400">{legText(leg)}</span>{" "}
+                {leg.price !== null ? <span className="tabular text-slate-600">{formatPrice(leg.price)}</span> : null}
+                {leg.market === "prop" && bet.outcome !== "cashed" ? (
+                  <LegResult betId={leg.bet_id} current={leg.prop_result ?? null} />
+                ) : null}
               </li>
             ))}
           </ul>
+          {bet.outcome === "open" && hit + pending.length === legs.length && hit > 0 ? (
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {hit} of {legs.length} hit
+              {pending.length > 0 ? `, ${pending.map((g) => legText(g.leg)).join(" and ")} pending` : ""}.
+            </p>
+          ) : null}
           <div className="tabular mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-slate-600">
             <Pill>{formatLeague(bet.league)}</Pill>
             <span>${bet.stake.toFixed(0)}</span>
@@ -292,15 +325,12 @@ function KalshiLine({ clv }: { clv?: KalshiClv }) {
 
 function BetRow({ bet, hold, live, why, kalshi }: { bet: GradedRow; hold?: Hold; live?: string | null; why?: string | null; kalshi?: KalshiClv }) {
   const teamId = null; // bets store names, not ids; the crest comes from the game page
-  const label =
-    bet.market === "total"
-      ? `${formatLine("total", bet.side, bet.line)}`
-      : `${bet.side === "home" ? bet.home_team : bet.away_team} ${
-          bet.market === "spread" ? formatLine("spread", bet.side, bet.line) : "ML"
-        }`;
+  const label = legText(bet);
+  const prop = bet.market === "prop";
 
   return (
-    <Card href={`/game/${bet.event_id}`} className="px-3 py-2.5">
+    // A prop card carries its own result buttons, which cannot sit inside a link.
+    <Card href={prop ? undefined : `/game/${bet.event_id}`} className="px-3 py-2.5">
       <div className="flex items-start gap-2.5">
         <div
           className={`flex h-11 w-16 shrink-0 flex-col items-center justify-center rounded-lg text-[11px] font-semibold uppercase tracking-wide ${
@@ -330,6 +360,12 @@ function BetRow({ bet, hold, live, why, kalshi }: { bet: GradedRow; hold?: Hold;
           </div>
           {bet.note ? (
             <p className="mt-1 truncate text-[11px] italic text-slate-500">{bet.note}</p>
+          ) : null}
+          {prop && bet.outcome !== "cashed" ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              {bet.prop_result ? `Recorded: ${bet.prop_result}.` : "Did it hit?"}
+              <LegResult betId={bet.bet_id} current={bet.prop_result ?? null} />
+            </p>
           ) : null}
           {bet.outcome === "cashed" && bet.heldProfit !== null ? (
             <HeldInstead took={bet.profit} held={bet.heldProfit} />
@@ -691,6 +727,9 @@ export default async function BetsPage({
             initial={prefill}
           />
         </Card>
+        <Card className="mb-3 px-3.5 py-3">
+          <ParlayForm games={bettable} started={recent.map((g) => g.eventId)} />
+        </Card>
       </div>
 
       {rows.length === 0 ? (
@@ -727,7 +766,7 @@ export default async function BetsPage({
                             live={liveLabel(bet)}
                           />
                         ) : legs ? (
-                          <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} />
+                          <ParlayRow bet={bet} legs={legs} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} scores={scores} />
                         ) : (
                           <BetRow bet={bet} hold={open.hold.get(bet.bet_id)} live={liveLabel(bet)} why={staleReason(bet)} kalshi={kalshiClv.get(bet.bet_id)} />
                         )}

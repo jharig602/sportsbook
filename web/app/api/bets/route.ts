@@ -9,7 +9,29 @@ import type { Bet } from "@/lib/settle";
 
 export const dynamic = "force-dynamic";
 
-const MARKETS = new Set(["spread", "total", "moneyline"]);
+const MARKETS = new Set(["spread", "total", "moneyline", "prop"]);
+/** Prop stats the ledger knows (props.ts keys). A prop is over/under a number of these. */
+const PROP_STATS = new Set([
+  "anytime_td", "first_td", "pass_yds", "pass_tds", "rush_yds", "rec_yds", "rush_rec_yds", "receptions",
+]);
+
+/**
+ * A prop leg's own problems, or none. Player and stat are required (they are the whole
+ * question), the side is over or under, and the line is the stat's number: 274.5 for
+ * "275+ passing yards", 0.5 for an anytime TD.
+ */
+function propProblems(leg: Record<string, unknown>, at: string): string[] {
+  const problems: string[] = [];
+  const player = String(leg.prop_player ?? "").trim();
+  if (!player || player.length > 60) problems.push(`${at}: name the player.`);
+  if (!PROP_STATS.has(String(leg.prop_stat ?? ""))) problems.push(`${at}: pick the stat.`);
+  if (leg.side !== "over" && leg.side !== "under") problems.push(`${at}: a prop is over or under.`);
+  const line = Number(leg.line);
+  if (leg.line === null || leg.line === "" || !Number.isFinite(line) || line < 0) {
+    problems.push(`${at}: a prop needs its number (274.5 for 275+, 0.5 for a TD).`);
+  }
+  return problems;
+}
 
 /**
  * Whose points a total is about, or null for the game's.
@@ -26,6 +48,13 @@ function readTeam(raw: unknown, market: string): "home" | "away" | null | undefi
 const SIDES = new Set(["home", "away", "over", "under", "odd", "even"]);
 /** Total points odd/even: a total with no line. */
 const PARITY = new Set(["odd", "even"]);
+
+/** A parlay leg's own price: absent is fine (null), a bad one is `undefined`. */
+function legPrice(raw: unknown): number | null | undefined {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const price = Number(raw);
+  return Number.isFinite(price) && Math.abs(price) >= 100 ? price : undefined;
+}
 
 /**
  * Record a wager.
@@ -74,7 +103,9 @@ export async function POST(request: Request) {
     const contradiction = sameGameProblem(
       legs.map((l) => ({
         event_id: String(l.event_id ?? ""),
-        market: String(l.market ?? ""),
+        // A prop is keyed by its player and stat too: two players' TDs are two legs,
+        // not the same leg twice.
+        market: l.market === "prop" ? `prop:${String(l.prop_player ?? "").trim()}:${String(l.prop_stat ?? "")}` : String(l.market ?? ""),
         side: String(l.side ?? ""),
         line: l.line === null || l.line === "" ? null : Number(l.line),
       })),
@@ -83,12 +114,17 @@ export async function POST(request: Request) {
     for (const [i, leg] of legs.entries()) {
       const market = String(leg.market ?? "");
       const side = String(leg.side ?? "");
-      const price = Number(leg.price);
       const line = leg.line === null || leg.line === "" ? null : Number(leg.line);
       if (!leg.event_id) problems.push(`Leg ${i + 1}: pick a game.`);
       if (!MARKETS.has(market)) problems.push(`Leg ${i + 1}: bad market.`);
       if (!SIDES.has(side)) problems.push(`Leg ${i + 1}: bad side.`);
-      if (!Number.isFinite(price) || Math.abs(price) < 100) problems.push(`Leg ${i + 1}: bad price.`);
+      // A leg's own price is optional: a same-game slip usually shows only the combined
+      // price, and the ticket settles off that. When given, it must be a real price.
+      if (legPrice(leg.price) === undefined) problems.push(`Leg ${i + 1}: bad price.`);
+      if (market === "prop") {
+        problems.push(...propProblems(leg, `Leg ${i + 1}`));
+        continue;
+      }
       if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
         problems.push(`Leg ${i + 1}: a spread or total needs a line.`);
       }
@@ -113,9 +149,11 @@ export async function POST(request: Request) {
       commence_time: (leg.commence_time as string) ?? null,
       market: String(leg.market) as Bet["market"],
       side: String(leg.side) as Bet["side"],
-      team: readTeam(leg.team, String(leg.market)) ?? null,
+      team: leg.market === "prop" ? null : (readTeam(leg.team, String(leg.market)) ?? null),
       line: leg.market === "moneyline" || PARITY.has(String(leg.side)) ? null : Number(leg.line),
-      price: Number(leg.price),
+      price: legPrice(leg.price) ?? null,
+      prop_player: leg.market === "prop" ? String(leg.prop_player).trim() : null,
+      prop_stat: leg.market === "prop" ? String(leg.prop_stat) : null,
       // Repeated on every leg; the tally counts it once per ticket.
       stake,
       book: String(body.book ?? "BetMGM"),
@@ -171,24 +209,28 @@ export async function POST(request: Request) {
   // which the supersedes check below enforces.
   if (voiding && !body.supersedes) problems.push("A void must name the bet it removes.");
   if (!body.event_id) problems.push("Pick a game.");
-  if (!MARKETS.has(market)) problems.push("Market must be spread, total or moneyline.");
+  if (!MARKETS.has(market)) problems.push("Market must be spread, total, moneyline or a player prop.");
   if (!SIDES.has(side)) problems.push("Pick a side.");
   if (!Number.isFinite(price) || Math.abs(price) < 100) {
     problems.push("Price must be American odds of at least +100 or -100.");
   }
   if (!Number.isFinite(stake) || stake <= 0) problems.push("Stake must be more than zero.");
-  if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
-    problems.push("A spread or total needs a line.");
+  if (market === "prop") {
+    problems.push(...propProblems(body, "Prop"));
+  } else {
+    if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
+      problems.push("A spread or total needs a line.");
+    }
+    // A spread's side must be a team and a total's must be over/under; crossing them
+    // would settle against the wrong question entirely.
+    if (market === "total" && side !== "over" && side !== "under" && !PARITY.has(side)) {
+      problems.push("A total is bet over, under, odd or even.");
+    }
+    if (market !== "total" && side !== "home" && side !== "away") {
+      problems.push("A spread or moneyline is bet on home or away.");
+    }
   }
-  // A spread's side must be a team and a total's must be over/under; crossing them
-  // would settle against the wrong question entirely.
-  if (market === "total" && side !== "over" && side !== "under" && !PARITY.has(side)) {
-    problems.push("A total is bet over, under, odd or even.");
-  }
-  if (market !== "total" && side !== "home" && side !== "away") {
-    problems.push("A spread or moneyline is bet on home or away.");
-  }
-  const team = readTeam(body.team, market);
+  const team = market === "prop" ? null : readTeam(body.team, market);
   if (team === undefined) problems.push("A team total must name home or away.");
 
   // A correction must name a bet that exists IN THIS LEDGER. Accepting an unknown id
@@ -247,6 +289,8 @@ export async function POST(request: Request) {
     team: team ?? null,
     line: market === "moneyline" ? null : line,
     price,
+    prop_player: market === "prop" ? String(body.prop_player).trim() : null,
+    prop_stat: market === "prop" ? String(body.prop_stat) : null,
     stake,
     book: String(body.book ?? "BetMGM"),
     model_probability: Number.isFinite(Number(body.model_probability))

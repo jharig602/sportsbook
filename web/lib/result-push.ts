@@ -24,6 +24,7 @@
  * When several tickets finish at once -- a college Saturday -- one summary replaces a
  * pile of separate buzzes.
  */
+import { propLegLabel } from "./props";
 import { activeBets, groupParlays, settle, settleParlay, tally, type Bet, type Score } from "./settle";
 
 export const RESULT_WINDOW_HOURS = 36;
@@ -63,12 +64,15 @@ export function money(amount: number): string {
   return `${sign}$${Math.abs(amount).toFixed(2)}`;
 }
 
-function price(value: number): string {
+function price(value: number | null): string {
+  // A parlay leg the slip did not price on its own has nothing to print.
+  if (value === null) return "";
   return `${value > 0 ? "+" : ""}${value}`;
 }
 
 /** A leg the way a bet slip prints it. */
 export function legLabel(bet: Bet): string {
+  if (bet.market === "prop") return propLegLabel(bet.prop_player, bet.prop_stat, bet.side, bet.line);
   const team =
     bet.side === "home" ? bet.home_team : bet.side === "away" ? bet.away_team : null;
   if (bet.market === "moneyline") return `${team ?? bet.side} ML`;

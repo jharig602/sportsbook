@@ -638,3 +638,36 @@ test("a same-game parlay with an odd leg settles on all three", async () => {
   assert.equal(settleParlay(legs, scores(24, 32)).outcome, "lost"); // 56 is even
   assert.ok(Math.abs(settleParlay(legs, scores(24, 31)).profit - 165) < 1e-9);
 });
+
+// --- player-prop legs (v26) ---------------------------------------------------------------
+
+test("a single prop settles on its recorded result, and waits without one", () => {
+  const prop = bet({ market: "prop", side: "over", line: 0.5, price: 120, prop_player: "Jahmyr Gibbs", prop_stat: "anytime_td" });
+  assert.equal(settle(prop, undefined).outcome, "open", "no result yet");
+  assert.equal(settle(prop, { home_score: 30, away_score: 20 }).outcome, "open", "a final score does not decide a prop");
+  const won = settle({ ...prop, prop_result: "won" }, undefined);
+  assert.equal(won.outcome, "won");
+  assert.ok(Math.abs(won.profit - 24) < 1e-9);
+  assert.equal(settle({ ...prop, prop_result: "lost" }, undefined).profit, -20);
+  assert.equal(settle({ ...prop, prop_result: "void" }, undefined).outcome, "push");
+});
+
+test("the Lions ticket: Goff 275+, Lions ML, Gibbs TD at +195 settles off the combined price", () => {
+  const ticket = { parlay_id: "P", parlay_price: 195, stake: 25, price: null, event_id: "GBDET", league: "nfl" };
+  const goff = bet({ ...ticket, bet_id: "g", market: "prop", side: "over", line: 274.5, prop_player: "Jared Goff", prop_stat: "pass_yds" });
+  const ml = bet({ ...ticket, bet_id: "m", market: "moneyline", side: "home", line: null });
+  const gibbs = bet({ ...ticket, bet_id: "j", market: "prop", side: "over", line: 0.5, prop_player: "Jahmyr Gibbs", prop_stat: "anytime_td" });
+  const lionsWin = new Map([["GBDET", { home_score: 31, away_score: 24 }]]);
+  // Lions won, props still waiting: open, not won.
+  assert.equal(settleParlay([goff, ml, gibbs], lionsWin).outcome, "open");
+  // Every leg hit: $25 at +195 is $48.75 profit, $73.75 back.
+  const all = settleParlay([{ ...goff, prop_result: "won" }, ml, { ...gibbs, prop_result: "won" }], lionsWin);
+  assert.equal(all.outcome, "won");
+  assert.ok(Math.abs(all.profit - 48.75) < 1e-9 && Math.abs(all.returned - 73.75) < 1e-9);
+  // One prop misses: the ticket loses, whatever the score.
+  assert.equal(settleParlay([{ ...goff, prop_result: "lost" }, ml, gibbs], lionsWin).outcome, "lost");
+  // A voided prop leg: the book re-prices, which is not ours to guess.
+  const voided = settleParlay([{ ...goff, prop_result: "void" }, ml, { ...gibbs, prop_result: "won" }], lionsWin);
+  assert.equal(voided.outcome, "open");
+  assert.equal(voided.needsCorrection, true);
+});

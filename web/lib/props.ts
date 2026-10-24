@@ -122,3 +122,16 @@ export function groupProps(rows: PropRow[]) {
   }
   return byStat;
 }
+
+/**
+ * A prop leg the way a slip prints it: "Jared Goff 275+ passing yds", "Jahmyr Gibbs
+ * anytime TD", "Jared Goff under 274.5 passing yds".
+ */
+export function propLegLabel(player: string | null | undefined, stat: string | null | undefined, side: string, line: number | null): string {
+  const who = player ?? "Player";
+  if (stat === "anytime_td") return side === "under" ? `${who} no TD` : `${who} anytime TD`;
+  if (stat === "first_td") return `${who} first TD`;
+  const label = (STAT_LABEL[stat as PropStat] ?? stat ?? "").toLowerCase();
+  if (line === null) return `${who} ${label}`.trim();
+  return side === "under" ? `${who} under ${line} ${label}` : `${who} ${Math.ceil(line)}+ ${label}`;
+}

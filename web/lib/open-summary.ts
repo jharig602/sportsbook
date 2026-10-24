@@ -35,7 +35,8 @@ export function fairChance(
   model: MarginModel | null,
   now: Date = new Date(),
 ): number | null {
-  // A team total is priced by nobody in the feed.
+  // A team total is priced by nobody in the feed; a prop is not on the board at all.
+  if (bet.market === "prop") return null;
   if (bet.market === "total" && bet.team) return null;
   if (bet.market !== "moneyline" && bet.line === null) return null;
   const quotes = quotesForGame(game, stored, "DraftKings", now).filter(

@@ -14,6 +14,12 @@
 import { findHedges, type Hedge } from "./hedge";
 import type { Market, Side } from "./types";
 
+/** A ledger row's market: the board's three, plus a player prop (v26). */
+export type BetMarket = Market | "prop";
+
+/** How a prop leg ended, from `leg_results` -- a tap on the Bets page or the box score. */
+export type LegResult = "won" | "lost" | "push" | "void";
+
 export interface Bet {
   bet_id: string;
   placed_at: string;
@@ -22,8 +28,20 @@ export interface Bet {
   home_team: string | null;
   away_team: string | null;
   commence_time: string | null;
-  market: Market;
+  market: BetMarket;
   side: Side;
+  /**
+   * A player prop's player and stat (market 'prop', v26). Over/under at `line`: Goff
+   * 275+ passing yards is over 274.5; an anytime TD is over 0.5 touchdowns.
+   */
+  prop_player?: string | null;
+  prop_stat?: string | null;
+  /**
+   * How a prop leg ended. Not a column of `bets`: joined in from `leg_results` when the
+   * ledger is read, because no final score decides a player's stat and the ledger itself
+   * is never edited. Absent while the leg waits for a result.
+   */
+  prop_result?: LegResult | null;
   /**
    * Whose points a `total` row is about. Null is the game's total.
    *
@@ -34,7 +52,11 @@ export interface Bet {
    */
   team?: "home" | "away" | null;
   line: number | null;
-  price: number;
+  /**
+   * The price taken. Null only on a parlay leg the slip did not price on its own -- a
+   * same-game slip usually shows one combined price, which is `parlay_price`.
+   */
+  price: number | null;
   stake: number;
   book: string;
   model_probability: number | null;
@@ -120,8 +142,8 @@ export interface Settlement {
   returned: number;
 }
 
-export function decimalOdds(price: number): number | null {
-  if (Math.abs(price) < 100) return null;
+export function decimalOdds(price: number | null | undefined): number | null {
+  if (price === null || price === undefined || Math.abs(price) < 100) return null;
   return price > 0 ? 1 + price / 100 : 1 + 100 / -price;
 }
 
@@ -198,6 +220,9 @@ export function settle(bet: Bet, score: Score | undefined): Settlement {
  * the question needs a number rather than a memory.
  */
 export function settleOnScore(bet: Bet, score: Score | undefined): Settlement {
+  // A prop is decided by the player's stat, not the score: settled when a result is
+  // recorded for it, open until then, whether or not the game is final.
+  if (bet.market === "prop") return settleProp(bet);
   if (!score) return { outcome: "open", profit: 0, returned: 0 };
 
   const won = didWin(bet, score);
@@ -209,7 +234,12 @@ export function settleOnScore(bet: Bet, score: Score | undefined): Settlement {
   }
 
   const decimal = decimalOdds(bet.price);
-  if (decimal === null) return { outcome: "open", profit: 0, returned: 0 };
+  if (decimal === null) {
+    // A parlay leg the slip did not price on its own still won or lost; the ticket's
+    // combined price pays it. Leaving it "open" would hold the whole ticket open forever.
+    if (bet.parlay_id) return won ? { outcome: "won", profit: 0, returned: 0 } : { outcome: "lost", profit: 0, returned: 0 };
+    return { outcome: "open", profit: 0, returned: 0 };
+  }
 
   if (won) {
     const profit = bet.stake * (decimal - 1);
@@ -219,6 +249,20 @@ export function settleOnScore(bet: Bet, score: Score | undefined): Settlement {
   }
   // Nothing was risked, so nothing was lost.
   return { outcome: "lost", profit: bet.bonus ? 0 : -bet.stake, returned: 0 };
+}
+
+function settleProp(bet: Bet): Settlement {
+  const result = bet.prop_result ?? null;
+  if (result === null) return { outcome: "open", profit: 0, returned: 0 };
+  if (result === "push" || result === "void") {
+    return { outcome: "push", profit: 0, returned: bet.bonus ? 0 : bet.stake };
+  }
+  if (result === "lost") return { outcome: "lost", profit: bet.bonus ? 0 : -bet.stake, returned: 0 };
+  const decimal = decimalOdds(bet.price);
+  // A won leg inside a parlay has no price of its own to pay; the ticket pays.
+  if (decimal === null) return { outcome: "won", profit: 0, returned: 0 };
+  const profit = bet.stake * (decimal - 1);
+  return { outcome: "won", profit, returned: bet.bonus ? profit : bet.stake + profit };
 }
 
 /** A settled ticket, plus what it would have paid had it run to the whistle. */

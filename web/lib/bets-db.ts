@@ -7,7 +7,9 @@
  * P&L by itself.
  */
 import { databaseUrl } from "./env";
-import type { Bet } from "./settle";
+import { randomUUID } from "node:crypto";
+
+import type { Bet, LegResult } from "./settle";
 
 /**
  * Every function here takes the ledger's owner FIRST, and none of them have a default.
@@ -46,6 +48,7 @@ const COLUMNS = [
   "commence_time", "market", "side", "line", "price", "stake", "book",
   "model_probability", "market_probability", "rule_version_id", "note", "bonus",
   "supersedes", "voided", "parlay_id", "parlay_price", "cashout", "team",
+  "prop_player", "prop_stat",
 ];
 
 /**
@@ -86,7 +89,7 @@ export async function listBets(ownerId: string): Promise<Bet[]> {
        ORDER BY placed_at DESC LIMIT 500`,
     [ownerId],
   );
-  return (result.rows as Record<string, unknown>[]).map((row) => {
+  const bets = (result.rows as Record<string, unknown>[]).map((row) => {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {
       // Match the shapes the rest of the app uses: ISO strings, numbers not strings.
@@ -96,10 +99,59 @@ export async function listBets(ownerId: string): Promise<Bet[]> {
       else if (key === "stake" && typeof value === "string") out[key] = Number(value);
       else if (key === "cashout" && typeof value === "string") out[key] = Number(value);
       else if (key === "bonus" || key === "voided") out[key] = value === true;
+      else if (key === "line" && typeof value === "string") out[key] = Number(value);
       else out[key] = value;
     }
     return out as unknown as Bet;
   });
+  // Prop legs: the latest result per leg, joined in rather than stored on the bet.
+  const props = bets.filter((b) => b.market === "prop");
+  if (props.length === 0) return bets;
+  const results = await legResults(ownerId);
+  return bets.map((b) => (b.market === "prop" ? { ...b, prop_result: results.get(b.bet_id) ?? null } : b));
+}
+
+/** The latest result per prop leg in this ledger (`leg_results`, v26). */
+async function legResults(ownerId: string): Promise<Map<string, LegResult>> {
+  const db = await getPool();
+  try {
+    const result = await db.query(
+      `SELECT DISTINCT ON (bet_id) bet_id, result FROM leg_results
+        WHERE owner_id = $1 ORDER BY bet_id, decided_at DESC`,
+      [ownerId],
+    );
+    return new Map((result.rows as Array<{ bet_id: string; result: LegResult }>).map((r) => [r.bet_id, r.result]));
+  } catch (error) {
+    // A deploy ahead of its migration reads as "no results yet", never as an error page.
+    if ((error as { code?: string })?.code === "42P01") return new Map();
+    throw error;
+  }
+}
+
+/**
+ * Record how a prop leg ended. A new row, never an edit: the latest one counts, so a
+ * wrong tap is fixed by tapping again. Refused unless the leg is a prop IN THIS LEDGER --
+ * a result is a write, and without the owner check it could settle anybody's ticket.
+ */
+export async function recordLegResult(
+  ownerId: string,
+  betId: string,
+  result: LegResult,
+  source: "manual" | "boxscore" = "manual",
+): Promise<void> {
+  const db = await getPool();
+  const found = await db.query(
+    "SELECT market FROM bets WHERE owner_id = $1 AND bet_id = $2",
+    [ownerId, betId],
+  );
+  const market = (found.rows[0] as { market?: string } | undefined)?.market;
+  if (market === undefined) throw new Error("That leg is not in this ledger.");
+  if (market !== "prop") throw new Error("Only a player-prop leg takes a result by hand; the score settles the rest.");
+  await db.query(
+    `INSERT INTO leg_results (result_id, owner_id, bet_id, result, source, decided_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())`,
+    [randomUUID(), ownerId, betId, result, source],
+  );
 }
 
 /**

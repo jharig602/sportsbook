@@ -69,6 +69,8 @@ export function liveChance(
   model: ScoreModel | null | undefined,
 ): number | null {
   if (!model || game.state === "pre") return null;
+  // A player's stat is not a function of the score line; no live chance for a prop.
+  if (bet.market === "prop") return null;
   if (bet.market === "total" && bet.team) return null;
   const f = fractionLeft(game);
   const margin = game.homeScore - game.awayScore;
