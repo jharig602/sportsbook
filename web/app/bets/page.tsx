@@ -2,6 +2,7 @@ import { BetForm } from "@/components/BetForm";
 import { ParlayForm } from "@/components/ParlayForm";
 import { LegResult } from "@/components/LegResult";
 import { propLegLabel } from "@/lib/props";
+import { recordByType } from "@/lib/record-by-type";
 import { parseBetPrefill } from "@/lib/bet-link";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Stats } from "@/components/ui";
@@ -460,6 +461,8 @@ export default async function BetsPage({
   }
   const hedgeById = new Map(hedges.map((h) => [h.id, h]));
   const sections = ledgerSections(display, parlayLegs);
+  // The record by kind of ticket (record-by-type.ts).
+  const byType = recordByType(rows, parlayLegs);
 
   // What is riding on the open tickets, priced against the other books. See open-summary.ts.
   const gamesById = new Map(games.map((g) => [g.eventId, g]));
@@ -675,6 +678,36 @@ export default async function BetsPage({
           </span>
           . An estimate, not tax advice; change the rate in Settings.
         </p>
+      ) : null}
+
+      {byType.filter((t) => t.tickets > 0).length > 1 ? (
+        <div className="-mt-1 mb-3 rounded-lg border border-edge/60 px-2.5 py-2">
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">By ticket type (settled)</p>
+          <table className="mt-1 w-full text-[11px]">
+            <tbody>
+              {byType
+                .filter((t) => t.tickets > 0)
+                .map((t) => (
+                  <tr key={t.type} className="text-slate-400">
+                    <td className="py-0.5 text-slate-300">
+                      {t.type === "single" ? "Singles" : t.type === "parlay" ? "Parlays" : "Same-game parlays"}
+                    </td>
+                    <td className="tabular text-right">
+                      {t.won}-{t.lost}
+                      {t.push > 0 ? `-${t.push}` : ""}
+                    </td>
+                    <td className={`tabular text-right ${t.profit >= 0 ? "text-emerald-300/90" : "text-rose-300/90"}`}>{money(t.profit)}</td>
+                    <td className="tabular text-right">{t.roi === null ? "—" : formatPercent(t.roi, 1)}</td>
+                    <td className="tabular text-right text-slate-500">{t.bonusProfit !== 0 ? `bonus ${money(t.bonusProfit)}` : ""}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          <p className="mt-1 text-[10px] leading-snug text-slate-600">
+            Return on your own money; bonus-bet profit apart. Same-game parlays carry far more of
+            the book&rsquo;s margin than singles, so expect them to trail &mdash; this is where that shows.
+          </p>
+        </div>
       ) : null}
 
       {/*
