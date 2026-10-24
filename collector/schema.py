@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 26
+ANALYTICS_SCHEMA_VERSION = 27
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -742,6 +742,52 @@ CREATE TABLE IF NOT EXISTS leg_results (
 );
 
 CREATE INDEX IF NOT EXISTS leg_results_bet ON leg_results (owner_id, bet_id, decided_at);
+
+-- v27: the Claude connector's sign-in (OAuth 2.1, single user, read-only). Every secret
+-- here is stored as a SHA-256, never in the clear: a database leak hands out no codes and
+-- no tokens.
+
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    -- A client registered dynamically (RFC 7591). Only Claude's own callback URLs are
+    -- accepted as redirect URIs, so a stranger registering a client gets nowhere.
+    client_id VARCHAR PRIMARY KEY,
+    client_name VARCHAR,
+    redirect_uris VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_codes (
+    -- One-time authorization codes: ten minutes, single use, bound to the client, the
+    -- redirect URI and the PKCE challenge.
+    code_hash VARCHAR PRIMARY KEY,
+    client_id VARCHAR NOT NULL,
+    redirect_uri VARCHAR NOT NULL,
+    code_challenge VARCHAR NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used BOOLEAN NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    -- Access tokens (an hour) and refresh tokens (thirty days, rotated on use).
+    token_hash VARCHAR PRIMARY KEY,
+    kind VARCHAR NOT NULL,
+    client_id VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked BOOLEAN NOT NULL,
+    CHECK (kind IN ('access', 'refresh'))
+);
+
+CREATE TABLE IF NOT EXISTS mcp_calls (
+    -- Every connector tool call, for audit and the per-token rate limit.
+    call_id VARCHAR PRIMARY KEY,
+    called_at TIMESTAMPTZ NOT NULL,
+    token_hash VARCHAR NOT NULL,
+    tool VARCHAR NOT NULL,
+    inputs VARCHAR
+);
+
+CREATE INDEX IF NOT EXISTS mcp_calls_token ON mcp_calls (token_hash, called_at);
 
 """
 
