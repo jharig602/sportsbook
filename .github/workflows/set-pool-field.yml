@@ -29,6 +29,10 @@ on:
         description: 'Entries to create: [{"name": "New · Me", "size": 22, "lossesAllowed": 1}]'
         required: false
         default: ""
+      used:
+        description: 'Each entry\'s full list of spent teams: {"me": ["Houston Texans"], "ma": ["Minnesota Vikings"]}'
+        required: false
+        default: ""
       dry_run:
         description: "Report what would change without writing"
         type: boolean
@@ -50,6 +54,7 @@ jobs:
       POOL_RIVALS: ${{ inputs.rivals }}
       POOL_ADD: ${{ inputs.add }}
       POOL_REMOVE: ${{ inputs.remove }}
+      POOL_USED: ${{ inputs.used }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4

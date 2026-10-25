@@ -266,3 +266,36 @@ def test_removing_finished_pools_checks_every_token_first():
         remove_pools(pools, ["76", "999"])  # the typo refuses the whole removal
     with pytest.raises(ValueError, match="2 pools have size 22"):
         remove_pools(pools, ["22"])
+
+
+from set_pool_field import apply_used  # noqa: E402
+
+KNOWN = {"Houston Texans", "Minnesota Vikings", "New York Jets"}
+
+
+def test_used_is_set_by_name_as_state():
+    pools = [{"name": "Me", "size": 21, "used": [], "lossesAllowed": 1},
+             {"name": "Ma", "size": 21, "used": ["New York Jets"], "lossesAllowed": 1}]
+    out, report = apply_used(pools, {"me": ["Houston Texans"], "ma": ["New York Jets", "Minnesota Vikings"]},
+                             [21, 21], KNOWN)
+    assert out[0]["used"] == ["Houston Texans"]
+    assert out[1]["used"] == ["New York Jets", "Minnesota Vikings"]
+    assert report == ["me: 0 -> 1 teams used", "ma: 1 -> 2 teams used"]
+    # Re-applying the same state changes nothing.
+    again, _ = apply_used(out, {"me": ["Houston Texans"]}, [21, 21], KNOWN)
+    assert again[0]["used"] == ["Houston Texans"]
+    assert pools[0]["used"] == []  # the input is not mutated
+
+
+def test_used_refuses_a_team_name_the_planner_would_not_recognise():
+    pools = [{"name": "Me", "size": 21, "used": [], "lossesAllowed": 1}]
+    with pytest.raises(ValueError, match="not an NFL team"):
+        apply_used(pools, {"me": ["Houston"]}, [21], KNOWN)
+    with pytest.raises(ValueError):
+        apply_used(pools, {"nobody": ["Houston Texans"]}, [21], KNOWN)
+
+
+def test_used_names_are_the_real_espn_list():
+    from set_pool_field import nfl_team_names
+    names = nfl_team_names()
+    assert len(names) == 32 and "Houston Texans" in names and "San Francisco 49ers" in names

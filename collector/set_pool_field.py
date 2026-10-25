@@ -352,6 +352,45 @@ def apply_rivals(
     return out, report
 
 
+def nfl_team_names() -> set[str]:
+    """Every NFL team as ESPN names it -- the names the planner's candidates carry."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "config", "kalshi-aliases.json")
+    with open(path, encoding="utf-8") as handle:
+        return set(json.load(handle)["nfl"].values())
+
+
+def apply_used(pools: list[dict], used: dict, stored_sizes: list[int],
+               known: set[str] | None = None) -> tuple[list[dict], list[str]]:
+    """Set each entry's spent teams: {"me": ["Houston Texans"], ...}, keyed by name or size.
+
+    The WHOLE list, not this week's addition -- state, so re-running it changes nothing.
+    Every team must be an NFL team exactly as ESPN names it: "Houston" would match no
+    candidate, so the planner would offer the Texans again, silently. The report is a
+    count only; which teams an entry has spent is strategy and these logs are public.
+    """
+    known = known if known is not None else nfl_team_names()
+    out = [dict(p) for p in pools]
+    report = []
+    for key, teams in used.items():
+        text = str(key).strip()
+        size, name = (int(text), None) if text.isdigit() else (0, slug(text))
+        if not text.isdigit() and not name:
+            raise ValueError(f"used keyed by {key!r}, which is not a pool size or name")
+        index = find_pool(out, size, name, stored_sizes)
+        if not isinstance(teams, list) or len(teams) > 18:
+            raise ValueError(f"{name or size}: used must be a list of at most 18 teams")
+        clean = []
+        for team in teams:
+            if not isinstance(team, str) or team.strip() not in known:
+                raise ValueError(f"{name or size}: {team!r} is not an NFL team as ESPN names it")
+            if team.strip() not in clean:
+                clean.append(team.strip())
+        before = len(out[index].get("used") or [])
+        out[index]["used"] = clean
+        report.append(f"{name or 'pool of ' + str(size)}: {before} -> {len(clean)} teams used")
+    return out, report
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--set", dest="sets", action="append", default=[],
@@ -362,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Pools that are over, by stored size or name, space-separated")
     parser.add_argument("--add", default="",
                         help='JSON list of entries to create: [{"name": "New · Me", "size": 22, "lossesAllowed": 1}]')
+    parser.add_argument("--used", default="",
+                        help='JSON: {"me": ["Houston Texans"], ...} -- each entry\'s full list of spent teams')
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -379,10 +420,14 @@ def main(argv: list[str] | None = None) -> int:
         additions = json.loads(add_text) if add_text else []
         if not isinstance(additions, list):
             raise ValueError("add must be a JSON list")
+        used_text = (args.used or os.environ.get("POOL_USED", "")).strip()
+        used = json.loads(used_text) if used_text else {}
+        if not isinstance(used, dict):
+            raise ValueError("used must be a JSON object keyed by pool name or size")
     except (ValueError, json.JSONDecodeError) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
-    if not updates and not rivals and not additions and not removals:
+    if not updates and not rivals and not additions and not removals and not used:
         print("refused: nothing to set", file=sys.stderr)
         return 2
 
@@ -411,6 +456,9 @@ def main(argv: list[str] | None = None) -> int:
             if rivals:
                 updated, rivals_report = apply_rivals(updated, rivals, stored_sizes)
                 report.extend(rivals_report)
+            if used:
+                updated, used_report = apply_used(updated, used, stored_sizes)
+                report.extend(used_report)
         except ValueError as error:
             print(f"refused: {error}", file=sys.stderr)
             return 2
