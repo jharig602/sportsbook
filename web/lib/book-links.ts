@@ -61,3 +61,20 @@ export function bookLink(book: string | null | undefined): string | null {
 export function knownBook(book: string | null | undefined): boolean {
   return bookLink(book) !== null;
 }
+
+/**
+ * Offshore and unlicensed books: no US state licence, so a price there is information
+ * about the market (and stays in every consensus) but not a bet worth naming. The Claude
+ * connector leaves them out of its answers unless asked.
+ */
+const OFFSHORE = [
+  "bovada", "betonline", "lowvig", "mybookie", "betus", "betanysports", "everygame",
+  "sportsbetting", "betnow", "heritage", "youwager", "xbet", "wagerweb", "gtbets",
+  "intertops", "jazzsports", "betwhale",
+];
+
+export function isOffshore(book: string | null | undefined): boolean {
+  if (!book) return false;
+  const key = normalise(book);
+  return OFFSHORE.some((k) => key.includes(k));
+}

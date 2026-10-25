@@ -43,3 +43,13 @@ test("every link is a plain https URL", () => {
     assert.ok(url.startsWith("https://"), `${book}: ${url}`);
   }
 });
+
+test("offshore books are recognised however the feed spells them", async () => {
+  const { isOffshore } = await import("./book-links.ts");
+  for (const b of ["Bovada", "BetOnline.ag", "LowVig.ag", "MyBookie.ag", "BetUS", "betonlineag"]) {
+    assert.equal(isOffshore(b), true, b);
+  }
+  for (const b of ["FanDuel", "DraftKings", "BetMGM", "BetRivers", "Caesars", "ESPN BET", "Kalshi", null]) {
+    assert.equal(isOffshore(b), false, String(b));
+  }
+});

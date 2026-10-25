@@ -10,12 +10,15 @@
     "test": "node --test lib/*.test.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
     "@types/pg": "^8.23.1",
+    "mcp-handler": "2.3.0",
     "next": "16.3.4",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -8,6 +8,9 @@ import { TaxSettings } from "@/components/TaxSettings";
 import { DEFAULT_TAX } from "@/lib/tax";
 import { KalshiLinks, type UnlinkedGame } from "@/components/KalshiLinks";
 import { LocationSetting } from "@/components/LocationSetting";
+import { ConnectorSettings } from "@/components/ConnectorSettings";
+import { connectorStatus } from "@/lib/oauth-db";
+import { headers } from "next/headers";
 import { getData } from "@/lib/data";
 import { KALSHI_CONFIG, kalshiFlagsVisible, shadowProfit } from "@/lib/kalshi";
 import { eventsWithKalshi, shadowLog, unmatchedEvents, type ShadowRow } from "@/lib/kalshi-db";
@@ -112,6 +115,14 @@ export default async function AboutPage() {
           date: easternDate(g.commenceTime),
         }))
     : [];
+  // The Claude connector (owner only): the address to paste, and whether it is connected.
+  const head = await headers();
+  const host = head.get("x-forwarded-host") ?? head.get("host") ?? "";
+  const proto = (head.get("x-forwarded-proto") ?? "https").split(",")[0];
+  const connector =
+    session.role === "owner"
+      ? await connectorStatus().catch(() => ({ connections: 0, lastCall: null, callsToday: 0 }))
+      : null;
   // Teams are a shared setting, written by the owner. A guest would see the picker and
   // then have every save refused, so a guest simply does not get one.
   const owner = session.role === "owner";
@@ -133,6 +144,12 @@ export default async function AboutPage() {
       {owner ? (
         <Card className="mb-4 px-3 py-3">
           <TaxSettings initial={tax} />
+        </Card>
+      ) : null}
+
+      {connector ? (
+        <Card className="mb-4 px-3 py-3">
+          <ConnectorSettings status={connector} url={`${proto}://${host.split(",")[0]}/api/mcp`} />
         </Card>
       ) : null}
 

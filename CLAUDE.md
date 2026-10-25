@@ -211,7 +211,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **26** (v26 player-prop legs in `bets` + `leg_results`, unpriced parlay legs; v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **27** (v27 the Claude connector's sign-in: `oauth_clients`, `oauth_codes`, `oauth_tokens`, all secrets as SHA-256, plus the `mcp_calls` audit log; v26 player-prop legs in `bets` + `leg_results`, unpriced parlay legs; v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -641,8 +641,12 @@ both set through `set-pool-field`, never with names and never with the owner's o
   tap, and a dropped field would be erased the first time a team was marked used.
 - Refreshing: read both sheets, map the abbreviations to full team names, drop eliminated
   rows and the owner's row, treat picks on games already played as spent (not live), and
-  dispatch `set-pool-field` with `rivals` (dry run first). The input is visible in the
-  public Actions log: histories and counts, no names.
+  dispatch `set-pool-field` with `rivals` (dry run first), and `used` -- each entry's FULL
+  list of spent teams as ESPN names them (`{"me": [...], "ma": [...]}`), validated against
+  `kalshi-aliases.json`'s 32 NFL names because "Houston" would match no candidate and the
+  planner would offer the Texans again. `rivals` and `used` are read from
+  `GITHUB_EVENT_PATH`, NOT the step env: Actions prints every step's `env:` block into the
+  public log, which published picks until 2026-10-25. The report is counts only.
 
 **Pins are per pool** (`pinKey`: `pin`, `pin1`, ...) and are planned together. With one
 `pin` for "the pool on screen", switching tabs dropped the other pool's pin; that pool fell
@@ -854,6 +858,47 @@ minutes, one use, `DELETE ... RETURNING` so two devices racing cannot both win i
 Refused for the owner in both directions — the passcode already works on a phone, and a
 code would be a second, weaker way in.
 
+
+## Claude connector (read-only MCP)
+
+Owner's spec 2026-10-24 (`Desktop/dissent-mcp-connector-spec.md`). Claude in claude.ai
+reaches Dissent at `/api/mcp` (Streamable HTTP, `mcp-handler`, stateless) and gets eight
+tools, all read-only and all annotated so: `get_shop`, `find_boost_spots`,
+`find_bonus_bet_spots`, `get_game`, `get_open_bets`, `get_record`, `get_promos`,
+`get_survivor` (`lib/mcp-tools.ts`). **Each calls what the page calls** -- `buildBoardShop`,
+`findBoosts`, `ledgerView` (moved out of the Bets page for this), the survivor planner via
+`survivor-view.ts` (moved out of the Survivor page) -- so chat and screen cannot disagree.
+Answers are a short summary plus compact JSON, top 10; every price has `as_of` and `stale`
+(over 10 minutes); offshore books (`isOffshore`, `book-links.ts`) are left out of what is
+recommended unless asked by name or `include_offshore`, and stay in every consensus.
+Market reads are cached 45 s per warm instance.
+
+**Sign-in is our own OAuth 2.1 server on the owner passcode** (`oauth.ts`, `oauth-db.ts`),
+chosen over Clerk/WorkOS so there is one front door, not two:
+
+- Discovery: `/.well-known/oauth-protected-resource[/api/mcp]` (resource is `/api/mcp`) and
+  `/.well-known/oauth-authorization-server`. DCR at `/api/oauth/register`; client ID
+  metadata documents are fetched only from claude.ai / claude.com.
+- **Redirects only to Claude's callbacks** (`claude.ai` and `claude.com`
+  `/api/mcp/auth_callback`); loopback only off production, for the MCP Inspector.
+- `/oauth/authorize` is a page behind the passcode; a guest is bounced and
+  `/api/oauth/approve` re-checks owner + same Origin. That is the "allowlist only Jacob".
+- PKCE S256 only. Codes: 10 min, single use, spent BEFORE they are checked (a wrong
+  verifier burns it). Access 1 h, refresh 30 d and rotated; a spent refresh token shown
+  again revokes the whole client. Everything stored as SHA-256.
+- Open in `isOpenPath`: `/api/mcp` (guards itself, 401 + `resource_metadata`), register,
+  token, revoke, the two well-knowns. NOT open: authorize, approve, `/api/connector`.
+- Every tool call is logged to `mcp_calls` (tool, inputs, time; 90 days) and limited to
+  30 a minute and 1,000 a day per token. Errors reach the chat as one generic line; the
+  detail goes to the server log.
+- Settings has the address to paste and **Disconnect Claude** (revokes every token).
+
+Tested end to end against a throwaway local Postgres (PGlite socket server, schema from
+`PostgresStore`, `sslmode=disable` in the URL overrides the app's SSL option): discovery,
+foreign-redirect refusal, cross-origin approve refusal, burned and reused codes, refresh
+rotation and reuse revocation, all eight tools, disconnect. A FRESH database gets only the
+DDL -- column migrations run only on upgrade -- so the test DB needs
+`UPDATE analytics_meta SET version = 1` and a second `ensure_analytics_schema`.
 
 ## Deploying
 

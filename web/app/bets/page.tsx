@@ -2,7 +2,6 @@ import { BetForm } from "@/components/BetForm";
 import { ParlayForm } from "@/components/ParlayForm";
 import { LegResult } from "@/components/LegResult";
 import { propLegLabel } from "@/lib/props";
-import { recordByType } from "@/lib/record-by-type";
 import { parseBetPrefill } from "@/lib/bet-link";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Banner, Card, Empty, NotAdvice, PageHeader, Pill, Stats } from "@/components/ui";
@@ -14,19 +13,13 @@ import { LedgerTransfer } from "@/components/LedgerTransfer";
 import { currentSession } from "@/lib/session";
 import { databaseUrl } from "@/lib/env";
 import { formatKickoff, formatLeague, formatLine, formatPercent, formatPrice } from "@/lib/format";
-import { activeBets, decimalOdds, settleOnScore, tally, type Bet, type GradedRow, type Score } from "@/lib/settle";
+import { settleOnScore, type Bet, type GradedRow, type Score } from "@/lib/settle";
 import { allBookLines } from "@/lib/book-lines";
-import { fairChance, openSummary } from "@/lib/open-summary";
-import { DEFAULT_TAX, yearTax } from "@/lib/tax";
+import { DEFAULT_TAX } from "@/lib/tax";
 import { getTax } from "@/lib/settings-db";
-import { fairAt } from "@/lib/kalshi";
-import { kalshiHistory } from "@/lib/kalshi-db";
-import { ledgerSections } from "@/lib/ordering";
-import { hedgeBestCase, type Hedge } from "@/lib/hedge";
-import { liveGamesFor } from "@/lib/live-scores";
-import { liveChance, scoreLine, type LiveGame } from "@/lib/live-value";
-import type { ScoreModel } from "@/lib/joint-score";
-import type { League, Side } from "@/lib/types";
+import { ledgerView, type KalshiClv } from "@/lib/ledger-view";
+import type { Hedge } from "@/lib/hedge";
+import type { League } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -307,7 +300,6 @@ function HedgeRow({
  * Kalshi's fair chance for this side when the bet was logged and at kickoff: a second
  * closing-line check from a market with no vig. Rising means the bet beat the close.
  */
-type KalshiClv = { atBet: number | null; atStart: number | null };
 function KalshiLine({ clv }: { clv?: KalshiClv }) {
   if (!clv || (clv.atBet === null && clv.atStart === null)) return null;
   const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -417,129 +409,10 @@ export default async function BetsPage({
     loadError = "No database configured, so bets cannot be stored or read.";
   }
 
-  const scores = new Map<string, Score>(
-    results.map((r) => [r.event_id, { home_score: r.home_score, away_score: r.away_score }]),
-  );
-  // Corrected rows are replaced by their corrections before anything is counted.
-  // Counting both would book the same wager twice, which is the failure a correction
-  // is supposed to prevent.
-  const standing = activeBets(bets);
-  // Legs by ticket, so a parlay row can list what it is made of.
-  const parlayLegs = new Map<string, Bet[]>();
-  for (const bet of standing) {
-    if (!bet.parlay_id) continue;
-    parlayLegs.set(bet.parlay_id, [...(parlayLegs.get(bet.parlay_id) ?? []), bet]);
-  }
-  const corrections = bets.length - standing.length;
-  const { rows, totals, hedges } = tally(standing, scores);
-  // Kalshi when each single moneyline bet was logged and at its kickoff (kalshi.ts).
-  const mlSingles = rows.filter((r) => r.market === "moneyline" && !r.parlay_id && (r.side === "home" || r.side === "away"));
-  const kalshiSnaps = await kalshiHistory([...new Set(mlSingles.map((r) => r.event_id))]).catch(() => new Map());
-  const kalshiClv = new Map<string, KalshiClv>();
-  for (const r of mlSingles) {
-    const snaps = kalshiSnaps.get(r.event_id);
-    if (!snaps) continue;
-    const side = r.side as "home" | "away";
-    kalshiClv.set(r.bet_id, {
-      atBet: fairAt(snaps, side, r.placed_at),
-      atStart: r.commence_time ? fairAt(snaps, side, r.commence_time) : null,
-    });
-  }
-
-  // Live, then soonest kickoff, then won, lost and the rest. See ordering.ts.
-  // A hedge is shown as ONE card, as it is counted: its first bet stands in for the
-  // position (net money, net outcome) and the rest are folded into it. See hedge.ts.
-  const hedgeOf = new Map<string, Hedge>();
-  for (const h of hedges) for (const leg of h.legs) hedgeOf.set(leg.bet_id, h);
-  const display: GradedRow[] = [];
-  for (const row of rows) {
-    const h = hedgeOf.get(row.bet_id);
-    if (!h) display.push(row);
-    else if (h.legs[0].bet_id === row.bet_id) {
-      display.push({ ...row, bet_id: h.id, outcome: h.outcome, profit: h.profit, stake: h.stake, cashout: null });
-    }
-  }
-  const hedgeById = new Map(hedges.map((h) => [h.id, h]));
-  const sections = ledgerSections(display, parlayLegs);
-  // The record by kind of ticket (record-by-type.ts).
-  const byType = recordByType(rows, parlayLegs);
-
-  // What is riding on the open tickets, priced against the other books. See open-summary.ts.
-  const gamesById = new Map(games.map((g) => [g.eventId, g]));
-  // Games under way with money on them get their live score -- one cached ESPN request
-  // per league, and only when there is such a game. See live-scores.ts.
-  const nowMs = Date.now();
-  const startedLegs = standing.filter(
-    (b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id),
-  );
-  const [liveByEvent, scoreModels] = startedLegs.length
-    ? await Promise.all([
-        liveGamesFor(startedLegs.map((b) => ({ eventId: b.event_id, league: b.league }))),
-        data.scoreModels().catch(() => ({})),
-      ])
-    : [new Map<string, LiveGame>(), {} as Record<string, ScoreModel>];
-  // Why a started game could not be priced live, for the row to say rather than guess.
-  const whyNotLive = (bet: Bet): string => {
-    if (liveByEvent.size === 0) return "ESPN's live scores could not be read";
-    const game = liveByEvent.get(bet.event_id);
-    if (!game) return "ESPN has no live score for this game";
-    if (game.state === "pre") return "ESPN does not show it as kicked off yet";
-    if (!gamesById.get(bet.event_id)) return "its pregame line is not on the board";
-    if (!(scoreModels as Record<string, ScoreModel>)[bet.league]) return "no fitted score model for the league";
-    return "this bet type cannot be priced live";
-  };
-  const liveChanceOf = (bet: Bet): number | null => {
-    const game = liveByEvent.get(bet.event_id);
-    const board = gamesById.get(bet.event_id);
-    if (!game || game.state === "pre" || !board) return null;
-    return liveChance(
-      bet,
-      game,
-      { homeSpread: board.spread?.home?.line ?? null, total: board.total?.over?.line ?? null },
-      (scoreModels as Record<string, ScoreModel>)[bet.league],
-    );
-  };
-  const open = openSummary(
-    rows,
-    parlayLegs,
-    (bet) =>
-      liveChanceOf(bet) ??
-      fairChance(bet, gamesById.get(bet.event_id), lines.get(bet.event_id) ?? [], models[bet.league] ?? null),
-    scores,
-    tax,
-  );
-  // This year's estimated tax from the settled tickets (tax.ts). Owner's setting.
-  const taxYear = yearTax(rows, tax, new Date().getUTCFullYear());
-  // The score to show beside a ticket: every started leg must have been priced live, or
-  // the figure is partly pregame and is labelled as such instead.
-  const liveLabel = (row: GradedRow): string | null => {
-    const legs = row.parlay_id ? parlayLegs.get(row.parlay_id) ?? [row] : [row];
-    const started = legs.filter((b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id));
-    if (started.length === 0) return null;
-    if (started.some((b) => liveChanceOf(b) === null)) return null;
-    return started
-      .map((b) => scoreLine(liveByEvent.get(b.event_id)!, { away: b.away_team, home: b.home_team }))
-      .join(" | ");
-  };
-  const staleReason = (row: GradedRow): string | null => {
-    const legs = row.parlay_id ? parlayLegs.get(row.parlay_id) ?? [row] : [row];
-    const miss = legs.find(
-      (b) => b.commence_time && Date.parse(b.commence_time) <= nowMs && !scores.has(b.event_id) && liveChanceOf(b) === null,
-    );
-    return miss ? whyNotLive(miss) : null;
-  };
-
-  // "If all win" adds every ticket's winnings; for a hedge only one side can win, so
-  // swap its legs' sum for its best case.
-  let ifAllWin = open.ifAllWin;
-  for (const h of hedges) {
-    if (h.outcome !== "open") continue;
-    const sum = h.legs.reduce((acc, leg) => {
-      const d = decimalOdds(leg.price);
-      return acc + (d === null ? 0 : leg.stake * (d - 1));
-    }, 0);
-    ifAllWin += hedgeBestCase(h.legs) - sum;
-  }
+  // The ledger math lives in ledger-view.ts, shared with the Claude connector.
+  const {
+    scores, standing, parlayLegs, corrections, rows, totals, kalshiClv, hedgeById, sections, byType, open, taxYear, liveLabel, staleReason, ifAllWin,
+  } = await ledgerView({ games, results, models, lines, bets, tax, scoreModels: () => data.scoreModels() });
 
   // Every game you might be logging, not the first eighty.
   //

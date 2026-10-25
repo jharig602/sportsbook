@@ -148,3 +148,28 @@ test("the owner cookie wins even if both digests somehow matched", () => {
   const same = "a".repeat(64);
   assert.equal(roleFor(same, same, same), "owner", "never downgrade the owner");
 });
+
+test("the connector's machine endpoints are open, its approval is not", () => {
+  // Claude calls these from its own servers with no cookie; each guards itself.
+  for (const p of [
+    "/api/mcp",
+    "/api/oauth/register",
+    "/api/oauth/token",
+    "/api/oauth/revoke",
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/api/mcp",
+    "/.well-known/oauth-authorization-server",
+  ]) {
+    assert.equal(isOpenPath(p), true, p);
+  }
+  // Minting a code is the owner's decision, so it stays behind the passcode.
+  for (const p of ["/oauth/authorize", "/api/oauth/approve", "/api/connector", "/api/mcp/extra", "/.well-known/other"]) {
+    assert.equal(isOpenPath(p), false, `${p} must NOT be open`);
+  }
+});
+
+test("a guest passcode cannot reach the connector approval", () => {
+  assert.equal(viewerAllowed("/oauth/authorize"), false);
+  assert.equal(viewerAllowed("/api/oauth/approve"), false);
+  assert.equal(viewerAllowed("/api/connector"), false);
+});

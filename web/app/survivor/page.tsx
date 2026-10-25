@@ -20,14 +20,13 @@ import { toBettable, type BettablePick } from "@/lib/survivor-bet";
 import { getData } from "@/lib/data";
 import { formatKickoff } from "@/lib/format";
 import { parsePins, pinKey } from "@/lib/pins";
-import { extraLifeMultiple, poolOdds } from "@/lib/pool-odds";
+import { poolOdds } from "@/lib/pool-odds";
 import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "@/lib/season-db";
 import { buildPoolWinPlans, crowdingFrom, poolWinStability } from "@/lib/pool-win";
 import { entryFor, parseUsed } from "@/lib/check-entry";
 import { fieldOdds } from "@/lib/field-odds";
-import { buildPlan, buildWeeks, type Candidate, type Pick } from "@/lib/survivor";
-import { pickLocked } from "@/lib/survivor-window";
-import { winProbabilityFromSpread } from "@/lib/probability";
+import { buildPlan, type Candidate, type Pick } from "@/lib/survivor";
+import { entryOdds, openWeeks, weekZero } from "@/lib/survivor-view";
 
 export const dynamic = "force-dynamic";
 
@@ -171,10 +170,7 @@ export default async function SurvivorPage({
   // Sunday-night and Monday games are not a choice. Without this, Sunday afternoon offered
   // only those three or four teams for a pick made that morning.
   const now = new Date();
-  const weeks = buildWeeks(games, models.nfl ?? null, opener).filter(
-    (w, i, all) => !(i === all.findIndex((x) => x.candidates.length > 0) &&
-      pickLocked(w.candidates.map((c) => c.commenceTime), now)),
-  );
+  const weeks = openWeeks(games, models.nfl ?? null, opener, now);
   const priced = weeks.filter((w) => w.candidates.length > 0).length;
 
   // The whole season by default. Capping it was a judgement about how much a
@@ -247,38 +243,8 @@ export default async function SurvivorPage({
   // cannot take a Thursday-to-Saturday game twelve hours or less from kickoff.
   const finals = new Map((await data.results().catch(() => [])).map((r) => [r.event_id, r]));
   const nowMs = Date.now();
-  const locked = new Map<string, Candidate>();
-  for (const g of board) {
-    const start = Date.parse(g.commenceTime);
-    if (g.league !== "nfl" || !(start <= nowMs) || nowMs - start > 5 * 86_400_000) continue;
-    const final = finals.get(g.eventId);
-    const homeSpread = g.spread?.home?.line ?? null;
-    const homeChance = final
-      ? final.home_score > final.away_score ? 1 : final.home_score < final.away_score ? 0 : 0.5
-      : models.nfl && homeSpread !== null
-        ? winProbabilityFromSpread(models.nfl, homeSpread, "home") ?? 0.5
-        : 0.5;
-    for (const [team, opponent, chance, home] of [
-      [g.homeTeam, g.awayTeam, homeChance, true],
-      [g.awayTeam, g.homeTeam, 1 - homeChance, false],
-    ] as const) {
-      if (!team || !opponent) continue;
-      locked.set(team, {
-        team, opponent, home, winProbability: chance, spread: 0,
-        commenceTime: g.commenceTime, eventId: g.eventId,
-      });
-    }
-  }
   const openerCandidates = horizonWeeks.find((w) => w.candidates.length > 0)?.candidates ?? [];
-  const closedToUnpicked = new Set(
-    openerCandidates
-      .filter((c) => {
-        const day = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(new Date(c.commenceTime));
-        return ["Thu", "Fri", "Sat"].includes(day) && Date.parse(c.commenceTime) - nowMs < 12 * 3_600_000;
-      })
-      .map((c) => c.team),
-  );
-  const week0 = { locked, closedToUnpicked };
+  const week0 = weekZero(board, finals, models.nfl ?? null, openerCandidates, nowMs);
 
   const poolPlans = buildPoolWinPlans(horizonWeeks, withPins, {
     crowding,
@@ -343,25 +309,7 @@ export default async function SurvivorPage({
 
   // The odds that actually matter: survival with a spare life, and what surviving is
   // worth against a field of this size.
-  const odds = multi.pools.map((entry) => {
-    const probs = entry.plan.picks
-      .map((pick) => pick.pick?.winProbability)
-      .filter((v): v is number => v !== undefined);
-    return {
-      pool: entry.pool,
-      probs,
-      // The recorded field, so "field left" counts a rival on their last life as having
-      // one life, not two.
-      odds: poolOdds(
-        probs,
-        entry.pool.lossesAllowed ?? 0,
-        entry.pool.size ?? 1,
-        fieldState(entry.pool),
-      ),
-      // What a spare life is worth only means something if you still have one to spare.
-      lifeMultiple: fieldState(entry.pool).livesLeft > 0 ? extraLifeMultiple(probs) : 1,
-    };
-  });
+  const odds = multi.pools.map(entryOdds);
   const here = odds[poolIndex] ?? odds[0];
   const hereState = fieldState(here.pool);
 

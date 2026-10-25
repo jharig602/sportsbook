@@ -51,11 +51,26 @@ export function sameDigest(a: string | undefined, b: string): boolean {
  * The dispatchers carry their own bearer secret and are called by GitHub Actions, which
  * has no cookie and never will. The VAPID public key is meant to be public. The unlock
  * route obviously cannot require being unlocked.
+ *
+ * The Claude connector's machine endpoints are open too, because Claude calls them from
+ * its own servers with no cookie: `/api/mcp` checks a bearer token itself (it answers 401
+ * without one), and the OAuth discovery, registration, token and revocation endpoints
+ * are public by design -- none of them grants anything without a code the owner approved.
+ * The approval itself (/oauth/authorize, /api/oauth/approve) is NOT here: it stays behind
+ * the owner passcode, which is what makes the owner the only person who can connect.
  */
 export function isOpenPath(pathname: string): boolean {
   return (
     pathname === "/unlock" ||
     pathname === "/api/unlock" ||
+    pathname === "/api/mcp" ||
+    pathname === "/api/oauth/register" ||
+    pathname === "/api/oauth/token" ||
+    pathname === "/api/oauth/revoke" ||
+    pathname === "/.well-known/oauth-protected-resource" ||
+    pathname.startsWith("/.well-known/oauth-protected-resource/") ||
+    pathname === "/.well-known/oauth-authorization-server" ||
+    pathname.startsWith("/.well-known/oauth-authorization-server/") ||
     pathname.startsWith("/api/dispatch-") ||
     pathname === "/api/push/key" ||
     pathname === "/manifest.webmanifest" ||
