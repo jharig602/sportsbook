@@ -16,7 +16,7 @@ import { buildBoardShop, type BoardEdge } from "./board-shop";
 import { allBookLines, quotesForGame, type BookLineRow } from "./book-lines";
 import { isOffshore } from "./book-links";
 import { findBoosts, type BoostPick } from "./boost-finder";
-import { listBets } from "./bets-db";
+import { listBets, recordLegResult, saveBet, saveParlay } from "./bets-db";
 import { getData } from "./data";
 import { databaseUrl } from "./env";
 import type { ScoreModel } from "./joint-score";
@@ -44,7 +44,8 @@ import { HOUSE } from "./owner";
 import { fieldState, poolLabel } from "./pools";
 import { buildPoolWinPlans, crowdingFrom } from "./pool-win";
 import { deVig, impliedProbability, lineProbability, type MarginModel } from "./probability";
-import { listPromos, listUses } from "./promos-db";
+import { listPromos, listUses, recordUse } from "./promos-db";
+import type { WriteDeps } from "./mcp-write";
 import { legLabel } from "./result-push";
 import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "./season-db";
 import { activeBets, recordResult, type Bet, type GradedRow } from "./settle";
@@ -561,6 +562,18 @@ async function ledger() {
     const promo = use.bet_id ? promoById.get(use.promo_id) : undefined;
     if (use.bet_id && promo) promoOf.set(use.bet_id, promo);
   }
+  // A correction (a cash-out, an edit) is a new row with a new bet_id; the promo was used
+  // on the ticket, so it follows the chain to whichever row now stands for it.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const bet of bets) {
+      const promo = bet.supersedes ? promoOf.get(bet.supersedes) : undefined;
+      if (promo && !promoOf.has(bet.bet_id)) {
+        promoOf.set(bet.bet_id, promo);
+        changed = true;
+      }
+    }
+  }
   return { view, promoOf, tax: s.tax };
 }
 
@@ -599,6 +612,7 @@ export async function getOpenBets(input: { status?: "open" | "settled"; limit?: 
     const promo = promoOf.get(r.bet_id);
     const started = !!r.commence_time && Date.parse(r.commence_time) <= now.getTime();
     return {
+      ticket_id: r.bet_id,
       bet: ticketLabel(r, legs),
       game: legs && legs.length > 1 ? undefined : `${r.away_team} @ ${r.home_team}`,
       kickoff: r.commence_time,
@@ -679,6 +693,8 @@ export async function getRecord(input: { since?: string; group_by?: GroupBy }, n
   const evOf = (r: GradedRow): number | null => {
     if (r.parlay_id || r.market_probability === null || r.price === null) return null;
     const p = r.market_probability;
+    // Rows corrected in the app before 2026-10-25 stored a missing probability as 0.
+    if (!(p > 0.001 && p < 0.999)) return null;
     const d = r.price > 0 ? 1 + r.price / 100 : 1 + 100 / -r.price;
     return p * r.stake * (d - 1) - (1 - p) * (r.bonus ? 0 : r.stake);
   };
@@ -724,6 +740,34 @@ export async function getRecord(input: { since?: string; group_by?: GroupBy }, n
   return { summary, data: { ...all, open: totals.open, groups: byGroup } };
 }
 
+/** What the write tools (mcp-write.ts) read and write: the owner's ledger and promos. */
+export async function loadWriteDeps(): Promise<WriteDeps> {
+  if (!databaseUrl()) throw new ToolInputError("No database is configured, so there is no ledger to write.");
+  const [{ games, lines, models }, bets, promos, results] = await Promise.all([
+    marketData(),
+    listBets(HOUSE),
+    listPromos(HOUSE).catch(() => [] as Promo[]),
+    getData().results(),
+  ]);
+  return {
+    games,
+    lines,
+    models,
+    bets,
+    promos,
+    finals: new Set(results.map((r) => r.event_id)),
+    saveBet: (bet) => saveBet(HOUSE, bet),
+    saveParlay: (rows) => saveParlay(HOUSE, rows),
+    recordUse: (use) => recordUse(HOUSE, use),
+    recordLegResult: (betId, result) => recordLegResult(HOUSE, betId, result, "manual"),
+    holdValue: async (ticketId) => {
+      const { view } = await ledger();
+      const hold = view.open.hold.get(ticketId);
+      return hold ? { chance: hold.chance, value: hold.value } : null;
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ 7. get_promos */
 
 export async function getPromos(_input: Record<string, never>, now = new Date()): Promise<ToolAnswer> {
@@ -732,6 +776,7 @@ export async function getPromos(_input: Record<string, never>, now = new Date())
     .filter((p) => p.status === "available" && Date.parse(p.expires_at) > now.getTime())
     .sort((a, b) => Date.parse(a.expires_at) - Date.parse(b.expires_at));
   const rows = promos.slice(0, 25).map((p) => ({
+    promo_id: p.promo_id,
     book: p.book,
     type: p.type,
     title: p.title,

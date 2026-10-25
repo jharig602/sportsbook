@@ -2,7 +2,8 @@ import type { AuthInfo } from "@modelcontextprotocol/server";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
 
-import { SCOPE } from "@/lib/oauth";
+import { LOG_SCOPE, SCOPE } from "@/lib/oauth";
+import { logBet, recordCashOut, WriteInputError } from "@/lib/mcp-write";
 import { callsSince, logCall, verifyAccess } from "@/lib/oauth-db";
 import {
   findBonusBetSpots,
@@ -13,6 +14,7 @@ import {
   getRecord,
   getShop,
   getSurvivor,
+  loadWriteDeps,
   ToolInputError,
   type ToolAnswer,
 } from "@/lib/mcp-tools";
@@ -31,6 +33,9 @@ export const maxDuration = 60;
 
 const PER_MINUTE = 30;
 const PER_DAY = 1000;
+/** Writes are rarer than reads by nature; a day of them past this is something wrong. */
+const WRITES_PER_DAY = 100;
+const WRITE_TOOLS = new Set(["log_bet", "record_cash_out"]);
 
 type Ctx = { http?: { authInfo?: AuthInfo } };
 
@@ -41,8 +46,21 @@ function text(summary: string, data?: unknown, isError = false) {
 }
 
 async function run(tool: string, args: unknown, ctx: unknown, answer: () => Promise<ToolAnswer>) {
-  const tokenHash = (ctx as Ctx).http?.authInfo?.extra?.tokenHash;
+  const auth = (ctx as Ctx).http?.authInfo;
+  const tokenHash = auth?.extra?.tokenHash;
   if (typeof tokenHash !== "string") return text("Not signed in to Dissent.", undefined, true);
+  if (WRITE_TOOLS.has(tool)) {
+    // Logging was ticked (or not) on the consent page; a read-only approval stays one.
+    if (!auth?.scopes.includes(LOG_SCOPE)) {
+      return text(
+        "This connection is read-only. To let Claude log bets, disconnect and reconnect Dissent in claude.ai and leave 'Also let Claude log bets' ticked.",
+        undefined,
+        true,
+      );
+    }
+    const writes = await callsSince(tokenHash, 86_400, [...WRITE_TOOLS]);
+    if (writes >= WRITES_PER_DAY) return text("Dissent's daily limit on logging is reached.", undefined, true);
+  }
   const [minute, day] = await Promise.all([callsSince(tokenHash, 60), callsSince(tokenHash, 86_400)]);
   if (minute >= PER_MINUTE || day >= PER_DAY) {
     return text("Dissent's rate limit is reached; try again in a minute.", undefined, true);
@@ -52,7 +70,7 @@ async function run(tool: string, args: unknown, ctx: unknown, answer: () => Prom
     const result = await answer();
     return text(result.summary, result.data);
   } catch (error) {
-    if (error instanceof ToolInputError) return text(error.message, undefined, true);
+    if (error instanceof ToolInputError || error instanceof WriteInputError) return text(error.message, undefined, true);
     // The detail goes to the server log, never to the chat: an error message is not the
     // place to learn how the database is laid out.
     console.error(`mcp ${tool} failed`, error);
@@ -61,6 +79,28 @@ async function run(tool: string, args: unknown, ctx: unknown, answer: () => Prom
 }
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+// Writes add a row to the owner's own ledger; nothing is deleted or overwritten, and
+// nothing outside Dissent is touched.
+const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+
+const leg = z.object({
+  game: z.string().describe('The game: a team in it ("Lions") or a game_id from another tool.'),
+  market: z.enum(["moneyline", "spread", "total", "prop"]),
+  pick: z
+    .string()
+    .optional()
+    .describe('Moneyline/spread: the team taken. Total: "over", "under", "odd" or "even". Prop: "over" (default) or "under".'),
+  line: z
+    .number()
+    .optional()
+    .describe("Spread: the taken team's line (-2.5). Total: the number. Prop: the stat line, 274.5 for 275+ (a TD scorer is 0.5)."),
+  team_total: z.string().optional().describe("For a team total: whose points."),
+  player: z.string().optional().describe("Prop: the player's full name."),
+  stat: z
+    .enum(["anytime_td", "first_td", "pass_yds", "pass_tds", "rush_yds", "rec_yds", "rush_rec_yds", "receptions"])
+    .optional(),
+  price: z.number().optional().describe("Parlay leg's own price if the slip shows one."),
+});
 
 const sport = z.string().optional().describe('"NFL" or "NCAAF" (college). Omit for both.');
 const date = z.string().optional().describe('Kickoff date in Eastern time: "today", "tomorrow" or YYYY-MM-DD.');
@@ -206,6 +246,55 @@ const handler = createMcpHandler(
     );
 
     server.registerTool(
+      "log_bet",
+      {
+        title: "Log a bet",
+        description:
+          "Record a bet the user has ALREADY PLACED in their Dissent ledger -- a single, parlay or same-game parlay, including player props, bonus bets and boosted bets. " +
+          "Use when the user says they placed a bet or sends a bet slip. It never places a bet anywhere. " +
+          "Always two calls: first with confirm false (the default), which saves nothing and returns a preview and preview_id; show the preview to the user word for word, " +
+          "and only after they say yes call again with the same inputs plus confirm: true and the preview_id. Never confirm without the user's yes. " +
+          "price is what the ticket pays at (for a profit boost, the boosted price; for a parlay, the combined price). " +
+          "Pass promo_id (from get_promos) when a promo token was used on it, and it is marked used.",
+        inputSchema: z.object({
+          book: z.string().describe('Where it was placed, e.g. "FanDuel".'),
+          stake: z.number().positive().describe("Dollars staked (a bonus bet's face value)."),
+          price: z.number().describe("American odds the ticket pays at, e.g. -140 or +195."),
+          legs: z.array(leg).min(1).max(12).describe("One leg for a single; two or more for a parlay."),
+          bonus_bet: z.boolean().optional().describe("True when the stake was a bonus bet / site credit."),
+          promo_id: z.string().optional().describe("The promo token used on this bet, from get_promos."),
+          placed_at: z.string().optional().describe("When it was placed (ISO time), if not just now."),
+          note: z.string().optional(),
+          confirm: z.boolean().optional().describe("False (default) previews; true saves -- only after the user says yes."),
+          preview_id: z.string().optional().describe("Required with confirm: the id from the preview."),
+        }),
+        annotations: WRITES,
+      },
+      async (args, ctx) =>
+        run("log_bet", args, ctx, async () => logBet(args, new Date(), await loadWriteDeps())),
+    );
+
+    server.registerTool(
+      "record_cash_out",
+      {
+        title: "Record a cash-out",
+        description:
+          "Record that the user cashed out an open ticket, and for how much (the cash received). Use after they say they cashed out. " +
+          "Get ticket_id from get_open_bets. Two calls, like log_bet: preview first (shows the result and what holding was worth), " +
+          "then confirm: true with the preview_id only after the user says yes.",
+        inputSchema: z.object({
+          ticket_id: z.string().describe("From get_open_bets."),
+          amount: z.number().min(0).describe("Dollars received for the cash-out."),
+          confirm: z.boolean().optional(),
+          preview_id: z.string().optional(),
+        }),
+        annotations: WRITES,
+      },
+      async (args, ctx) =>
+        run("record_cash_out", args, ctx, async () => recordCashOut(args, new Date(), await loadWriteDeps())),
+    );
+
+    server.registerTool(
       "get_survivor",
       {
         title: "Survivor picks",
@@ -223,7 +312,8 @@ const handler = createMcpHandler(
   {
     serverInfo: { name: "dissent", version: "1.0.0" },
     instructions:
-      "Dissent is the user's personal NFL and college football betting app. All tools are read-only. " +
+      "Dissent is the user's personal NFL and college football betting app. Every tool reads, except log_bet and record_cash_out, " +
+      "which record bets the user already placed, always previewing first and saving only after the user says yes. " +
       "Prices carry as_of and stale flags: when stale is true, say so and tell the user to confirm the line at the book before betting. " +
       "Expected values are estimates from other books' consensus and a fitted model, not guarantees.",
   },
@@ -236,7 +326,7 @@ async function verifyToken(_request: Request, bearer?: string): Promise<AuthInfo
   return {
     token: bearer,
     clientId: found.clientId,
-    scopes: [SCOPE],
+    scopes: found.scopes,
     expiresAt: found.expiresAt,
     extra: { tokenHash: found.tokenHash },
   };

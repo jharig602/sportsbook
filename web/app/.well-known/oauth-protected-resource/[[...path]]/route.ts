@@ -1,6 +1,6 @@
 import { generateProtectedResourceMetadata } from "mcp-handler";
 
-import { OPEN_CORS, publicOrigin, SCOPE } from "@/lib/oauth";
+import { LOG_SCOPE, OPEN_CORS, publicOrigin, SCOPE } from "@/lib/oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export function GET(request: Request) {
     authServerUrls: [origin],
     resourceUrl: `${origin}/api/mcp`,
     additionalMetadata: {
-      scopes_supported: [SCOPE],
+      scopes_supported: [SCOPE, LOG_SCOPE],
       bearer_methods_supported: ["header"],
       resource_name: "Dissent",
     },

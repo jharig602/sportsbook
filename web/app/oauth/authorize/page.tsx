@@ -54,11 +54,11 @@ export default async function AuthorizePage({
         <Card className="px-3.5 py-3">
           <p className="text-[13px] leading-relaxed text-slate-300">
             <span className="font-medium text-slate-100">{client?.client_name ?? "A client"}</span> wants
-            read-only access to Dissent: the shop, boost and bonus-bet finders, game pages, your
-            open bets and record, promos and survivor picks.
+            to read Dissent: the shop, boost and bonus-bet finders, game pages, your open bets and
+            record, promos and survivor picks.
           </p>
           <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
-            It cannot log bets, change promos or touch settings. Access lasts an hour at a time
+            It can never change settings or place a bet at a book. Access lasts an hour at a time
             and renews for up to 30 days; disconnect any time in Settings. The approval goes back
             to <span className="text-slate-300">{redirectHost}</span>.
           </p>

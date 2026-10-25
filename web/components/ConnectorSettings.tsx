@@ -44,9 +44,10 @@ export function ConnectorSettings({ status, url }: { status: ConnectorStatus; ur
     <div>
       <h2 className="text-sm font-semibold text-slate-200">Claude connector</h2>
       <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
-        Lets Claude read Dissent from your chats: the shop, boost and bonus finders, game
-        pages, open bets, record, promos and survivor. Read-only. In claude.ai on a computer:
-        Settings, Connectors, Add custom connector, paste this address, then approve here.
+        Lets Claude read Dissent from your chats (the shop, boost and bonus finders, game
+        pages, open bets, record, promos and survivor) and, if you allowed it when connecting,
+        log bets, cash-outs and promo use after showing you each one. In claude.ai on a
+        computer: Customize, Connectors, Add custom connector, paste this address, then approve.
       </p>
       <div className="mt-2 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded border border-edge bg-slate-900/60 px-2 py-1 text-[11px] text-slate-300">

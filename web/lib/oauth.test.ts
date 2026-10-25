@@ -114,3 +114,12 @@ test("the server metadata advertises PKCE S256, public clients, DCR and CIMD", (
   assert.equal(m.registration_endpoint, "https://d.example/api/oauth/register");
   assert.equal(m.client_id_metadata_document_supported, true);
 });
+
+test("logging is granted only when ticked, and old tokens read as read-only", async () => {
+  const { grantedScope, scopesOf } = await import("./oauth.ts");
+  assert.equal(grantedScope(true), "dissent:read dissent:log");
+  assert.equal(grantedScope(false), "dissent:read");
+  assert.deepEqual(scopesOf(null), ["dissent:read"]);
+  assert.deepEqual(scopesOf("dissent:read dissent:log"), ["dissent:read", "dissent:log"]);
+  assert.deepEqual(scopesOf("dissent:admin"), ["dissent:read"]);
+});

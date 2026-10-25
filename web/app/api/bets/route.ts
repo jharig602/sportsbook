@@ -2,66 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { sameGameProblem } from "@/lib/parlay";
+import { parseParlay, parseSingle } from "@/lib/bet-input";
 import { listBets, saveBet, saveParlay } from "@/lib/bets-db";
 import { currentSession } from "@/lib/session";
-import type { Bet } from "@/lib/settle";
 
 export const dynamic = "force-dynamic";
-
-const MARKETS = new Set(["spread", "total", "moneyline", "prop"]);
-/** Prop stats the ledger knows (props.ts keys). A prop is over/under a number of these. */
-const PROP_STATS = new Set([
-  "anytime_td", "first_td", "pass_yds", "pass_tds", "rush_yds", "rec_yds", "rush_rec_yds", "receptions",
-]);
-
-/**
- * A prop leg's own problems, or none. Player and stat are required (they are the whole
- * question), the side is over or under, and the line is the stat's number: 274.5 for
- * "275+ passing yards", 0.5 for an anytime TD.
- */
-function propProblems(leg: Record<string, unknown>, at: string): string[] {
-  const problems: string[] = [];
-  const player = String(leg.prop_player ?? "").trim();
-  if (!player || player.length > 60) problems.push(`${at}: name the player.`);
-  if (!PROP_STATS.has(String(leg.prop_stat ?? ""))) problems.push(`${at}: pick the stat.`);
-  if (leg.side !== "over" && leg.side !== "under") problems.push(`${at}: a prop is over or under.`);
-  const line = Number(leg.line);
-  if (leg.line === null || leg.line === "" || !Number.isFinite(line) || line < 0) {
-    problems.push(`${at}: a prop needs its number (274.5 for 275+, 0.5 for a TD).`);
-  }
-  return problems;
-}
-
-/**
- * Whose points a total is about, or null for the game's.
- *
- * Returns `undefined` when the value makes no sense, which the caller reports -- a
- * silently dropped team would store a team total as a game total and grade it against
- * the wrong number entirely, with nothing on screen to show it had happened.
- */
-function readTeam(raw: unknown, market: string): "home" | "away" | null | undefined {
-  if (raw === undefined || raw === null || raw === "") return null;
-  if (market !== "total") return undefined;
-  return raw === "home" || raw === "away" ? raw : undefined;
-}
-const SIDES = new Set(["home", "away", "over", "under", "odd", "even"]);
-/** Total points odd/even: a total with no line. */
-const PARITY = new Set(["odd", "even"]);
-
-/** A parlay leg's own price: absent is fine (null), a bad one is `undefined`. */
-function legPrice(raw: unknown): number | null | undefined {
-  if (raw === undefined || raw === null || raw === "") return null;
-  const price = Number(raw);
-  return Number.isFinite(price) && Math.abs(price) >= 100 ? price : undefined;
-}
 
 /**
  * Record a wager.
  *
- * Validation is strict and the errors say what is wrong, because a bet silently
- * rejected or silently mangled is worse than one refused: the whole point of the
- * ledger is that what it holds matches what was actually placed.
+ * The rules a bet must meet live in `bet-input.ts`, shared with the Claude connector's
+ * `log_bet`, so a ticket refused here cannot arrive another way.
  */
 export async function POST(request: Request) {
   // Whose ledger this lands in, resolved before anything is validated. Middleware has
@@ -85,153 +36,21 @@ export async function POST(request: Request) {
   }
 
   // A parlay arrives as its legs plus one combined price, and is written atomically.
-  // Validated leg by leg with the same rules a single bet gets, because each leg is
-  // graded on its own and a leg with a bad line settles wrongly just as loudly.
   if (Array.isArray(body.legs)) {
-    const legs = body.legs as Array<Record<string, unknown>>;
-    const stake = Number(body.stake);
-    const parlayPrice = Number(body.parlay_price);
-    const problems: string[] = [];
-    if (legs.length < 2) problems.push("A parlay needs at least two legs.");
-    if (!Number.isFinite(stake) || stake <= 0) problems.push("Stake must be more than zero.");
-    if (!Number.isFinite(parlayPrice) || Math.abs(parlayPrice) < 100) {
-      problems.push("The combined price must be American odds of at least +100 or -100.");
-    }
-    // Same-game legs are accepted. The ticket settles off the book's own combined price
-    // and whether every leg won, so correlation never enters the grading -- only the
-    // pricing, which is the builder's job. What is refused is a ticket that cannot win.
-    const contradiction = sameGameProblem(
-      legs.map((l) => ({
-        event_id: String(l.event_id ?? ""),
-        // A prop is keyed by its player and stat too: two players' TDs are two legs,
-        // not the same leg twice.
-        market: l.market === "prop" ? `prop:${String(l.prop_player ?? "").trim()}:${String(l.prop_stat ?? "")}` : String(l.market ?? ""),
-        side: String(l.side ?? ""),
-        line: l.line === null || l.line === "" ? null : Number(l.line),
-      })),
-    );
-    if (contradiction) problems.push(contradiction);
-    for (const [i, leg] of legs.entries()) {
-      const market = String(leg.market ?? "");
-      const side = String(leg.side ?? "");
-      const line = leg.line === null || leg.line === "" ? null : Number(leg.line);
-      if (!leg.event_id) problems.push(`Leg ${i + 1}: pick a game.`);
-      if (!MARKETS.has(market)) problems.push(`Leg ${i + 1}: bad market.`);
-      if (!SIDES.has(side)) problems.push(`Leg ${i + 1}: bad side.`);
-      // A leg's own price is optional: a same-game slip usually shows only the combined
-      // price, and the ticket settles off that. When given, it must be a real price.
-      if (legPrice(leg.price) === undefined) problems.push(`Leg ${i + 1}: bad price.`);
-      if (market === "prop") {
-        problems.push(...propProblems(leg, `Leg ${i + 1}`));
-        continue;
-      }
-      if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
-        problems.push(`Leg ${i + 1}: a spread or total needs a line.`);
-      }
-      if (PARITY.has(side) && market !== "total") problems.push(`Leg ${i + 1}: odd/even is a total.`);
-      if (readTeam(leg.team, market) === undefined) {
-        problems.push(`Leg ${i + 1}: a team total must name home or away.`);
-      }
-    }
+    const { problems, rows } = parseParlay(body, randomUUID);
     if (problems.length > 0) {
       return NextResponse.json({ error: problems.join(" ") }, { status: 400 });
     }
-
-    const parlayId = randomUUID();
-    const placedAt = new Date().toISOString();
-    const rows: Bet[] = legs.map((leg) => ({
-      bet_id: randomUUID(),
-      placed_at: placedAt,
-      league: String(leg.league ?? "ncaaf"),
-      event_id: String(leg.event_id),
-      home_team: (leg.home_team as string) ?? null,
-      away_team: (leg.away_team as string) ?? null,
-      commence_time: (leg.commence_time as string) ?? null,
-      market: String(leg.market) as Bet["market"],
-      side: String(leg.side) as Bet["side"],
-      team: leg.market === "prop" ? null : (readTeam(leg.team, String(leg.market)) ?? null),
-      line: leg.market === "moneyline" || PARITY.has(String(leg.side)) ? null : Number(leg.line),
-      price: legPrice(leg.price) ?? null,
-      prop_player: leg.market === "prop" ? String(leg.prop_player).trim() : null,
-      prop_stat: leg.market === "prop" ? String(leg.prop_stat) : null,
-      // Repeated on every leg; the tally counts it once per ticket.
-      stake,
-      book: String(body.book ?? "BetMGM"),
-      model_probability: null,
-      market_probability: null,
-      rule_version_id: null,
-      note: (body.note as string) ?? null,
-      bonus: body.bonus === true,
-      supersedes: null,
-      parlay_id: parlayId,
-      parlay_price: parlayPrice,
-    }));
-
     try {
       await saveParlay(ownerId, rows);
-      return NextResponse.json({ ok: true, parlay_id: parlayId, legs: rows.length });
+      return NextResponse.json({ ok: true, parlay_id: rows[0].parlay_id, legs: rows.length });
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown error";
       return NextResponse.json({ error: `Could not save: ${message}` }, { status: 500 });
     }
   }
 
-  const voiding = body.voided === true;
-
-  /**
-   * Cash-out: the ticket was sold back before the whistle.
-   *
-   * Arrives as a correction, which is exactly what it is -- the original row records
-   * what was struck and stays; this one records that it ended early and at what price.
-   * A cash-out below the stake is legitimate (cutting a loss), so the only bar is that
-   * it is a real, non-negative number.
-   */
-  let cashout: number | null = null;
-  const cashoutProblems: string[] = [];
-  if (body.cashout !== undefined && body.cashout !== null && body.cashout !== "") {
-    const amount = Number(body.cashout);
-    if (!Number.isFinite(amount) || amount < 0) {
-      cashoutProblems.push("A cash-out must be a number of dollars, and not negative.");
-    } else {
-      cashout = amount;
-    }
-  }
-
-  const problems: string[] = [...cashoutProblems];
-  const market = String(body.market ?? "");
-  const side = String(body.side ?? "");
-  const price = Number(body.price);
-  const stake = Number(body.stake);
-  const line = body.line === null || body.line === "" ? null : Number(body.line);
-
-  // A void names the row it removes and copies the rest for the record. It is not a
-  // bet, so it is not held to a bet's rules -- but it must still name something real,
-  // which the supersedes check below enforces.
-  if (voiding && !body.supersedes) problems.push("A void must name the bet it removes.");
-  if (!body.event_id) problems.push("Pick a game.");
-  if (!MARKETS.has(market)) problems.push("Market must be spread, total, moneyline or a player prop.");
-  if (!SIDES.has(side)) problems.push("Pick a side.");
-  if (!Number.isFinite(price) || Math.abs(price) < 100) {
-    problems.push("Price must be American odds of at least +100 or -100.");
-  }
-  if (!Number.isFinite(stake) || stake <= 0) problems.push("Stake must be more than zero.");
-  if (market === "prop") {
-    problems.push(...propProblems(body, "Prop"));
-  } else {
-    if (market !== "moneyline" && !PARITY.has(side) && (line === null || !Number.isFinite(line))) {
-      problems.push("A spread or total needs a line.");
-    }
-    // A spread's side must be a team and a total's must be over/under; crossing them
-    // would settle against the wrong question entirely.
-    if (market === "total" && side !== "over" && side !== "under" && !PARITY.has(side)) {
-      problems.push("A total is bet over, under, odd or even.");
-    }
-    if (market !== "total" && side !== "home" && side !== "away") {
-      problems.push("A spread or moneyline is bet on home or away.");
-    }
-  }
-  const team = market === "prop" ? null : readTeam(body.team, market);
-  if (team === undefined) problems.push("A team total must name home or away.");
+  const { problems, bet, corrects } = parseSingle(body, randomUUID);
 
   // A correction must name a bet that exists IN THIS LEDGER. Accepting an unknown id
   // would write a row that supersedes nothing, leaving BOTH versions standing and the
@@ -240,9 +59,7 @@ export async function POST(request: Request) {
   // Scoping the lookup to the caller's own rows is also what stops a correction being a
   // way to reach across ledgers: a void is a write that removes somebody's bet, and
   // without this it would remove anybody's.
-  let corrects: string | null = null;
-  if (body.supersedes !== undefined && body.supersedes !== null && body.supersedes !== "") {
-    corrects = String(body.supersedes);
+  if (corrects !== null) {
     try {
       const known = await listBets(ownerId);
       const target = known.find((b) => b.bet_id === corrects);
@@ -253,60 +70,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // When it was actually struck, defaulting to now.
-  //
-  // Worth accepting rather than always stamping the clock, because a bet logged the
-  // next morning is still yesterday's bet -- and the promotion's day counter is built
-  // from these dates. Stamping "now" on a backfilled row would quietly merge two
-  // qualifying days into one and report the promotion as further behind than it is.
-  //
-  // Bounded in both directions: the future is not a time a bet was struck, and anything
-  // older than the season is a typo rather than a memory.
-  let placedAt = new Date().toISOString();
-  if (body.placed_at !== undefined && body.placed_at !== null && body.placed_at !== "") {
-    const when = new Date(String(body.placed_at));
-    const age = Date.now() - when.getTime();
-    if (Number.isNaN(when.getTime())) problems.push("placed_at is not a date.");
-    else if (age < -60 * 60 * 1000) problems.push("placed_at is in the future.");
-    else if (age > 180 * 24 * 60 * 60 * 1000) problems.push("placed_at is more than 180 days ago.");
-    else placedAt = when.toISOString();
-  }
-
-  if (problems.length > 0) {
+  if (problems.length > 0 || !bet) {
     return NextResponse.json({ error: problems.join(" ") }, { status: 400 });
   }
-
-  const bet: Bet = {
-    bet_id: randomUUID(),
-    placed_at: placedAt,
-    league: String(body.league ?? "ncaaf"),
-    event_id: String(body.event_id),
-    home_team: (body.home_team as string) ?? null,
-    away_team: (body.away_team as string) ?? null,
-    commence_time: (body.commence_time as string) ?? null,
-    market: market as Bet["market"],
-    side: side as Bet["side"],
-    team: team ?? null,
-    line: market === "moneyline" ? null : line,
-    price,
-    prop_player: market === "prop" ? String(body.prop_player).trim() : null,
-    prop_stat: market === "prop" ? String(body.prop_stat) : null,
-    stake,
-    book: String(body.book ?? "BetMGM"),
-    model_probability: Number.isFinite(Number(body.model_probability))
-      ? Number(body.model_probability)
-      : null,
-    market_probability: Number.isFinite(Number(body.market_probability))
-      ? Number(body.market_probability)
-      : null,
-    rule_version_id: (body.rule_version_id as string) ?? null,
-    note: (body.note as string) ?? null,
-    // A promotional bet: the stake is the book's, so losing it costs nothing.
-    bonus: body.bonus === true,
-    supersedes: corrects,
-    voided: voiding,
-    cashout,
-  };
 
   try {
     await saveBet(ownerId, bet);

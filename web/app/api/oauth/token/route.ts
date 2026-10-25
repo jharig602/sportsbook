@@ -1,11 +1,11 @@
-import { OPEN_CORS, oauthError, pkceMatches, readBody, SCOPE } from "@/lib/oauth";
+import { OPEN_CORS, oauthError, pkceMatches, readBody } from "@/lib/oauth";
 import { consumeCode, issueTokens, rotateRefresh } from "@/lib/oauth-db";
 
 export const dynamic = "force-dynamic";
 
-function tokens(issued: { access_token: string; refresh_token: string; expires_in: number }) {
+function tokens(issued: { access_token: string; refresh_token: string; expires_in: number; scope: string }) {
   return Response.json(
-    { ...issued, token_type: "Bearer", scope: SCOPE },
+    { ...issued, token_type: "Bearer" },
     { headers: { ...OPEN_CORS, "Cache-Control": "no-store", Pragma: "no-cache" } },
   );
 }
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     ) {
       return oauthError("invalid_grant", "That code is invalid, expired or already used.");
     }
-    return tokens(await issueTokens(clientId));
+    return tokens(await issueTokens(clientId, code.scope));
   }
 
   if (body.grant_type === "refresh_token") {

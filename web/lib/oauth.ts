@@ -21,6 +21,20 @@
  */
 
 export const SCOPE = "dissent:read";
+/** Writing to the ledger: log a bet, record a cash-out, mark a promo used. Granted only
+ * when the owner ticks it on the consent page. */
+export const LOG_SCOPE = "dissent:log";
+
+/** What the owner approved, as stored: read always, log when ticked. */
+export function grantedScope(allowLogging: boolean): string {
+  return allowLogging ? `${SCOPE} ${LOG_SCOPE}` : SCOPE;
+}
+
+/** A stored scope as a list. Null is a token from before scopes were stored: read only. */
+export function scopesOf(stored: string | null | undefined): string[] {
+  const list = (stored ?? SCOPE).split(" ").filter((s) => s === SCOPE || s === LOG_SCOPE);
+  return list.length ? [...new Set(list)] : [SCOPE];
+}
 export const CODE_TTL_SECONDS = 10 * 60;
 export const ACCESS_TTL_SECONDS = 60 * 60;
 export const REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -142,8 +156,8 @@ export function parseAuthorize(
     return { ok: false, error: "That resource is not this server." };
   }
   const scope = get("scope");
-  if (scope && !scope.split(" ").every((s) => s === SCOPE || s === "")) {
-    return { ok: false, error: `Only the ${SCOPE} scope exists.` };
+  if (scope && !scope.split(" ").every((s) => s === SCOPE || s === LOG_SCOPE || s === "")) {
+    return { ok: false, error: `Only the ${SCOPE} and ${LOG_SCOPE} scopes exist.` };
   }
   return {
     ok: true,
@@ -188,7 +202,7 @@ export function authServerMetadata(origin: string) {
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: [SCOPE],
+    scopes_supported: [SCOPE, LOG_SCOPE],
     authorization_response_iss_parameter_supported: true,
     client_id_metadata_document_supported: true,
   };

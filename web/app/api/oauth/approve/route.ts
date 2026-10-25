@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { callbackUrl, loopbackAllowed, parseAuthorize, publicOrigin } from "@/lib/oauth";
+import { callbackUrl, grantedScope, loopbackAllowed, parseAuthorize, publicOrigin } from "@/lib/oauth";
 import { createCode, findClient } from "@/lib/oauth-db";
 import { currentSession } from "@/lib/session";
 
@@ -50,6 +50,8 @@ export async function POST(request: Request) {
       redirect: callbackUrl(auth.redirectUri, { error: "access_denied" }, auth.state, origin),
     });
   }
-  const code = await createCode(auth.clientId, auth.redirectUri, auth.codeChallenge);
+  // Logging is granted only when the owner ticked it on this page, never because the
+  // client asked for it.
+  const code = await createCode(auth.clientId, auth.redirectUri, auth.codeChallenge, grantedScope(body.allow_logging === true));
   return NextResponse.json({ redirect: callbackUrl(auth.redirectUri, { code }, auth.state, origin) });
 }

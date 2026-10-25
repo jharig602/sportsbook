@@ -14,6 +14,7 @@ import {
   newSecret,
   REFRESH_TTL_SECONDS,
   redirectAllowed,
+  scopesOf,
 } from "./oauth";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -106,14 +107,14 @@ export async function findClient(clientId: string, allowLoopback: boolean): Prom
 }
 
 /** A one-time code for this client, redirect and PKCE challenge. Returns the plain code. */
-export async function createCode(clientId: string, redirectUri: string, challenge: string): Promise<string> {
+export async function createCode(clientId: string, redirectUri: string, challenge: string, scope: string): Promise<string> {
   const db = await getPool();
   const code = newSecret("dsc");
   await db.query("DELETE FROM oauth_codes WHERE expires_at < NOW() - INTERVAL '1 day'");
   await db.query(
-    `INSERT INTO oauth_codes (code_hash, client_id, redirect_uri, code_challenge, expires_at, used)
-     VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $5), FALSE)`,
-    [await hashSecret(code), clientId, redirectUri, challenge, CODE_TTL_SECONDS],
+    `INSERT INTO oauth_codes (code_hash, client_id, redirect_uri, code_challenge, expires_at, used, scope)
+     VALUES ($1, $2, $3, $4, NOW() + make_interval(secs => $5), FALSE, $6)`,
+    [await hashSecret(code), clientId, redirectUri, challenge, CODE_TTL_SECONDS, scope],
   );
   return code;
 }
@@ -121,12 +122,12 @@ export async function createCode(clientId: string, redirectUri: string, challeng
 /** Spend a code: succeeds once, inside its ten minutes, and never again. */
 export async function consumeCode(
   code: string,
-): Promise<{ client_id: string; redirect_uri: string; code_challenge: string } | null> {
+): Promise<{ client_id: string; redirect_uri: string; code_challenge: string; scope: string | null } | null> {
   const db = await getPool();
   const result = await db.query(
     `UPDATE oauth_codes SET used = TRUE
       WHERE code_hash = $1 AND NOT used AND expires_at > NOW()
-      RETURNING client_id, redirect_uri, code_challenge`,
+      RETURNING client_id, redirect_uri, code_challenge, scope`,
     [await hashSecret(code)],
   );
   return result.rows[0] ?? null;
@@ -136,19 +137,21 @@ export interface IssuedTokens {
   access_token: string;
   refresh_token: string;
   expires_in: number;
+  scope: string;
 }
 
-export async function issueTokens(clientId: string): Promise<IssuedTokens> {
+export async function issueTokens(clientId: string, scope: string | null): Promise<IssuedTokens> {
+  const granted = scopesOf(scope).join(" ");
   const db = await getPool();
   const access = newSecret("dsa");
   const refresh = newSecret("dsr");
   await db.query(
-    `INSERT INTO oauth_tokens (token_hash, kind, client_id, created_at, expires_at, revoked) VALUES
-       ($1, 'access', $3, NOW(), NOW() + make_interval(secs => $4), FALSE),
-       ($2, 'refresh', $3, NOW(), NOW() + make_interval(secs => $5), FALSE)`,
-    [await hashSecret(access), await hashSecret(refresh), clientId, ACCESS_TTL_SECONDS, REFRESH_TTL_SECONDS],
+    `INSERT INTO oauth_tokens (token_hash, kind, client_id, created_at, expires_at, revoked, scope) VALUES
+       ($1, 'access', $3, NOW(), NOW() + make_interval(secs => $4), FALSE, $6),
+       ($2, 'refresh', $3, NOW(), NOW() + make_interval(secs => $5), FALSE, $6)`,
+    [await hashSecret(access), await hashSecret(refresh), clientId, ACCESS_TTL_SECONDS, REFRESH_TTL_SECONDS, granted],
   );
-  return { access_token: access, refresh_token: refresh, expires_in: ACCESS_TTL_SECONDS };
+  return { access_token: access, refresh_token: refresh, expires_in: ACCESS_TTL_SECONDS, scope: granted };
 }
 
 /**
@@ -165,10 +168,11 @@ export async function rotateRefresh(refresh: string, clientId: string): Promise<
   const spent = await db.query(
     `UPDATE oauth_tokens SET revoked = TRUE
       WHERE token_hash = $1 AND kind = 'refresh' AND client_id = $2 AND NOT revoked AND expires_at > NOW()
-      RETURNING token_hash`,
+      RETURNING token_hash, scope`,
     [hash, clientId],
   );
-  if (spent.rows.length === 1) return issueTokens(clientId);
+  // The new pair carries exactly what the old one had: refreshing never widens a grant.
+  if (spent.rows.length === 1) return issueTokens(clientId, spent.rows[0].scope ?? null);
   const known = await db.query(
     "SELECT revoked FROM oauth_tokens WHERE token_hash = $1 AND kind = 'refresh' AND client_id = $2",
     [hash, clientId],
@@ -183,18 +187,23 @@ export async function rotateRefresh(refresh: string, clientId: string): Promise<
 /** The client behind a live access token, or null. */
 export async function verifyAccess(
   token: string,
-): Promise<{ clientId: string; tokenHash: string; expiresAt: number } | null> {
+): Promise<{ clientId: string; tokenHash: string; expiresAt: number; scopes: string[] } | null> {
   if (!token.startsWith("dsa_")) return null;
   const db = await getPool();
   const hash = await hashSecret(token);
   const result = await db.query(
-    `SELECT client_id, expires_at FROM oauth_tokens
+    `SELECT client_id, expires_at, scope FROM oauth_tokens
       WHERE token_hash = $1 AND kind = 'access' AND NOT revoked AND expires_at > NOW()`,
     [hash],
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { clientId: row.client_id, tokenHash: hash, expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000) };
+  return {
+    clientId: row.client_id,
+    tokenHash: hash,
+    expiresAt: Math.floor(new Date(row.expires_at).getTime() / 1000),
+    scopes: scopesOf(row.scope),
+  };
 }
 
 /** RFC 7009: revoke one token. Unknown tokens are not an error. */
@@ -256,12 +265,18 @@ export async function logCall(tokenHash: string, tool: string, inputs: unknown):
   }
 }
 
-/** Calls this token has made in the last `seconds`, for the rate limit. */
-export async function callsSince(tokenHash: string, seconds: number): Promise<number> {
+/** Calls this token has made in the last `seconds`, optionally to some tools only. */
+export async function callsSince(tokenHash: string, seconds: number, tools?: string[]): Promise<number> {
   const db = await getPool();
-  const result = await db.query(
-    "SELECT COUNT(*)::int AS n FROM mcp_calls WHERE token_hash = $1 AND called_at > NOW() - make_interval(secs => $2)",
-    [tokenHash, seconds],
-  );
+  const result = tools
+    ? await db.query(
+        `SELECT COUNT(*)::int AS n FROM mcp_calls
+          WHERE token_hash = $1 AND called_at > NOW() - make_interval(secs => $2) AND tool = ANY($3)`,
+        [tokenHash, seconds, tools],
+      )
+    : await db.query(
+        "SELECT COUNT(*)::int AS n FROM mcp_calls WHERE token_hash = $1 AND called_at > NOW() - make_interval(secs => $2)",
+        [tokenHash, seconds],
+      );
   return result.rows[0]?.n ?? 0;
 }

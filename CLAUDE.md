@@ -211,7 +211,7 @@ Consequences that are already handled, and must stay handled:
 
 ## Schema
 
-`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **27** (v27 the Claude connector's sign-in: `oauth_clients`, `oauth_codes`, `oauth_tokens`, all secrets as SHA-256, plus the `mcp_calls` audit log; v26 player-prop legs in `bets` + `leg_results`, unpriced parlay legs; v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
+`collector/schema.py` owns it. `ANALYTICS_SCHEMA_VERSION` is currently **28** (v28 `scope` on `oauth_codes`/`oauth_tokens`, so a read-only approval stays read-only; v27 the Claude connector's sign-in: `oauth_clients`, `oauth_codes`, `oauth_tokens`, all secrets as SHA-256, plus the `mcp_calls` audit log; v26 player-prop legs in `bets` + `leg_results`, unpriced parlay legs; v25 `exchange_props`, Kalshi player props; v24 added the four `exchange_*` tables for Kalshi; v23 widened `bets_side_check` for odd/even, Postgres-only via `POSTGRES_MIGRATIONS`, since DuckDB cannot replace a CHECK).
 
 Additive tables go in the DDL (all `CREATE TABLE IF NOT EXISTS`). **New columns must be
 added to `ANALYTICS_MIGRATIONS`** or they will not exist on an upgraded database.
@@ -859,13 +859,16 @@ Refused for the owner in both directions — the passcode already works on a pho
 code would be a second, weaker way in.
 
 
-## Claude connector (read-only MCP)
+## Claude connector (MCP)
 
 Owner's spec 2026-10-24 (`Desktop/dissent-mcp-connector-spec.md`). Claude in claude.ai
 reaches Dissent at `/api/mcp` (Streamable HTTP, `mcp-handler`, stateless) and gets eight
-tools, all read-only and all annotated so: `get_shop`, `find_boost_spots`,
-`find_bonus_bet_spots`, `get_game`, `get_open_bets`, `get_record`, `get_promos`,
-`get_survivor` (`lib/mcp-tools.ts`). **Each calls what the page calls** -- `buildBoardShop`,
+read-only tools -- `get_shop`, `find_boost_spots`, `find_bonus_bet_spots`, `get_game`,
+`get_open_bets`, `get_record`, `get_promos`, `get_survivor` (`lib/mcp-tools.ts`) -- and,
+since 2026-10-25 at the owner's request, two writers (`lib/mcp-write.ts`): `log_bet`
+(singles, parlays, SGPs with props, bonus and boosted bets; `promo_id` marks the token used
+via `recordUse`) and `record_cash_out` (a correction row per leg, as the app writes it; a
+parlay's legs in one `saveParlay`, prop results carried to the new rows). **Each calls what the page calls** -- `buildBoardShop`,
 `findBoosts`, `ledgerView` (moved out of the Bets page for this), the survivor planner via
 `survivor-view.ts` (moved out of the Survivor page) -- so chat and screen cannot disagree.
 Answers are a short summary plus compact JSON, top 10; every price has `as_of` and `stale`
@@ -892,6 +895,26 @@ chosen over Clerk/WorkOS so there is one front door, not two:
   30 a minute and 1,000 a day per token. Errors reach the chat as one generic line; the
   detail goes to the server log.
 - Settings has the address to paste and **Disconnect Claude** (revokes every token).
+
+**The writers.** Every write is two calls: `confirm` false returns a PREVIEW in plain words
+and a `preview_id` (a SHA-256 of the exact inputs); only `confirm: true` with that same id
+saves, so what is saved is what was shown. They need the `dissent:log` scope, granted only
+by the "Also let Claude log bets" box on the consent page (on by default). A token approved
+without it, or issued before v28 (null scope), is read-only, and refreshing never widens a
+grant. Other guards:
+- **Same rules as the form.** Checks are `lib/bet-input.ts` (`parseSingle`/`parseParlay`),
+  moved out of `/api/bets` so the form and the connector cannot drift.
+- **Game matching.** Games are matched by team only from 3 days back to 2 weeks out; the
+  board holds the whole season, and last month's Lions game is not the one being logged.
+- **Duplicates.** The same ticket twice inside 10 minutes is refused.
+- **Daily limit.** 100 writes a day.
+- **Promo links follow corrections.** `ledger()` walks `supersedes`, so a cashed-out boost
+  still counts as promo profit.
+
+Two bugs the move turned up in the old route:
+- A null probability was stored as 0 (`Number(null)`). `get_record` now ignores 0/1.
+- A parlay leg without a `line` key became NaN, so two opposite moneylines passed the
+  contradiction check.
 
 Tested end to end against a throwaway local Postgres (PGlite socket server, schema from
 `PostgresStore`, `sslmode=disable` in the URL overrides the app's SSL option): discovery,
