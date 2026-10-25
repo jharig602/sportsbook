@@ -51,10 +51,10 @@ jobs:
       # Passed through the environment, never interpolated into the run line below:
       # a dispatch input pasted into a shell command is a script injection.
       POOL_SETS: ${{ inputs.sets }}
-      POOL_RIVALS: ${{ inputs.rivals }}
+      # rivals and used carry picks, so they are NOT passed here: Actions prints this env
+      # block into the public log. The script reads them from the event file instead.
       POOL_ADD: ${{ inputs.add }}
       POOL_REMOVE: ${{ inputs.remove }}
-      POOL_USED: ${{ inputs.used }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v4

@@ -299,3 +299,16 @@ def test_used_names_are_the_real_espn_list():
     from set_pool_field import nfl_team_names
     names = nfl_team_names()
     assert len(names) == 32 and "Houston Texans" in names and "San Francisco 49ers" in names
+
+
+def test_pick_inputs_come_from_the_event_file_not_the_environment(tmp_path, monkeypatch):
+    import json as _json
+    from set_pool_field import event_input
+    event = tmp_path / "event.json"
+    event.write_text(_json.dumps({"inputs": {"rivals": '{"me": {}}', "used": ""}}), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    assert event_input("rivals") == '{"me": {}}'
+    assert event_input("used") == ""
+    assert event_input("missing") == ""
+    monkeypatch.delenv("GITHUB_EVENT_PATH")
+    assert event_input("rivals") == ""

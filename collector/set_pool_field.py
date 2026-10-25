@@ -391,6 +391,24 @@ def apply_used(pools: list[dict], used: dict, stored_sizes: list[int],
     return out, report
 
 
+def event_input(key: str) -> str:
+    """A workflow_dispatch input read from GitHub's event file rather than the environment.
+
+    Actions prints every step's `env:` block into the log, and these logs are public, so
+    anything carrying picks (rivals, used) must not travel as an environment variable.
+    The event payload is a file on the runner and is never echoed.
+    """
+    path = os.environ.get("GITHUB_EVENT_PATH")
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = (json.load(handle).get("inputs") or {}).get(key)
+    except (OSError, ValueError):
+        return ""
+    return str(value or "")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--set", dest="sets", action="append", default=[],
@@ -411,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     env_sets = os.environ.get("POOL_SETS", "").split()
     try:
         updates = [parse_update(text) for text in [*args.sets, *env_sets]]
-        rivals_text = (args.rivals or os.environ.get("POOL_RIVALS", "")).strip()
+        rivals_text = (args.rivals or os.environ.get("POOL_RIVALS", "") or event_input("rivals")).strip()
         rivals = json.loads(rivals_text) if rivals_text else {}
         if not isinstance(rivals, dict):
             raise ValueError("rivals must be a JSON object keyed by pool size or name")
@@ -420,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
         additions = json.loads(add_text) if add_text else []
         if not isinstance(additions, list):
             raise ValueError("add must be a JSON list")
-        used_text = (args.used or os.environ.get("POOL_USED", "")).strip()
+        used_text = (args.used or os.environ.get("POOL_USED", "") or event_input("used")).strip()
         used = json.loads(used_text) if used_text else {}
         if not isinstance(used, dict):
             raise ValueError("used must be a JSON object keyed by pool name or size")
