@@ -38,8 +38,8 @@ export function ConnectorConsent({ params }: { params: Record<string, string> })
           className="mt-0.5"
         />
         <span>
-          Also let Claude log bets, cash-outs and promo use for me. It shows each one first and
-          saves only after I say yes.
+          Also let Claude log bets, cash-outs, promo use and my survivor sheet for me. It shows
+          each one first and saves only after I say yes.
         </span>
       </label>
       <button

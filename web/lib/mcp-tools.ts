@@ -45,11 +45,11 @@ import { fieldState, poolLabel } from "./pools";
 import { buildPoolWinPlans, crowdingFrom } from "./pool-win";
 import { deVig, impliedProbability, lineProbability, type MarginModel } from "./probability";
 import { listPromos, listUses, recordUse } from "./promos-db";
-import type { WriteDeps } from "./mcp-write";
+import type { SheetDeps, WriteDeps } from "./mcp-write";
 import { legLabel } from "./result-push";
-import { currentNflWeek, pickPopularity, seasonGames, seasonOpener } from "./season-db";
+import { currentNflWeek, nflWeek, pickPopularity, seasonGames, seasonOpener } from "./season-db";
 import { activeBets, recordResult, type Bet, type GradedRow } from "./settle";
-import { getFavourites, getPools, getTax } from "./settings-db";
+import { getFavourites, getPools, getTax, setPools } from "./settings-db";
 import { shopAll } from "./shop";
 import { buildPlan } from "./survivor";
 import { entryOdds, openWeeks, weekZero } from "./survivor-view";
@@ -765,6 +765,30 @@ export async function loadWriteDeps(): Promise<WriteDeps> {
       const hold = view.open.hold.get(ticketId);
       return hold ? { chance: hold.chance, value: hold.value } : null;
     },
+  };
+}
+
+/** What the survivor-sheet tool needs: the stored entries and every final NFL score by week. */
+export async function loadSheetDeps(): Promise<SheetDeps> {
+  if (!databaseUrl()) throw new ToolInputError("No database is configured, so there is no pool to update.");
+  const [pools, results, opener] = await Promise.all([getPools(), getData().results(), seasonOpener("nfl")]);
+  if (!opener) throw new ToolInputError("The NFL season's opener is not known yet, so weeks cannot be numbered.");
+  const finals = results
+    .filter((r) => r.league === "nfl" && r.home_team && r.away_team)
+    .map((r) => ({
+      week: nflWeek(opener, new Date(r.commence_time)),
+      home: r.home_team as string,
+      away: r.away_team as string,
+      homeScore: r.home_score,
+      awayScore: r.away_score,
+    }));
+  return {
+    pools,
+    finals,
+    savePools: async (next) => {
+      await setPools(next);
+    },
+    afterSave: async () => (await getSurvivor({})).summary,
   };
 }
 

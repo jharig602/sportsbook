@@ -3,7 +3,7 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
 
 import { LOG_SCOPE, SCOPE } from "@/lib/oauth";
-import { logBet, recordCashOut, WriteInputError } from "@/lib/mcp-write";
+import { logBet, recordCashOut, updateSurvivorSheet, WriteInputError } from "@/lib/mcp-write";
 import { callsSince, logCall, verifyAccess } from "@/lib/oauth-db";
 import {
   findBonusBetSpots,
@@ -14,6 +14,7 @@ import {
   getRecord,
   getShop,
   getSurvivor,
+  loadSheetDeps,
   loadWriteDeps,
   ToolInputError,
   type ToolAnswer,
@@ -35,7 +36,7 @@ const PER_MINUTE = 30;
 const PER_DAY = 1000;
 /** Writes are rarer than reads by nature; a day of them past this is something wrong. */
 const WRITES_PER_DAY = 100;
-const WRITE_TOOLS = new Set(["log_bet", "record_cash_out"]);
+const WRITE_TOOLS = new Set(["log_bet", "record_cash_out", "update_survivor_sheet"]);
 
 type Ctx = { http?: { authInfo?: AuthInfo } };
 
@@ -295,6 +296,36 @@ const handler = createMcpHandler(
     );
 
     server.registerTool(
+      "update_survivor_sheet",
+      {
+        title: "Update the survivor pool from its sheet",
+        description:
+          "Record the user's weekly survivor pool spreadsheet (one row per entrant, one column per week of picks). Use when the user shares the pool's sheet. " +
+          "Send EVERY row, with no names: each row's picks keyed by week number, the team exactly as written on the sheet (\"Minn\", \"Da Bears\", \"NYJets\" are fine). " +
+          "Mark the user's own row who: \"me\" and his mom's row who: \"ma\"; if you don't know which rows those are, ask before calling. " +
+          "Dissent works out losses from final scores (a tie is a loss), who is alive, used teams and how the pool herds; only pass losses for a row if the sheet itself states them. " +
+          "Two calls like log_bet: preview first, then confirm: true with the preview_id only after the user says yes. The saved reply includes the new survivor odds.",
+        inputSchema: z.object({
+          rows: z
+            .array(
+              z.object({
+                picks: z.record(z.string(), z.string()).describe('Week number -> team as written, e.g. {"7": "Houston", "8": "KC"}.'),
+                who: z.string().optional().describe('"me" for the user\'s row, "ma" for his mom\'s row; omit for everyone else.'),
+                losses: z.number().int().min(0).optional().describe("Only if the sheet states this row's losses."),
+              }),
+            )
+            .min(2)
+            .max(300),
+          confirm: z.boolean().optional(),
+          preview_id: z.string().optional(),
+        }),
+        annotations: WRITES,
+      },
+      async (args, ctx) =>
+        run("update_survivor_sheet", args, ctx, async () => updateSurvivorSheet(args, await loadSheetDeps())),
+    );
+
+    server.registerTool(
       "get_survivor",
       {
         title: "Survivor picks",
@@ -312,8 +343,8 @@ const handler = createMcpHandler(
   {
     serverInfo: { name: "dissent", version: "1.0.0" },
     instructions:
-      "Dissent is the user's personal NFL and college football betting app. Every tool reads, except log_bet and record_cash_out, " +
-      "which record bets the user already placed, always previewing first and saving only after the user says yes. " +
+      "Dissent is the user's personal NFL and college football betting app. Every tool reads, except log_bet, record_cash_out and " +
+      "update_survivor_sheet, which record what the user already did, always previewing first and saving only after the user says yes. " +
       "Prices carry as_of and stale flags: when stale is true, say so and tell the user to confirm the line at the book before betting. " +
       "Expected values are estimates from other books' consensus and a fitted model, not guarantees.",
   },

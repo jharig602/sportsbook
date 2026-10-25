@@ -22,6 +22,8 @@ import { american, money, round } from "./mcp-format";
 import { fairChance } from "./open-summary";
 import type { MarginModel } from "./probability";
 import { activeBets, decimalOdds, type Bet } from "./settle";
+import type { StoredPool } from "./pools";
+import { entryUpdate, readSheet, type FinalGame, type SheetRowInput } from "./survivor-sheet";
 import type { Game, Promo, PromoUse } from "./types";
 
 export class WriteInputError extends Error {}
@@ -414,4 +416,84 @@ export async function recordCashOut(input: CashOutInput, now: Date, deps: WriteD
     }
   }
   return { summary: `Recorded. ${lines[0]}`, data: { ticket_id: corrections[0].bet_id } };
+}
+
+export interface SheetDeps {
+  pools: StoredPool[];
+  finals: FinalGame[];
+  savePools: (pools: StoredPool[]) => Promise<void>;
+  /** The planner's answer after saving, so the new odds come back in the same reply. */
+  afterSave?: () => Promise<string>;
+}
+
+/**
+ * The pool's weekly sheet, recorded as each stored entry's state (survivor-sheet.ts).
+ * Every stored entry must be named by exactly one row -- the owner's and his Ma's -- so a
+ * sheet is never half applied. Names never arrive here; only picks do.
+ */
+export async function updateSurvivorSheet(
+  input: { rows: SheetRowInput[]; confirm?: boolean; preview_id?: string },
+  deps: SheetDeps,
+): Promise<WriteAnswer> {
+  if (!Array.isArray(input.rows) || input.rows.length < 2 || input.rows.length > 300) {
+    throw new WriteInputError("Send every row on the sheet (2 to 300 of them).");
+  }
+  const pools = deps.pools;
+  const named = pools.filter((p) => p.name && p.name.trim());
+  if (named.length === 0) throw new WriteInputError("No named survivor entries are stored to update.");
+  const lossesAllowed = Math.max(...named.map((p) => p.lossesAllowed ?? 0));
+  const sheet = readSheet(input.rows, deps.finals, lossesAllowed);
+  if (sheet.unreadable.length) {
+    throw new WriteInputError(`These could not be read as NFL teams: ${sheet.unreadable.slice(0, 8).join("; ")}. Send the full team name for each.`);
+  }
+  const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const marked = sheet.rows.filter((r) => r.who);
+  for (const pool of named) {
+    const n = marked.filter((r) => r.who === slug(pool.name!)).length;
+    if (n !== 1) {
+      throw new WriteInputError(
+        n === 0
+          ? `Mark which row is "${pool.name}" (who: "${slug(pool.name!)}"). Ask the user if you are not sure.`
+          : `More than one row is marked "${pool.name}".`,
+      );
+    }
+  }
+  const unknown = marked.find((r) => !named.some((p) => slug(p.name!) === r.who));
+  if (unknown) throw new WriteInputError(`No stored entry is called "${unknown.who}". Entries: ${named.map((p) => p.name).join(", ")}.`);
+
+  const updates = new Map(named.map((p) => [p.name!, entryUpdate(sheet, p.name!)!]));
+  const alive = sheet.field.reduce((a, b) => a + b, 0);
+  const pending = sheet.rows.filter((r) => r.alive && r.picks.has(sheet.week) && r.pending > 0).length;
+  const last = sheet.weeks[sheet.weeks.length - 1];
+  const fieldText = sheet.field.map((n, k) => `${n} on ${k} loss${k === 1 ? "" : "es"}`).join(", ");
+  const entryText = named
+    .map((p) => {
+      const row = sheet.rows.find((r) => r.who === slug(p.name!))!;
+      const pick = row.picks.get(sheet.week);
+      return `${p.name}: ${row.losses} loss${row.losses === 1 ? "" : "es"}${row.alive ? "" : " (OUT)"}, week ${sheet.week} ${pick ?? "no pick"}${row.pending ? " (not final)" : ""}`;
+    })
+    .join("; ");
+  const lines = [
+    `Sheet through week ${sheet.week}: ${sheet.rows.length} entrants, ${alive} alive (${fieldText}).`,
+    pending ? `${pending} week-${sheet.week} picks are on games not final yet, so they count as no loss for now.` : "",
+    `${entryText}.`,
+    last ? `Week ${last.week}: ${last.count} of ${last.picks} on ${last.team}.` : "",
+  ].filter(Boolean);
+
+  const id = fingerprint({ kind: "survivor_sheet", updates: [...updates.entries()] });
+  if (!input.confirm) {
+    return {
+      summary: `PREVIEW, nothing saved. ${lines.join(" ")} Show this to the user; only after they say yes, call update_survivor_sheet again with the same rows plus confirm: true and this preview_id.`,
+      data: { preview_id: id },
+    };
+  }
+  if (input.preview_id !== id) throw new WriteInputError("This doesn't match a preview of this sheet. Preview it again and show the user.");
+
+  const next = pools.map((p) => {
+    const u = p.name ? updates.get(p.name) : undefined;
+    return u ? { ...p, ...u, size: Math.max(1, alive) } : p;
+  });
+  await deps.savePools(next);
+  const odds = deps.afterSave ? await deps.afterSave().catch(() => "") : "";
+  return { summary: `Saved. ${lines[0]} ${odds}`.trim(), data: { week: sheet.week, alive } };
 }

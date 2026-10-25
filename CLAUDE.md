@@ -896,6 +896,24 @@ chosen over Clerk/WorkOS so there is one front door, not two:
   detail goes to the server log.
 - Settings has the address to paste and **Disconnect Claude** (revokes every token).
 
+**The survivor sheet from a phone** (`update_survivor_sheet`, `lib/survivor-sheet.ts`,
+2026-10-25). Claude in chat reads the pool's spreadsheet and sends every row's picks by
+week, as written on the sheet. It sends no names, and marks the owner's row `who: "me"` and
+his Ma's `who: "ma"`.
+- `teamFromSheet` reads the sheet's spellings ("Minn", "Da Bears", "NYJets", Kalshi codes,
+  cities and nicknames when unique). It never guesses "New York" or "LA".
+- Losses come from `game_results` by NFL week (`nflWeek` from the opener), and a tie counts
+  as a loss (the pool's rule). Picks on games not final yet count as no loss. A row's stated
+  `losses`, when the sheet gives them, wins.
+- From that it writes each named entry's `field`, `myLosses`, `used`, `entered`, `size` and
+  `rivals` (everyone alive but itself, grouped).
+- `crowd` is `CROWD_PRIOR` (20/44 from the old pools) plus the pool's own weekly top/picks.
+- Every stored named entry must be marked by exactly one row, or nothing is written.
+- It uses the same `dissent:log` scope and preview/confirm flow as the bet tools, and the
+  saved reply carries `get_survivor`'s new odds.
+- It replaces the hand-run `set-pool-field` dispatch for this pool. The workflow stays for
+  anything the tool can't express.
+
 **The writers.** Every write is two calls: `confirm` false returns a PREVIEW in plain words
 and a `preview_id` (a SHA-256 of the exact inputs); only `confirm: true` with that same id
 saves, so what is saved is what was shown. They need the `dissent:log` scope, granted only
