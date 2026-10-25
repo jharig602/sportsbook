@@ -30,7 +30,7 @@ on:
         required: false
         default: ""
       used:
-        description: 'Each entry\'s full list of spent teams: {"me": ["Houston Texans"], "ma": ["Minnesota Vikings"]}'
+        description: 'Each entry''s full list of spent teams, JSON keyed by name: {"me": ["Team"], "ma": ["Team"]}'
         required: false
         default: ""
       dry_run:
