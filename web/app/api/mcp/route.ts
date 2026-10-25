@@ -3,7 +3,7 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
 
 import { LOG_SCOPE, SCOPE } from "@/lib/oauth";
-import { logBet, recordCashOut, updateSurvivorSheet, WriteInputError } from "@/lib/mcp-write";
+import { editBet, logBet, recordCashOut, updateSurvivorSheet, WriteInputError } from "@/lib/mcp-write";
 import { callsSince, logCall, verifyAccess } from "@/lib/oauth-db";
 import {
   findBonusBetSpots,
@@ -36,7 +36,7 @@ const PER_MINUTE = 30;
 const PER_DAY = 1000;
 /** Writes are rarer than reads by nature; a day of them past this is something wrong. */
 const WRITES_PER_DAY = 100;
-const WRITE_TOOLS = new Set(["log_bet", "record_cash_out", "update_survivor_sheet"]);
+const WRITE_TOOLS = new Set(["log_bet", "record_cash_out", "edit_bet", "update_survivor_sheet"]);
 
 type Ctx = { http?: { authInfo?: AuthInfo } };
 
@@ -296,6 +296,32 @@ const handler = createMcpHandler(
     );
 
     server.registerTool(
+      "edit_bet",
+      {
+        title: "Fix or remove a logged bet",
+        description:
+          "Correct a ticket already in the user's ledger -- the book, stake, price (for a parlay, the combined price), bonus flag or time placed -- " +
+          "or remove it entirely (remove: true). Works on singles and parlays. Use when the user says a logged bet is wrong or shouldn't be there. " +
+          "Get ticket_id from get_open_bets (status settled for finished tickets). A wrong leg (team, line, player) is fixed by removing the ticket and logging it again with log_bet. " +
+          "Two calls like log_bet: preview first, then confirm: true with the preview_id only after the user says yes.",
+        inputSchema: z.object({
+          ticket_id: z.string().describe("From get_open_bets."),
+          book: z.string().optional(),
+          stake: z.number().positive().optional(),
+          price: z.number().optional().describe("American odds; for a parlay, the combined price."),
+          bonus_bet: z.boolean().optional(),
+          placed_at: z.string().optional().describe("ISO time it was actually placed."),
+          note: z.string().optional(),
+          remove: z.boolean().optional().describe("True removes the ticket from the record."),
+          confirm: z.boolean().optional(),
+          preview_id: z.string().optional(),
+        }),
+        annotations: { ...WRITES, destructiveHint: true },
+      },
+      async (args, ctx) => run("edit_bet", args, ctx, async () => editBet(args, new Date(), await loadWriteDeps())),
+    );
+
+    server.registerTool(
       "update_survivor_sheet",
       {
         title: "Update the survivor pool from its sheet",
@@ -343,7 +369,7 @@ const handler = createMcpHandler(
   {
     serverInfo: { name: "dissent", version: "1.0.0" },
     instructions:
-      "Dissent is the user's personal NFL and college football betting app. Every tool reads, except log_bet, record_cash_out and " +
+      "Dissent is the user's personal NFL and college football betting app. Every tool reads, except log_bet, record_cash_out, edit_bet and " +
       "update_survivor_sheet, which record what the user already did, always previewing first and saving only after the user says yes. " +
       "Prices carry as_of and stale flags: when stale is true, say so and tell the user to confirm the line at the book before betting. " +
       "Expected values are estimates from other books' consensus and a fitted model, not guarantees.",

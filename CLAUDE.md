@@ -867,8 +867,11 @@ read-only tools -- `get_shop`, `find_boost_spots`, `find_bonus_bet_spots`, `get_
 `get_open_bets`, `get_record`, `get_promos`, `get_survivor` (`lib/mcp-tools.ts`) -- and,
 since 2026-10-25 at the owner's request, two writers (`lib/mcp-write.ts`): `log_bet`
 (singles, parlays, SGPs with props, bonus and boosted bets; `promo_id` marks the token used
-via `recordUse`) and `record_cash_out` (a correction row per leg, as the app writes it; a
-parlay's legs in one `saveParlay`, prop results carried to the new rows). **Each calls what the page calls** -- `buildBoardShop`,
+via `recordUse`), `record_cash_out` (a correction row per leg, as the app writes it; a
+parlay's legs in one `saveParlay`, prop results carried to the new rows) and `edit_bet`
+(book, stake, price, bonus flag or time placed, or `remove` as a void tombstone, every leg
+at once -- the only way to fix a parlay, which the Bets page cannot correct). A wrong LEG is
+fixed by removing the ticket and logging it again, never by rewriting the leg in place. **Each calls what the page calls** -- `buildBoardShop`,
 `findBoosts`, `ledgerView` (moved out of the Bets page for this), the survivor planner via
 `survivor-view.ts` (moved out of the Survivor page) -- so chat and screen cannot disagree.
 Answers are a short summary plus compact JSON, top 10; every price has `as_of` and `stale`

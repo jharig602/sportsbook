@@ -16,7 +16,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 
-import { parseParlay, parseSingle, PROP_STATS } from "./bet-input";
+import { parseParlay, parseSingle, PROP_STATS, readPlacedAt } from "./bet-input";
 import type { BookLineRow } from "./book-lines";
 import { american, money, round } from "./mcp-format";
 import { fairChance } from "./open-summary";
@@ -496,4 +496,110 @@ export async function updateSurvivorSheet(
   await deps.savePools(next);
   const odds = deps.afterSave ? await deps.afterSave().catch(() => "") : "";
   return { summary: `Saved. ${lines[0]} ${odds}`.trim(), data: { week: sheet.week, alive } };
+}
+
+export interface EditInput {
+  ticket_id: string;
+  book?: string;
+  stake?: number;
+  price?: number;
+  bonus_bet?: boolean;
+  placed_at?: string;
+  note?: string;
+  remove?: boolean;
+  confirm?: boolean;
+  preview_id?: string;
+}
+
+/**
+ * Fix or remove a ticket already in the ledger: the wrong book, stake, price or bonus flag,
+ * or a ticket that should not be there at all. Written exactly as the app writes a
+ * correction -- new rows superseding the old ones, which stay -- and for a parlay every leg
+ * at once, in one transaction. A leg that is wrong (team, line, player) is fixed by
+ * removing the ticket and logging it again: re-describing a leg in place is how a ticket
+ * ends up graded against a game it was never on.
+ */
+export async function editBet(input: EditInput, now: Date, deps: WriteDeps): Promise<WriteAnswer> {
+  const newId = deps.newId ?? randomUUID;
+  const active = activeBets(deps.bets);
+  const row = active.find((b) => b.bet_id === input.ticket_id);
+  if (!row) throw new WriteInputError("No ticket with that ticket_id; get it from get_open_bets (status settled for finished ones).");
+  const legs = row.parlay_id ? active.filter((b) => b.parlay_id === row.parlay_id) : [row];
+  const parlay = legs.length > 1;
+
+  const changes: string[] = [];
+  const book = input.book !== undefined ? String(input.book).trim().slice(0, 40) : undefined;
+  if (book !== undefined) {
+    if (!book) throw new WriteInputError("The book can't be blank.");
+    if (book !== row.book) changes.push(`book ${row.book} → ${book}`);
+  }
+  if (input.stake !== undefined) {
+    if (!(Number.isFinite(input.stake) && input.stake > 0)) throw new WriteInputError("Stake must be more than zero.");
+    if (input.stake !== row.stake) changes.push(`stake ${money(row.stake)} → ${money(input.stake)}`);
+  }
+  const oldPrice = parlay ? (row.parlay_price ?? null) : row.price;
+  if (input.price !== undefined) {
+    if (!(Number.isFinite(input.price) && Math.abs(input.price) >= 100)) throw new WriteInputError("Price must be American odds of at least +100 or -100.");
+    if (input.price !== oldPrice) changes.push(`${parlay ? "parlay price" : "price"} ${american(oldPrice)} → ${american(input.price)}`);
+  }
+  if (input.bonus_bet !== undefined && input.bonus_bet !== (row.bonus === true)) {
+    changes.push(input.bonus_bet ? "now a bonus bet" : "no longer a bonus bet");
+  }
+  let placedAt: string | undefined;
+  if (input.placed_at !== undefined) {
+    const problems: string[] = [];
+    placedAt = readPlacedAt(input.placed_at, now, problems);
+    if (problems.length) throw new WriteInputError(problems.join(" "));
+    changes.push(`placed ${placedAt}`);
+  }
+  if (!input.remove && changes.length === 0) throw new WriteInputError("Nothing to change: give a new book, stake, price, bonus_bet or placed_at, or remove: true.");
+
+  const label = parlay ? `${legs.length}-leg parlay (${legs.map(legName).join(" + ")})` : legName(row);
+  const what = `${row.book} ${label}, ${money(row.stake)} at ${american(oldPrice)}`;
+  const line = input.remove
+    ? `Remove ${what} from the record. It stays in the history as removed and stops counting.`
+    : `Correct ${what}: ${changes.join(", ")}.`;
+  const id = fingerprint({ kind: "edit", ticket: row.bet_id, remove: input.remove === true, book, stake: input.stake, price: input.price, bonus: input.bonus_bet, placedAt: input.placed_at ?? null });
+  if (!input.confirm) {
+    return {
+      summary: `PREVIEW, nothing saved. ${line} Show this to the user; only after they say yes, call edit_bet again with the same inputs plus confirm: true and this preview_id.`,
+      data: { preview_id: id },
+    };
+  }
+  if (input.preview_id !== id) throw new WriteInputError("This doesn't match a preview of this change. Preview it again and show the user.");
+
+  const note = input.note ? String(input.note).slice(0, 200) : input.remove ? "Removed" : "Corrected";
+  const corrections: Bet[] = legs.map((leg) => {
+    const copy: Bet = { ...leg };
+    delete copy.prop_result;
+    return {
+      ...copy,
+      bet_id: newId(),
+      supersedes: leg.bet_id,
+      voided: input.remove === true,
+      note,
+      ...(input.remove
+        ? {}
+        : {
+            ...(book !== undefined ? { book } : {}),
+            ...(input.stake !== undefined ? { stake: input.stake } : {}),
+            ...(input.price !== undefined ? (parlay ? { parlay_price: input.price } : { price: input.price }) : {}),
+            ...(input.bonus_bet !== undefined ? { bonus: input.bonus_bet } : {}),
+            ...(placedAt !== undefined ? { placed_at: placedAt } : {}),
+          }),
+    };
+  });
+  if (corrections.length === 1) await deps.saveBet(corrections[0]);
+  else await deps.saveParlay(corrections);
+  if (!input.remove) {
+    for (const [i, leg] of legs.entries()) {
+      if (leg.market === "prop" && leg.prop_result) {
+        await deps.recordLegResult(corrections[i].bet_id, leg.prop_result).catch(() => undefined);
+      }
+    }
+  }
+  return {
+    summary: input.remove ? `Removed. ${what}.` : `Corrected. ${what}: ${changes.join(", ")}.`,
+    data: { ticket_id: input.remove ? null : corrections[0].bet_id },
+  };
 }

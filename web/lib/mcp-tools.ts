@@ -593,6 +593,7 @@ export async function getOpenBets(input: { status?: "open" | "settled"; limit?: 
       .sort((a, b) => Date.parse(b.commence_time ?? b.placed_at) - Date.parse(a.commence_time ?? a.placed_at))
       .slice(0, limit)
       .map((r) => ({
+        ticket_id: r.bet_id,
         bet: ticketLabel(r, r.parlay_id ? parlayLegs.get(r.parlay_id) : undefined),
         game: `${r.away_team} @ ${r.home_team}`,
         book: r.book,

@@ -200,3 +200,43 @@ test("a parlay is cashed out as one ticket, every leg in one write, prop results
   assert.equal(saved[0][1].prop_result, undefined);
   assert.deepEqual(results, [[saved[0][1].bet_id, "won"]]);
 });
+
+test("edit_bet fixes a parlay's book on every leg at once, after a preview", async () => {
+  const { editBet } = await import("./mcp-write.ts");
+  const legs = [
+    leg("a", { parlay_id: "P", parlay_price: 195, price: null }),
+    leg("b", { parlay_id: "P", parlay_price: 195, price: null, market: "prop", side: "over", line: 0.5, prop_player: "Jahmyr Gibbs", prop_stat: "anytime_td", prop_result: "won" }),
+  ];
+  const { d, saved, results } = deps(legs);
+  const p = await editBet({ ticket_id: "a", book: "BetRivers" }, NOW, d);
+  assert.match(p.summary, /^PREVIEW.*Correct FanDuel 2-leg parlay .*: book FanDuel → BetRivers\./);
+  assert.equal(saved.length, 0);
+  await assert.rejects(editBet({ ticket_id: "a", book: "BetRivers", confirm: true }, NOW, d), /doesn't match a preview/);
+  await editBet({ ticket_id: "a", book: "BetRivers", confirm: true, preview_id: p.data.preview_id as string }, NOW, d);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].length, 2);
+  assert.ok(saved[0].every((r) => r.book === "BetRivers" && r.parlay_id === "P" && r.parlay_price === 195 && r.voided === false));
+  assert.deepEqual(saved[0].map((r) => r.supersedes), ["a", "b"]);
+  assert.deepEqual(results, [[saved[0][1].bet_id, "won"]]);
+});
+
+test("edit_bet changes a single's price and stake, removes a ticket, and refuses no-ops", async () => {
+  const { editBet } = await import("./mcp-write.ts");
+  const { d, saved } = deps([leg("t1")]);
+  const p = await editBet({ ticket_id: "t1", price: -135, stake: 20 }, NOW, d);
+  assert.match(p.summary, /stake \$25\.00 → \$20\.00, price -140 → -135/);
+  await editBet({ ticket_id: "t1", price: -135, stake: 20, confirm: true, preview_id: p.data.preview_id as string }, NOW, d);
+  assert.equal(saved[0][0].price, -135);
+  assert.equal(saved[0][0].stake, 20);
+  assert.equal(saved[0][0].supersedes, "t1");
+
+  const r = await editBet({ ticket_id: "t1", remove: true }, NOW, d);
+  assert.match(r.summary, /Remove FanDuel Detroit Lions ML/);
+  await editBet({ ticket_id: "t1", remove: true, confirm: true, preview_id: r.data.preview_id as string }, NOW, d);
+  assert.equal(saved[1][0].voided, true);
+  assert.equal(saved[1][0].supersedes, "t1");
+
+  await assert.rejects(editBet({ ticket_id: "t1", book: "FanDuel" }, NOW, d), /Nothing to change/);
+  await assert.rejects(editBet({ ticket_id: "t1", price: 50 }, NOW, d), /American odds/);
+  await assert.rejects(editBet({ ticket_id: "zzz", remove: true }, NOW, d), /No ticket/);
+});
