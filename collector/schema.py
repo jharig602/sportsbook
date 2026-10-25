@@ -11,7 +11,7 @@ run the same statements.
 """
 from __future__ import annotations
 
-ANALYTICS_SCHEMA_VERSION = 27
+ANALYTICS_SCHEMA_VERSION = 28
 
 ANALYTICS_DDL = """
 CREATE TABLE IF NOT EXISTS analytics_meta (version INTEGER PRIMARY KEY);
@@ -764,7 +764,8 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
     redirect_uri VARCHAR NOT NULL,
     code_challenge VARCHAR NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
-    used BOOLEAN NOT NULL
+    used BOOLEAN NOT NULL,
+    scope VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS oauth_tokens (
@@ -775,6 +776,10 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     created_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     revoked BOOLEAN NOT NULL,
+    -- v28: what the owner approved, space-separated ("dissent:read dissent:log"). Null on
+    -- tokens issued before v28, which read as "dissent:read" only: a token approved as
+    -- read-only never gains the right to write.
+    scope VARCHAR,
     CHECK (kind IN ('access', 'refresh'))
 );
 
@@ -893,6 +898,10 @@ ANALYTICS_MIGRATIONS = [
     # which is right: none of them was a prop.
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS prop_player VARCHAR",
     "ALTER TABLE bets ADD COLUMN IF NOT EXISTS prop_stat VARCHAR",
+    # v28: the connector's approved scope, so a read-only approval stays read-only when
+    # the write tools (log a bet, record a cash-out) arrive.
+    "ALTER TABLE oauth_codes ADD COLUMN IF NOT EXISTS scope VARCHAR",
+    "ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS scope VARCHAR",
 ]
 
 
