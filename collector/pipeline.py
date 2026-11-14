@@ -132,7 +132,14 @@ def store_alerts(database: Database, alerts: Sequence[Alert]) -> int:
     if not alerts:
         return 0
     known = {row[0] for row in database.fetchall("SELECT alert_id FROM alerts")}
-    fresh = [a for a in alerts if a.alert_id not in known]
+    # Repeats WITHIN this batch too, not only against what is stored: one move detected
+    # twice in a single pass is one alert by the id's own definition, and inserting both
+    # copies failed every collect run from 2026-11-01 to 11-14 on the primary key.
+    fresh = []
+    for alert in alerts:
+        if alert.alert_id not in known:
+            known.add(alert.alert_id)
+            fresh.append(alert)
     if not fresh:
         return 0
     database.executemany(

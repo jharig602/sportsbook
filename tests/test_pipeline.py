@@ -360,3 +360,16 @@ def test_the_run_reports_shop_picks_alongside_alerts(database):
     assert "shop_grades_written" in summary
     assert "shop_picks_awaiting_results" in summary
     assert summary["shop_picks_awaiting_results"] == 1
+
+
+def test_the_same_alert_twice_in_one_batch_is_stored_once(database):
+    # 2026-11-01 to 11-14: one line move was detected twice in a single pass, the batch
+    # inserted both copies, the primary key refused the second, and every collect run
+    # failed there -- skipping every push and survivor step after it for two weeks.
+    moving_spread(database, [(72, 3.0), (48, 1.0)])
+    alerts = pl.detect_all(pl.load_observations(database, None), pl.DEFAULT_CONFIG)
+    assert alerts, "the fixture must produce an alert"
+    stored = pl.store_alerts(database, [*alerts, alerts[0]])
+    assert stored == len({a.alert_id for a in alerts})
+    assert database.fetchall("SELECT COUNT(*) FROM alerts")[0][0] == stored
+
