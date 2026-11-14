@@ -418,10 +418,11 @@ export default async function BetsPage({
   //
   // The cap was a dropdown's limit, and on a college Saturday eighty upcoming games is
   // not all of them: the one you bet could simply be missing with nothing to say so.
-  // Search makes the length free. Games that kicked off in the last two days are kept
+  // Search makes the length free. Games that kicked off in the last three weeks are kept
   // too, after the upcoming ones, because a bet is often written down after it is
-  // struck -- and a form that only offers future games makes those unloggable.
-  const RECENT_MS = 48 * 60 * 60 * 1000;
+  // struck -- and a form that only offers future games makes those unloggable. It was two
+  // days until 2026-11-14, when a ticket logged wrong could not be entered again.
+  const RECENT_MS = 21 * 24 * 60 * 60 * 1000;
   const now = Date.now();
   const kickoff = (g: { commenceTime: string }) => new Date(g.commenceTime).getTime();
   const upcoming = games.filter((g) => kickoff(g) > now).sort((a, b) => kickoff(a) - kickoff(b));

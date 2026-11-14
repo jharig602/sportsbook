@@ -240,3 +240,18 @@ test("edit_bet changes a single's price and stake, removes a ticket, and refuses
   await assert.rejects(editBet({ ticket_id: "t1", price: 50 }, NOW, d), /American odds/);
   await assert.rejects(editBet({ ticket_id: "zzz", remove: true }, NOW, d), /No ticket/);
 });
+
+test("an older bet finds its game by when it was placed, or is shown the team's earlier games", () => {
+  // "old" is a Packers @ Lions game from September; today's window only holds g1.
+  assert.equal(resolveGame(GAMES, "Packers", NOW, "2026-09-09T22:00:00Z").eventId, "old");
+  const refused = (() => {
+    try {
+      resolveGame([GAMES[2]], "Lions", NOW);
+      return "";
+    } catch (error) {
+      return (error as Error).message;
+    }
+  })();
+  assert.match(refused, /No "Lions" game near today\. Earlier ones: Green Bay Packers @ Detroit Lions .*Sep.*\(game_id old\)/);
+  assert.match(refused, /use that game's game_id and pass placed_at/);
+});

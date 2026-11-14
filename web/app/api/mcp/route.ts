@@ -264,7 +264,10 @@ const handler = createMcpHandler(
           legs: z.array(leg).min(1).max(12).describe("One leg for a single; two or more for a parlay."),
           bonus_bet: z.boolean().optional().describe("True when the stake was a bonus bet / site credit."),
           promo_id: z.string().optional().describe("The promo token used on this bet, from get_promos."),
-          placed_at: z.string().optional().describe("When it was placed (ISO time), if not just now."),
+          placed_at: z
+            .string()
+            .optional()
+            .describe("When it was placed (ISO time), if not just now. Required for a bet on an older game: games are matched near this date, and a refusal lists the team's earlier games with their game_id."),
           note: z.string().optional(),
           confirm: z.boolean().optional().describe("False (default) previews; true saves -- only after the user says yes."),
           preview_id: z.string().optional().describe("Required with confirm: the id from the preview."),

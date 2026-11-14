@@ -71,26 +71,44 @@ function namesTeam(query: string, team: string | null): boolean {
 
 const when = (iso: string | null) =>
   iso
-    ? new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }) + " ET"
+    ? new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET"
     : "time unknown";
 
 /**
- * The game a leg means: an exact game_id, or a team named in a game from three days ago
- * to two weeks out (the board holds the whole season, and last month's Lions game is not
- * the one being logged). Refuses rather than guesses when two games fit.
+ * The game a leg means: an exact game_id, or a team named in a game near the bet. Near
+ * means from three days before to two weeks after the time it was placed -- now, unless an
+ * older bet gives `placedAt` -- because the board holds the whole season, and last month's
+ * Lions game is not the one being logged. Refuses rather than guesses when two games fit,
+ * and when none does it lists the team's recent games, so an older bet can name its game
+ * instead of being refused with nothing to go on (owner, 2026-11-14).
  */
-export function resolveGame(games: Game[], query: string, now: Date): Game {
+export function resolveGame(games: Game[], query: string, now: Date, placedAt?: string | null): Game {
   const exact = games.find((g) => g.eventId === query.trim());
   if (exact) return exact;
-  const from = now.getTime() - 3 * 86_400_000;
-  const to = now.getTime() + 14 * 86_400_000;
+  const placed = placedAt ? Date.parse(placedAt) : Number.NaN;
+  const anchor = Number.isFinite(placed) ? placed : now.getTime();
+  const from = anchor - 3 * 86_400_000;
+  const to = anchor + 14 * 86_400_000;
+  const named = (g: Game) => namesTeam(query, g.homeTeam) || namesTeam(query, g.awayTeam);
   const fits = games
     .filter((g) => {
       const at = Date.parse(g.commenceTime);
-      return at >= from && at <= to && (namesTeam(query, g.homeTeam) || namesTeam(query, g.awayTeam));
+      return at >= from && at <= to && named(g);
     })
     .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  if (fits.length === 0) throw new WriteInputError(`No game in the last 3 days or next 2 weeks matches "${query}".`);
+  if (fits.length === 0) {
+    const earlier = games
+      .filter((g) => named(g) && Date.parse(g.commenceTime) < from && Date.parse(g.commenceTime) > now.getTime() - 180 * 86_400_000)
+      .sort((a, b) => Date.parse(b.commenceTime) - Date.parse(a.commenceTime))
+      .slice(0, 6)
+      .map((g) => `${g.awayTeam} @ ${g.homeTeam} ${when(g.commenceTime)} (game_id ${g.eventId})`);
+    throw new WriteInputError(
+      earlier.length
+        ? `No "${query}" game near ${Number.isFinite(placed) ? "that date" : "today"}. Earlier ones: ${earlier.join("; ")}. ` +
+          "For an older bet, use that game's game_id and pass placed_at."
+        : `No game matches "${query}".`,
+    );
+  }
   if (fits.length > 1) {
     const list = fits.slice(0, 5).map((g) => `${g.awayTeam} @ ${g.homeTeam} ${when(g.commenceTime)} (game_id ${g.eventId})`);
     throw new WriteInputError(`"${query}" fits ${fits.length} games: ${list.join("; ")}. Use the full team name or the game_id.`);
@@ -205,7 +223,7 @@ export async function logBet(input: LogBetInput, now: Date, deps: WriteDeps): Pr
     if (leg.market === "prop" && (!leg.stat || !PROP_STATS.has(leg.stat))) {
       throw new WriteInputError(`${at}: a prop's stat is one of ${[...PROP_STATS].join(", ")}.`);
     }
-    const game = resolveGame(deps.games, leg.game, now);
+    const game = resolveGame(deps.games, leg.game, now, input.placed_at);
     const { side, team } = sideFor(leg, game, at);
     const anytime = leg.market === "prop" && (leg.stat === "anytime_td" || leg.stat === "first_td");
     return {
