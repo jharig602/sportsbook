@@ -83,7 +83,9 @@ export async function POST(request: Request) {
     });
 
     if (dry || subscriptions.length === 0) {
-      return NextResponse.json({ sent: 0, dry, pick: candidate, subscribers: subscriptions.length });
+      // Counts only: this response is printed in the public Actions log, and the pick
+      // (teams, book, price) went there in full until 2026-11-14.
+      return NextResponse.json({ sent: 0, dry, picked: true, subscribers: subscriptions.length });
     }
 
     const webpush = (await import("web-push")).default;
@@ -108,7 +110,7 @@ export async function POST(request: Request) {
 
     // Stamped only once a device actually took it; a failed send must not burn the day.
     if (sent > 0 && !forced && due !== null) await recordDailySent(due);
-    return NextResponse.json({ sent, date: due, pick: candidate });
+    return NextResponse.json({ sent, date: due, picked: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return new NextResponse(`Daily dispatch failed: ${message}`, { status: 500 });

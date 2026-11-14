@@ -277,6 +277,7 @@ export async function findBoostSpots(input: BoostInput, now = new Date(), deps: 
     favourites: s.favourites,
     maxSpread: DEFAULT_MAX_SPREAD,
     tax,
+    now,
   });
   const eligible = found.checked.filter(
     (p) => f.keep(p) && meetsMinOdds(p.price, input.min_odds) && (!input.bet_types?.length || input.bet_types.includes(p.market)),
@@ -362,6 +363,7 @@ export async function findBonusBetSpots(input: BonusInput, now = new Date(), dep
     maxSpread: DEFAULT_MAX_SPREAD,
     tax: s.tax,
     bonus: true,
+    now,
   });
   const eligible = found.checked.filter((p) => f.keep(p) && meetsMinOdds(p.price, input.min_odds) && !skip.has(p.eventId));
   const skipped = found.checked.filter((p) => skip.has(p.eventId)).length;

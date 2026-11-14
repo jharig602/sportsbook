@@ -137,7 +137,9 @@ export async function POST(request: Request) {
     // silently and the next tick would think it had already gone.
     if (sent > 0 && !forced) await recordSurvivorSent(week, window, picks);
 
-    return NextResponse.json({ sent, week, window, picks });
+    // Counts only: this response lands in the public Actions log, and the picks are
+    // strategy. Until 2026-11-14 it printed every entry's team here.
+    return NextResponse.json({ sent, week, window, entries: picks.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return new NextResponse(`Survivor dispatch failed: ${message}`, { status: 500 });
