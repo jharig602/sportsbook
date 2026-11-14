@@ -119,6 +119,15 @@ keeps API keys out of `raw_responses.url`. Secrets live in `PRODUCTION-SECRETS.t
   three days later. Both failed with no code change behind them, which points at the
   wrong thing. **Any function that takes `now` gets it passed explicitly in tests**, and
   fixture dates are relative or paired with that `now`.
+- **A duplicate inside one batch stopped collect for two weeks** (2026-11-01 to 11-14).
+  `store_alerts` skipped ids already stored but not repeats within the batch, one move
+  was detected twice in a pass, and the primary key failed every run -- skipping every
+  step after detection (survivor popularity, shop picks, every push, the prune). Dedupe
+  by id inside the batch too. A red collect is never "just alerts": check what it skipped.
+- **Dispatcher responses printed picks into the public log.** Bet of the day returned the
+  whole pick and the survivor reminder both entries' teams until 2026-11-14. Every
+  dispatcher returns counts only; `dry` previews are the one exception and collect never
+  sends `dry`.
 - **Gating a commit on a pipeline's exit status.** Twice: once a red test run was pushed
   because the chain's exit was read instead of the suite's, and once `tsc | grep` inside
   `$(...)` printed "tsc exit 0" directly above a listed type error, pushed it, and broke
